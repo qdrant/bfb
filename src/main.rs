@@ -1,12 +1,13 @@
 use std::time::Duration;
 use clap::Parser;
-use futures::future::try_join_all;
 use qdrant_client::client::{Payload, QdrantClient, QdrantClientConfig};
 use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus};
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
 use anyhow::Result;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rand::Rng;
 
@@ -32,6 +33,10 @@ struct Args {
 
     #[clap(short, long, default_value_t = 2)]
     threads: usize,
+
+    /// Number of parallel requests to send
+    #[clap(short, long, default_value_t = 2)]
+    parallel: usize,
 
     #[clap(short, long, default_value_t = 100)]
     batch_size: usize,
@@ -108,13 +113,14 @@ async fn run_benchmark(args: Args) -> Result<()> {
     let recv_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
 
     let progress_style = ProgressStyle::default_bar()
-        .template("{msg} [{elapsed_precise}] {wide_bar} {pos}/{len} (eta:{eta})")
+        .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
         .expect("Failed to create progress style");
     sent_bar.set_style(progress_style.clone());
     recv_bar.set_style(progress_style);
 
     let mut n = 0;
-    let mut futures = Vec::new();
+    let mut futures = FuturesUnordered::new();
+    // let mut futures = Vec::new();
     let mut rng = rand::thread_rng();
 
     while n < args.num_vectors {
@@ -131,20 +137,28 @@ async fn run_benchmark(args: Args) -> Result<()> {
             ));
             n += 1;
         }
+
         futures.push(async {
-            sent_bar.inc(1);
+            let batch_size = points.len() as u64;
+            sent_bar.inc(batch_size);
             let res = client.upsert_points(&args.collection_name, points).await?;
             if res.time > args.timing_threshold {
                 println!("Slow upsert: {:?}", res.time);
             }
-            recv_bar.inc(1);
+            recv_bar.inc(batch_size);
             Ok(())
         });
+
+        if futures.len() > args.parallel {
+            let res: Result<_> = futures.next().await.unwrap();
+            res?;
+        }
     }
 
-    let res: Result<Vec<_>> = try_join_all(futures).await;
+    while let Some(result) = futures.next().await {
+        result?;
+    }
 
-    res.unwrap();
     sent_bar.finish();
     recv_bar.finish();
 
