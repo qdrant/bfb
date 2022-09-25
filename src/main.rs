@@ -42,6 +42,13 @@ struct Args {
 
     #[clap(long, default_value = "benchmark")]
     collection_name: String,
+
+    #[clap(long, default_value = "Cosine")]
+    distance: String,
+
+    /// Log requests if the take longer than this
+    #[clap(long, default_value_t = 0.1)]
+    timing_threshold: f64,
 }
 
 fn random_vector(dim: usize) -> Vec<f32> {
@@ -81,7 +88,12 @@ async fn run_benchmark(args: Args) -> Result<()> {
                     Config::Params(
                         VectorParams {
                             size: args.dim as u64,
-                            distance: Distance::Cosine.into(),
+                            distance: match args.distance.as_str() {
+                                "Cosine" => Distance::Cosine.into(),
+                                "Dot" => Distance::Dot.into(),
+                                "Euclid" => Distance::Euclid.into(),
+                                _ => { panic!("Unknown distance {}", args.distance) }
+                            },
                         }
                     )
                 )
@@ -122,7 +134,7 @@ async fn run_benchmark(args: Args) -> Result<()> {
         futures.push(async {
             sent_bar.inc(1);
             let res = client.upsert_points(&args.collection_name, points).await?;
-            if res.time > 0.1 {
+            if res.time > args.timing_threshold {
                 println!("Slow upsert: {:?}", res.time);
             }
             recv_bar.inc(1);
