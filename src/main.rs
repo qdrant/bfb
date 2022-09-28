@@ -63,10 +63,13 @@ fn random_vector(dim: usize) -> Vec<f32> {
     (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect()
 }
 
-async fn wait_index(client: &QdrantClient, args: Args) -> Result<f64> {
+async fn wait_index(client: &QdrantClient, args: Args, stopped: Arc<AtomicBool>) -> Result<f64> {
     let start = std::time::Instant::now();
     let mut seen = 0;
     loop {
+        if stopped.load(Ordering::Relaxed) {
+            return Ok(0.0)
+        }
         sleep(Duration::from_secs(1)).await;
         let info = client.collection_info(&args.collection_name).await?;
         if info.result.unwrap().status == CollectionStatus::Green as i32 {
@@ -81,19 +84,22 @@ async fn wait_index(client: &QdrantClient, args: Args) -> Result<f64> {
     Ok(start.elapsed().as_secs_f64())
 }
 
-async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+fn get_config(args: &Args) -> QdrantClientConfig {
     let mut config = QdrantClientConfig::from_url(&args.uri);
     let api_key = std::env::var("QDRANT_API_KEY").ok();
 
     if let Some(api_key) = api_key {
         config.set_api_key(&api_key);
     }
+    config
+}
 
-    let client = QdrantClient::new(Some(config)).await?;
+async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    let client = QdrantClient::new(Some(get_config(&args))).await?;
 
     client.delete_collection(&args.collection_name).await?;
     sleep(Duration::from_secs(1)).await;
-    client.create_collection(CreateCollection {
+    client.create_collection(&CreateCollection {
         collection_name: args.collection_name.clone(),
         vectors_config: Some(
             VectorsConfig {
@@ -149,7 +155,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         }
 
         if stopped.load(Ordering::Relaxed) {
-            break;
+            return Ok(())
         }
 
         futures.push(async {
@@ -162,6 +168,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
             recv_bar.inc(batch_size);
             Ok(())
         });
+
 
         if futures.len() > args.parallel {
             let res: Result<_> = futures.next().await.unwrap();
@@ -178,7 +185,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     if args.wait_index {
         println!("Waiting for index to be ready...");
-        let wait_time = wait_index(&client, args.clone()).await?;
+        let wait_time = wait_index(&client, args.clone(), stopped).await?;
         println!("Index ready in {} seconds", wait_time);
     }
 
