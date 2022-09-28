@@ -80,7 +80,13 @@ async fn wait_index(client: &QdrantClient, args: Args) -> Result<f64> {
 }
 
 async fn run_benchmark(args: Args) -> Result<()> {
-    let config = QdrantClientConfig::from_url(&args.uri);
+    let mut config = QdrantClientConfig::from_url(&args.uri);
+    let api_key = std::env::var("QDRANT_API_KEY").ok();
+
+    if let Some(api_key) = api_key {
+        config.set_api_key(&api_key);
+    }
+
     let client = QdrantClient::new(Some(config)).await?;
 
     client.delete_collection(&args.collection_name).await?;

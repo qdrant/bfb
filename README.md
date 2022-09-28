@@ -34,3 +34,15 @@ OPTIONS:
         --wait-index <wait-index>
             If set, after upload will wait until collection is indexed [default: true]
 ```
+
+API KEY:
+
+```
+export QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA'
+```
+
+or
+
+```
+docker run -it --rm -e QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA' ./bfb .....
+```
