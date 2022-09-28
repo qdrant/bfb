@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use clap::Parser;
 use qdrant_client::client::{Payload, QdrantClient, QdrantClientConfig};
@@ -79,7 +81,7 @@ async fn wait_index(client: &QdrantClient, args: Args) -> Result<f64> {
     Ok(start.elapsed().as_secs_f64())
 }
 
-async fn run_benchmark(args: Args) -> Result<()> {
+async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut config = QdrantClientConfig::from_url(&args.uri);
     let api_key = std::env::var("QDRANT_API_KEY").ok();
 
@@ -113,6 +115,8 @@ async fn run_benchmark(args: Args) -> Result<()> {
         ..Default::default()
     }).await?;
 
+    sleep(Duration::from_secs(1)).await;
+
     let multiprogress = MultiProgress::new();
 
     let sent_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
@@ -142,6 +146,10 @@ async fn run_benchmark(args: Args) -> Result<()> {
                 Payload::new(),
             ));
             n += 1;
+        }
+
+        if stopped.load(Ordering::Relaxed) {
+            break;
         }
 
         futures.push(async {
@@ -181,10 +189,17 @@ async fn run_benchmark(args: Args) -> Result<()> {
 fn main() {
     let args = Args::parse();
 
+    let stopped = Arc::new(AtomicBool::new(false));
+    let r = stopped.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(true, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
+
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)
         .enable_all()
         .build();
 
-    runtime.unwrap().block_on(run_benchmark(args)).unwrap();
+    runtime.unwrap().block_on(run_benchmark(args, stopped)).unwrap();
 }
