@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use clap::Parser;
 use qdrant_client::client::{Payload, QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus};
+use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus, PointId};
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
@@ -11,6 +11,7 @@ use anyhow::Result;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use qdrant_client::prelude::point_id::PointIdOptions;
 use rand::Rng;
 
 
@@ -56,6 +57,10 @@ struct Args {
     /// Log requests if the take longer than this
     #[clap(long, default_value_t = 0.1)]
     timing_threshold: f64,
+
+    /// Use UUIDs instead of sequential ids
+    #[clap(long, default_value_t = false)]
+    uuids: bool,
 }
 
 fn random_vector(dim: usize) -> Vec<f32> {
@@ -68,7 +73,7 @@ async fn wait_index(client: &QdrantClient, args: Args, stopped: Arc<AtomicBool>)
     let mut seen = 0;
     loop {
         if stopped.load(Ordering::Relaxed) {
-            return Ok(0.0)
+            return Ok(0.0);
         }
         sleep(Duration::from_secs(1)).await;
         let info = client.collection_info(&args.collection_name).await?;
@@ -142,12 +147,22 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     while n < args.num_vectors {
         let mut points = Vec::new();
         for _ in 0..args.batch_size {
-            points.push(PointStruct::new(
-                if let Some(max_id) = args.max_id {
-                    rng.gen_range(0..max_id) as u64
+            let idx = if let Some(max_id) = args.max_id {
+                rng.gen_range(0..max_id) as u64
+            } else {
+                n as u64
+            };
+
+            let point_id: PointId = PointId {
+                point_id_options: Some(if args.uuids {
+                    PointIdOptions::Uuid(uuid::Uuid::from_u128(idx as u128).to_string())
                 } else {
-                    n as u64
-                },
+                    PointIdOptions::Num(idx)
+                })
+            };
+
+            points.push(PointStruct::new(
+                point_id,
                 random_vector(args.dim),
                 Payload::new(),
             ));
@@ -155,7 +170,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         }
 
         if stopped.load(Ordering::Relaxed) {
-            return Ok(())
+            return Ok(());
         }
 
         futures.push(async {
