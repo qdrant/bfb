@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use clap::Parser;
 use qdrant_client::client::{Payload, QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus, PointId};
+use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus, PointId, FieldType};
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
@@ -14,6 +14,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::prelude::point_id::PointIdOptions;
 use rand::Rng;
 
+const KEYWORD_PAYLOAD_KEY: &str = "a";
 
 /// Big Fucking Benchmark tool for stress-testing Qdrant
 #[derive(Parser, Debug, Clone)]
@@ -61,6 +62,24 @@ struct Args {
     /// Use UUIDs instead of sequential ids
     #[clap(long, default_value_t = false)]
     uuids: bool,
+
+    /// Use keyword payloads. Defines how many different keywords there are in the payload
+    #[clap(long)]
+    keywords: Option<usize>,
+}
+
+fn random_keyword(num_variants: usize) -> String {
+    let mut rng = rand::thread_rng();
+    let variant = rng.gen_range(0..num_variants);
+    format!("keyword_{}", variant)
+}
+
+fn random_payload(keywords: Option<usize>) -> Payload {
+    let mut payload = Payload::new();
+    if let Some(keyword_variants) = keywords {
+        payload.insert(KEYWORD_PAYLOAD_KEY, random_keyword(keyword_variants));
+    }
+    payload
 }
 
 fn random_vector(dim: usize) -> Vec<f32> {
@@ -128,6 +147,15 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     sleep(Duration::from_secs(1)).await;
 
+    if args.keywords.is_some() {
+        client.create_field_index_blocking(
+            args.collection_name.clone(),
+            KEYWORD_PAYLOAD_KEY.clone(),
+            FieldType::Keyword,
+            None,
+        ).await.unwrap();
+    }
+
     let multiprogress = MultiProgress::new();
 
     let sent_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
@@ -164,7 +192,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
             points.push(PointStruct::new(
                 point_id,
                 random_vector(args.dim),
-                Payload::new(),
+                random_payload(args.keywords),
             ));
             n += 1;
         }

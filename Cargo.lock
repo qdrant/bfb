@@ -110,7 +110,7 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "bfb"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -959,9 +959,9 @@ dependencies = [
 
 [[package]]
 name = "qdrant-client"
-version = "0.10.4"
+version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bdd0454db27e4414668bb8b0a43374cbda31cabae850aeef0433e6c687729ff"
+checksum = "67bf83abcbf0932dfd023e5ab14270e73531683ece5b6b92fef225c78fd4ba12"
 dependencies = [
  "anyhow",
  "futures-util",
