@@ -1,38 +1,45 @@
 ```
-USAGE:
-    bfb [OPTIONS]
+Usage: bfb [OPTIONS]
 
-OPTIONS:
-    -b, --batch-size <BATCH_SIZE>
-            [default: 100]
-
-        --collection-name <COLLECTION_NAME>
-            [default: benchmark]
-
-    -d, --dim <DIM>
-            [default: 128]
-
-    -h, --help
-            Print help information
-
-    -m, --max-id <MAX_ID>
-            If set, will use vector ids within range [0, max_id) To simulate overwriting existing
-            vectors
-
-    -n, --num-vectors <NUM_VECTORS>
-            [default: 100000]
-
-    -t, --threads <THREADS>
-            [default: 2]
-
-        --uri <URI>
-            Qdrant service URI [default: http://localhost:6334]
-
-    -V, --version
-            Print version information
-
-        --wait-index <wait-index>
-            If set, after upload will wait until collection is indexed [default: true]
+Options:
+      --uri <URI>
+          Qdrant service URI [default: http://localhost:6334]
+  -n, --num-vectors <NUM_VECTORS>
+          [default: 100000]
+  -m, --max-id <MAX_ID>
+          If set, will use vector ids within range [0, max_id) To simulate overwriting existing vectors
+  -d, --dim <DIM>
+          [default: 128]
+  -t, --threads <THREADS>
+          [default: 2]
+  -p, --parallel <PARALLEL>
+          Number of parallel requests to send [default: 2]
+  -b, --batch-size <BATCH_SIZE>
+          [default: 100]
+      --skip-create
+          Skip creation of the collection
+      --skip-wait-index
+          If set, after upload will wait until collection is indexed
+      --skip-upload
+          Perform data upload
+      --search
+          Perform search
+      --search-limit <SEARCH_LIMIT>
+          Search limit [default: 10]
+      --collection-name <COLLECTION_NAME>
+          [default: benchmark]
+      --distance <DISTANCE>
+          [default: Cosine]
+      --timing-threshold <TIMING_THRESHOLD>
+          Log requests if the take longer than this [default: 0.1]
+      --uuids
+          Use UUIDs instead of sequential ids
+      --keywords <KEYWORDS>
+          Use keyword payloads. Defines how many different keywords there are in the payload
+  -h, --help
+          Print help information
+  -V, --version
+          Print version information
 ```
 
 API KEY:

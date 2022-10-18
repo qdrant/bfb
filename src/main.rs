@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use clap::Parser;
 use qdrant_client::client::{Payload, QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus, PointId, FieldType};
+use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus, PointId, FieldType, Filter, FieldCondition, Match, SearchPoints};
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
@@ -12,6 +12,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::prelude::point_id::PointIdOptions;
+use qdrant_client::qdrant::r#match::MatchValue;
 use rand::Rng;
 
 const KEYWORD_PAYLOAD_KEY: &str = "a";
@@ -45,9 +46,25 @@ struct Args {
     #[clap(short, long, default_value_t = 100)]
     batch_size: usize,
 
+    /// Skip creation of the collection
+    #[clap(long, default_value_t = false)]
+    skip_create: bool,
+
     /// If set, after upload will wait until collection is indexed
-    #[clap(long, default_value_t = true)]
-    wait_index: bool,
+    #[clap(long, default_value_t = false)]
+    skip_wait_index: bool,
+
+    /// Perform data upload
+    #[clap(long, default_value_t = false)]
+    skip_upload: bool,
+
+    /// Perform search
+    #[clap(long, default_value_t = false)]
+    search: bool,
+
+    /// Search limit
+    #[clap(long, default_value_t = 10)]
+    search_limit: usize,
 
     #[clap(long, default_value = "benchmark")]
     collection_name: String,
@@ -82,12 +99,50 @@ fn random_payload(keywords: Option<usize>) -> Payload {
     payload
 }
 
+fn random_filter(keywords: Option<usize>) -> Option<Filter> {
+    let mut filter = Filter {
+        should: vec![],
+        must: vec![],
+        must_not: vec![],
+    };
+    let mut have_any = false;
+    if let Some(keyword_variants) = keywords {
+        have_any = true;
+        filter.must.push(FieldCondition {
+            key: KEYWORD_PAYLOAD_KEY.to_string(),
+            r#match: Some(Match {
+                match_value: Some(MatchValue::Keyword(random_keyword(keyword_variants))),
+            }),
+            range: None,
+            geo_bounding_box: None,
+            geo_radius: None,
+            values_count: None,
+        }.into())
+    }
+    if have_any {
+        Some(filter)
+    } else {
+        None
+    }
+}
+
 fn random_vector(dim: usize) -> Vec<f32> {
     let mut rng = rand::thread_rng();
     (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect()
 }
 
-async fn wait_index(client: &QdrantClient, args: Args, stopped: Arc<AtomicBool>) -> Result<f64> {
+fn get_config(args: &Args) -> QdrantClientConfig {
+    let mut config = QdrantClientConfig::from_url(&args.uri);
+    let api_key = std::env::var("QDRANT_API_KEY").ok();
+
+    if let Some(api_key) = api_key {
+        config.set_api_key(&api_key);
+    }
+    config
+}
+
+async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
+    let client = QdrantClient::new(Some(get_config(&args))).await?;
     let start = std::time::Instant::now();
     let mut seen = 0;
     loop {
@@ -108,21 +163,26 @@ async fn wait_index(client: &QdrantClient, args: Args, stopped: Arc<AtomicBool>)
     Ok(start.elapsed().as_secs_f64())
 }
 
-fn get_config(args: &Args) -> QdrantClientConfig {
-    let mut config = QdrantClientConfig::from_url(&args.uri);
-    let api_key = std::env::var("QDRANT_API_KEY").ok();
-
-    if let Some(api_key) = api_key {
-        config.set_api_key(&api_key);
-    }
-    config
-}
-
-async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let client = QdrantClient::new(Some(get_config(&args))).await?;
 
-    client.delete_collection(&args.collection_name).await?;
+    match client.delete_collection(&args.collection_name).await {
+        Ok(_) => {}
+        Err(e) => {
+            println!("Failed to delete collection: {}", e);
+        }
+    }
+
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
     sleep(Duration::from_secs(1)).await;
+
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
     client.create_collection(&CreateCollection {
         collection_name: args.collection_name.clone(),
         vectors_config: Some(
@@ -145,6 +205,10 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         ..Default::default()
     }).await?;
 
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
     sleep(Duration::from_secs(1)).await;
 
     if args.keywords.is_some() {
@@ -155,6 +219,11 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
             None,
         ).await.unwrap();
     }
+    Ok(())
+}
+
+async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    let client = QdrantClient::new(Some(get_config(&args))).await?;
 
     let multiprogress = MultiProgress::new();
 
@@ -226,12 +295,102 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     sent_bar.finish();
     recv_bar.finish();
 
-    if args.wait_index {
+    Ok(())
+}
+
+async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    let client = QdrantClient::new(Some(get_config(&args))).await?;
+
+    let multiprogress = MultiProgress::new();
+
+    let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
+
+    let progress_style = ProgressStyle::default_bar()
+        .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
+        .expect("Failed to create progress style");
+    progress_bar.set_style(progress_style);
+
+    let timings = Mutex::new(Vec::new());
+    let mut n = 0;
+    let mut futures = FuturesUnordered::new();
+
+    while n < args.num_vectors {
+        let query_vector = random_vector(args.dim);
+        let query_filter = random_filter(args.keywords);
+        futures.push(async {
+            let res = client.search_points(&SearchPoints {
+                collection_name: args.collection_name.to_string(),
+                vector: query_vector,
+                filter: query_filter,
+                limit: args.search_limit as u64,
+                with_payload: Some(true.into()),
+                params: None,
+                score_threshold: None,
+                offset: None,
+                vector_name: None,
+                with_vectors: None,
+            }).await?;
+            (&timings).lock().unwrap().push(res.time);
+
+            if res.time > args.timing_threshold {
+                println!("Slow search: {:?}", res.time);
+            }
+            progress_bar.inc(1);
+            Ok(())
+        });
+
+        if stopped.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        if futures.len() > args.parallel {
+            let res: Result<_> = futures.next().await.unwrap();
+            res?;
+        }
+        n += 1;
+    }
+
+    while let Some(result) = futures.next().await {
+        result?;
+    }
+
+    progress_bar.finish();
+
+    let mut timings = timings.lock().unwrap();
+
+    timings.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
+    let max_time: f64 = timings.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(0.0);
+    let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
+    let p99_time: f64 = timings[(timings.len() as f32 * 0.99) as usize];
+
+    println!("Avg search time: {}", avg_time);
+    println!("p95 search time: {}", p95_time);
+    println!("p99 search time: {}", p99_time);
+    println!("Max search time: {}", max_time);
+
+    Ok(())
+}
+
+async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    if !args.skip_create {
+        recreate_collection(&args, stopped.clone()).await?;
+    }
+
+    if !args.skip_upload {
+        upload_data(&args, stopped.clone()).await?;
+    }
+
+    if !args.skip_wait_index {
         println!("Waiting for index to be ready...");
-        let wait_time = wait_index(&client, args.clone(), stopped).await?;
+        let wait_time = wait_index( &args, stopped.clone()).await?;
         println!("Index ready in {} seconds", wait_time);
     }
 
+    if args.search {
+        search(&args, stopped.clone()).await?;
+    }
     Ok(())
 }
 
