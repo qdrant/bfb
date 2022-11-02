@@ -7,9 +7,8 @@ use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParam
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
-use anyhow::Result;
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use anyhow::{Error, Result};
+use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::prelude::point_id::PointIdOptions;
 use qdrant_client::qdrant::r#match::MatchValue;
@@ -237,8 +236,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     recv_bar.set_style(progress_style);
 
     let mut n = 0;
-    let mut futures = FuturesUnordered::new();
-    // let mut futures = Vec::new();
+    let mut futures = Vec::new();
     let mut rng = rand::thread_rng();
 
     while n < args.num_vectors {
@@ -278,17 +276,12 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
                 println!("Slow upsert: {:?}", res.time);
             }
             recv_bar.inc(batch_size);
-            Ok(())
+            Ok::<(), Error>(())
         });
-
-
-        if futures.len() > args.parallel {
-            let res: Result<_> = futures.next().await.unwrap();
-            res?;
-        }
     }
 
-    while let Some(result) = futures.next().await {
+    let mut upsert_stream = futures::stream::iter(futures).buffer_unordered(args.parallel);
+    while let Some(result) = upsert_stream.next().await {
         result?;
     }
 
@@ -312,7 +305,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let timings = Mutex::new(Vec::new());
     let mut n = 0;
-    let mut futures = FuturesUnordered::new();
+    let mut futures = Vec::new();
 
     while n < args.num_vectors {
         let query_vector = random_vector(args.dim);
@@ -336,21 +329,17 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
                 println!("Slow search: {:?}", res.time);
             }
             progress_bar.inc(1);
-            Ok(())
+            Ok::<(), Error>(())
         });
 
         if stopped.load(Ordering::Relaxed) {
             return Ok(());
         }
-
-        if futures.len() > args.parallel {
-            let res: Result<_> = futures.next().await.unwrap();
-            res?;
-        }
         n += 1;
     }
 
-    while let Some(result) = futures.next().await {
+    let mut search_stream = futures::stream::iter(futures).buffer_unordered(args.parallel);
+    while let Some(result) = search_stream.next().await {
         result?;
     }
 
