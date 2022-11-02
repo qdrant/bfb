@@ -7,9 +7,8 @@ use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParam
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
-use anyhow::Result;
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use anyhow::{Error, Result};
+use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::prelude::point_id::PointIdOptions;
 use qdrant_client::qdrant::r#match::MatchValue;
@@ -142,7 +141,7 @@ fn get_config(args: &Args) -> QdrantClientConfig {
 }
 
 async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
     let start = std::time::Instant::now();
     let mut seen = 0;
     loop {
@@ -164,7 +163,7 @@ async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
 }
 
 async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
 
     match client.delete_collection(&args.collection_name).await {
         Ok(_) => {}
@@ -214,7 +213,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     if args.keywords.is_some() {
         client.create_field_index_blocking(
             args.collection_name.clone(),
-            KEYWORD_PAYLOAD_KEY.clone(),
+            KEYWORD_PAYLOAD_KEY,
             FieldType::Keyword,
             None,
         ).await.unwrap();
@@ -223,7 +222,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 }
 
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
 
     let multiprogress = MultiProgress::new();
 
@@ -237,8 +236,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     recv_bar.set_style(progress_style);
 
     let mut n = 0;
-    let mut futures = FuturesUnordered::new();
-    // let mut futures = Vec::new();
+    let mut futures = Vec::new();
     let mut rng = rand::thread_rng();
 
     while n < args.num_vectors {
@@ -278,17 +276,12 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
                 println!("Slow upsert: {:?}", res.time);
             }
             recv_bar.inc(batch_size);
-            Ok(())
+            Ok::<(), Error>(())
         });
-
-
-        if futures.len() > args.parallel {
-            let res: Result<_> = futures.next().await.unwrap();
-            res?;
-        }
     }
 
-    while let Some(result) = futures.next().await {
+    let mut upsert_stream = futures::stream::iter(futures).buffer_unordered(args.parallel);
+    while let Some(result) = upsert_stream.next().await {
         result?;
     }
 
@@ -299,7 +292,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 }
 
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
 
     let multiprogress = MultiProgress::new();
 
@@ -312,7 +305,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let timings = Mutex::new(Vec::new());
     let mut n = 0;
-    let mut futures = FuturesUnordered::new();
+    let mut futures = Vec::new();
 
     while n < args.num_vectors {
         let query_vector = random_vector(args.dim);
@@ -330,27 +323,23 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
                 vector_name: None,
                 with_vectors: None,
             }).await?;
-            (&timings).lock().unwrap().push(res.time);
+            timings.lock().unwrap().push(res.time);
 
             if res.time > args.timing_threshold {
                 println!("Slow search: {:?}", res.time);
             }
             progress_bar.inc(1);
-            Ok(())
+            Ok::<(), Error>(())
         });
 
         if stopped.load(Ordering::Relaxed) {
             return Ok(());
         }
-
-        if futures.len() > args.parallel {
-            let res: Result<_> = futures.next().await.unwrap();
-            res?;
-        }
         n += 1;
     }
 
-    while let Some(result) = futures.next().await {
+    let mut search_stream = futures::stream::iter(futures).buffer_unordered(args.parallel);
+    while let Some(result) = search_stream.next().await {
         result?;
     }
 
