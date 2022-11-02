@@ -1,3 +1,7 @@
+# BFB
+
+Benchmarking tool for the [Qdrant](https://github.com/qdrant/qdrant) project
+
 ```
 Usage: bfb [OPTIONS]
 

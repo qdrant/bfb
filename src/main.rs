@@ -142,7 +142,7 @@ fn get_config(args: &Args) -> QdrantClientConfig {
 }
 
 async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
     let start = std::time::Instant::now();
     let mut seen = 0;
     loop {
@@ -164,7 +164,7 @@ async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
 }
 
 async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
 
     match client.delete_collection(&args.collection_name).await {
         Ok(_) => {}
@@ -214,7 +214,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     if args.keywords.is_some() {
         client.create_field_index_blocking(
             args.collection_name.clone(),
-            KEYWORD_PAYLOAD_KEY.clone(),
+            KEYWORD_PAYLOAD_KEY,
             FieldType::Keyword,
             None,
         ).await.unwrap();
@@ -223,7 +223,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 }
 
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
 
     let multiprogress = MultiProgress::new();
 
@@ -299,7 +299,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 }
 
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(&args))).await?;
+    let client = QdrantClient::new(Some(get_config(args))).await?;
 
     let multiprogress = MultiProgress::new();
 
@@ -330,7 +330,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
                 vector_name: None,
                 with_vectors: None,
             }).await?;
-            (&timings).lock().unwrap().push(res.time);
+            timings.lock().unwrap().push(res.time);
 
             if res.time > args.timing_threshold {
                 println!("Slow search: {:?}", res.time);
