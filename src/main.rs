@@ -1,134 +1,24 @@
-use std::sync::{Arc, Mutex};
+mod common;
+mod upsert;
+mod search;
+mod args;
+
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use clap::Parser;
-use qdrant_client::client::{Payload, QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::{CreateCollection, Distance, PointStruct, VectorParams, VectorsConfig, CollectionStatus, PointId, FieldType, Filter, FieldCondition, Match, SearchPoints};
+use qdrant_client::client::{QdrantClient, QdrantClientConfig};
+use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, VectorParams, VectorsConfig};
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
-use anyhow::{Error, Result};
+use anyhow::Result;
+use clap::Parser;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use qdrant_client::prelude::point_id::PointIdOptions;
-use qdrant_client::qdrant::r#match::MatchValue;
-use rand::Rng;
-
-const KEYWORD_PAYLOAD_KEY: &str = "a";
-
-/// Big Fucking Benchmark tool for stress-testing Qdrant
-#[derive(Parser, Debug, Clone)]
-#[clap(version, about)]
-struct Args {
-    /// Qdrant service URI
-    #[clap(long, default_value = "http://localhost:6334")]
-    uri: String,
-
-    #[clap(short, long, default_value_t = 100_000)]
-    num_vectors: usize,
-
-    /// If set, will use vector ids within range [0, max_id)
-    /// To simulate overwriting existing vectors
-    #[clap(short, long)]
-    max_id: Option<usize>,
-
-    #[clap(short, long, default_value_t = 128)]
-    dim: usize,
-
-    #[clap(short, long, default_value_t = 2)]
-    threads: usize,
-
-    /// Number of parallel requests to send
-    #[clap(short, long, default_value_t = 2)]
-    parallel: usize,
-
-    #[clap(short, long, default_value_t = 100)]
-    batch_size: usize,
-
-    /// Skip creation of the collection
-    #[clap(long, default_value_t = false)]
-    skip_create: bool,
-
-    /// If set, after upload will wait until collection is indexed
-    #[clap(long, default_value_t = false)]
-    skip_wait_index: bool,
-
-    /// Perform data upload
-    #[clap(long, default_value_t = false)]
-    skip_upload: bool,
-
-    /// Perform search
-    #[clap(long, default_value_t = false)]
-    search: bool,
-
-    /// Search limit
-    #[clap(long, default_value_t = 10)]
-    search_limit: usize,
-
-    #[clap(long, default_value = "benchmark")]
-    collection_name: String,
-
-    #[clap(long, default_value = "Cosine")]
-    distance: String,
-
-    /// Log requests if the take longer than this
-    #[clap(long, default_value_t = 0.1)]
-    timing_threshold: f64,
-
-    /// Use UUIDs instead of sequential ids
-    #[clap(long, default_value_t = false)]
-    uuids: bool,
-
-    /// Use keyword payloads. Defines how many different keywords there are in the payload
-    #[clap(long)]
-    keywords: Option<usize>,
-}
-
-fn random_keyword(num_variants: usize) -> String {
-    let mut rng = rand::thread_rng();
-    let variant = rng.gen_range(0..num_variants);
-    format!("keyword_{}", variant)
-}
-
-fn random_payload(keywords: Option<usize>) -> Payload {
-    let mut payload = Payload::new();
-    if let Some(keyword_variants) = keywords {
-        payload.insert(KEYWORD_PAYLOAD_KEY, random_keyword(keyword_variants));
-    }
-    payload
-}
-
-fn random_filter(keywords: Option<usize>) -> Option<Filter> {
-    let mut filter = Filter {
-        should: vec![],
-        must: vec![],
-        must_not: vec![],
-    };
-    let mut have_any = false;
-    if let Some(keyword_variants) = keywords {
-        have_any = true;
-        filter.must.push(FieldCondition {
-            key: KEYWORD_PAYLOAD_KEY.to_string(),
-            r#match: Some(Match {
-                match_value: Some(MatchValue::Keyword(random_keyword(keyword_variants))),
-            }),
-            range: None,
-            geo_bounding_box: None,
-            geo_radius: None,
-            values_count: None,
-        }.into())
-    }
-    if have_any {
-        Some(filter)
-    } else {
-        None
-    }
-}
-
-fn random_vector(dim: usize) -> Vec<f32> {
-    let mut rng = rand::thread_rng();
-    (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect()
-}
+use args::Args;
+use crate::common::{KEYWORD_PAYLOAD_KEY, random_filter, random_payload, random_vector};
+use crate::search::SearchProcessor;
+use crate::upsert::UpsertProcessor;
 
 fn get_config(args: &Args) -> QdrantClientConfig {
     let mut config = QdrantClientConfig::from_url(&args.uri);
@@ -224,129 +114,40 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let client = QdrantClient::new(Some(get_config(args))).await?;
 
+    let upserter = UpsertProcessor::new(args.clone(), stopped.clone(), client);
+
+
     let multiprogress = MultiProgress::new();
 
     let sent_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
-    let recv_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
 
     let progress_style = ProgressStyle::default_bar()
         .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
         .expect("Failed to create progress style");
-    sent_bar.set_style(progress_style.clone());
-    recv_bar.set_style(progress_style);
+    sent_bar.set_style(progress_style);
 
-    let mut n = 0;
-    let mut futures = Vec::new();
-    let mut rng = rand::thread_rng();
+    let num_batches = args.num_vectors / args.batch_size;
 
-    while n < args.num_vectors {
-        let mut points = Vec::new();
-        for _ in 0..args.batch_size {
-            let idx = if let Some(max_id) = args.max_id {
-                rng.gen_range(0..max_id) as u64
-            } else {
-                n as u64
-            };
+    let query_stream = (0..num_batches).take_while(|_| !stopped.load(Ordering::Relaxed)).map(|n| {
+        let future = upserter.upsert(n);
+        sent_bar.inc(args.batch_size as u64);
+        future
+    });
 
-            let point_id: PointId = PointId {
-                point_id_options: Some(if args.uuids {
-                    PointIdOptions::Uuid(uuid::Uuid::from_u128(idx as u128).to_string())
-                } else {
-                    PointIdOptions::Num(idx)
-                })
-            };
-
-            points.push(PointStruct::new(
-                point_id,
-                random_vector(args.dim),
-                random_payload(args.keywords),
-            ));
-            n += 1;
-        }
-
-        if stopped.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        futures.push(async {
-            let batch_size = points.len() as u64;
-            sent_bar.inc(batch_size);
-            let res = client.upsert_points(&args.collection_name, points).await?;
-            if res.time > args.timing_threshold {
-                println!("Slow upsert: {:?}", res.time);
-            }
-            recv_bar.inc(batch_size);
-            Ok::<(), Error>(())
-        });
-    }
-
-    let mut upsert_stream = futures::stream::iter(futures).buffer_unordered(args.parallel);
+    let mut upsert_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let Some(result) = upsert_stream.next().await {
         result?;
     }
-
-    sent_bar.finish();
-    recv_bar.finish();
+    if stopped.load(Ordering::Relaxed) {
+        sent_bar.abandon();
+    } else {
+        sent_bar.finish();
+    }
 
     Ok(())
 }
 
-async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(args))).await?;
-
-    let multiprogress = MultiProgress::new();
-
-    let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
-
-    let progress_style = ProgressStyle::default_bar()
-        .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
-        .expect("Failed to create progress style");
-    progress_bar.set_style(progress_style);
-
-    let timings = Mutex::new(Vec::new());
-    let mut n = 0;
-    let mut futures = Vec::new();
-
-    while n < args.num_vectors {
-        let query_vector = random_vector(args.dim);
-        let query_filter = random_filter(args.keywords);
-        futures.push(async {
-            let res = client.search_points(&SearchPoints {
-                collection_name: args.collection_name.to_string(),
-                vector: query_vector,
-                filter: query_filter,
-                limit: args.search_limit as u64,
-                with_payload: Some(true.into()),
-                params: None,
-                score_threshold: None,
-                offset: None,
-                vector_name: None,
-                with_vectors: None,
-            }).await?;
-            timings.lock().unwrap().push(res.time);
-
-            if res.time > args.timing_threshold {
-                println!("Slow search: {:?}", res.time);
-            }
-            progress_bar.inc(1);
-            Ok::<(), Error>(())
-        });
-
-        if stopped.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        n += 1;
-    }
-
-    let mut search_stream = futures::stream::iter(futures).buffer_unordered(args.parallel);
-    while let Some(result) = search_stream.next().await {
-        result?;
-    }
-
-    progress_bar.finish();
-
-    let mut timings = timings.lock().unwrap();
-
+fn print_timings(timings: &mut Vec<f64>) {
     timings.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
     let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
@@ -358,6 +159,43 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     println!("p95 search time: {}", p95_time);
     println!("p99 search time: {}", p99_time);
     println!("Max search time: {}", max_time);
+}
+
+async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    let client = QdrantClient::new(Some(get_config(args))).await?;
+
+    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), client);
+
+    let multiprogress = MultiProgress::new();
+    let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
+    let progress_style = ProgressStyle::default_bar()
+        .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
+        .expect("Failed to create progress style");
+    progress_bar.set_style(progress_style);
+
+    let query_stream = (0..args.num_vectors).take_while(|_| !stopped.load(Ordering::Relaxed)).map(|n| {
+        let future = searcher.search(n);
+        progress_bar.inc(1);
+        future
+    });
+
+    let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
+    while let Some(result) = search_stream.next().await {
+        result?;
+    }
+
+    if stopped.load(Ordering::Relaxed) {
+        progress_bar.abandon();
+    } else {
+        progress_bar.finish();
+    }
+
+    let mut timings = searcher.full_timings.lock().unwrap();
+    println!("--- Search timings ---");
+    print_timings(&mut timings);
+    let mut timings = searcher.server_timings.lock().unwrap();
+    println!("--- Server timings ---");
+    print_timings(&mut timings);
 
     Ok(())
 }
@@ -373,7 +211,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     if !args.skip_wait_index {
         println!("Waiting for index to be ready...");
-        let wait_time = wait_index( &args, stopped.clone()).await?;
+        let wait_time = wait_index(&args, stopped.clone()).await?;
         println!("Index ready in {} seconds", wait_time);
     }
 
