@@ -155,10 +155,12 @@ fn print_timings(timings: &mut Vec<f64>) {
     timings.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
     let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
+    let min_time: f64 = timings.first().copied().unwrap_or(0.0);
     let max_time: f64 = timings.last().copied().unwrap_or(0.0);
     let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
     let p99_time: f64 = timings[(timings.len() as f32 * 0.99) as usize];
 
+    println!("Min search time: {}", min_time);
     println!("Avg search time: {}", avg_time);
     println!("p95 search time: {}", p95_time);
     println!("p99 search time: {}", p99_time);
