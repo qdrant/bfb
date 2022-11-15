@@ -151,10 +151,11 @@ fn print_timings(timings: &mut Vec<f64>) {
     if timings.is_empty() {
         return;
     }
+    // sort timings in ascending order
     timings.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
     let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
-    let max_time: f64 = timings.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(0.0);
+    let max_time: f64 = timings.last().copied().unwrap_or(0.0);
     let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
     let p99_time: f64 = timings[(timings.len() as f32 * 0.99) as usize];
 
