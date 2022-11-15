@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
-use qdrant_client::qdrant::SearchPoints;
+use qdrant_client::qdrant::{SearchParams, SearchPoints};
 use crate::{Args, random_filter, random_vector};
 
 pub struct SearchProcessor {
@@ -41,7 +41,10 @@ impl SearchProcessor {
             filter: query_filter,
             limit: self.args.search_limit as u64,
             with_payload: Some(true.into()),
-            params: None,
+            params: Some(SearchParams {
+                hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
+                ..Default::default()
+            }),
             score_threshold: None,
             offset: None,
             vector_name: None,

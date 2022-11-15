@@ -66,4 +66,8 @@ pub struct Args {
     /// Use keyword payloads. Defines how many different keywords there are in the payload
     #[clap(long)]
     pub keywords: Option<usize>,
+
+    /// `hnsw_ef` parameter used during search
+    #[clap(long)]
+    pub search_hnsw_ef: Option<usize>,
 }

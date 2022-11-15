@@ -40,6 +40,8 @@ Options:
           Use UUIDs instead of sequential ids
       --keywords <KEYWORDS>
           Use keyword payloads. Defines how many different keywords there are in the payload
+      --search-hnsw-ef <SEARCH_HNSW_EF>
+          `hnsw_ef` parameter used during search
   -h, --help
           Print help information
   -V, --version
