@@ -148,13 +148,19 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 }
 
 fn print_timings(timings: &mut Vec<f64>) {
+    if timings.is_empty() {
+        return;
+    }
+    // sort timings in ascending order
     timings.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
     let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
-    let max_time: f64 = timings.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(0.0);
+    let min_time: f64 = timings.first().copied().unwrap_or(0.0);
+    let max_time: f64 = timings.last().copied().unwrap_or(0.0);
     let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
     let p99_time: f64 = timings[(timings.len() as f32 * 0.99) as usize];
 
+    println!("Min search time: {}", min_time);
     println!("Avg search time: {}", avg_time);
     println!("p95 search time: {}", p95_time);
     println!("p99 search time: {}", p99_time);
@@ -174,7 +180,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     progress_bar.set_style(progress_style);
 
     let query_stream = (0..args.num_vectors).take_while(|_| !stopped.load(Ordering::Relaxed)).map(|n| {
-        let future = searcher.search(n);
+        let future = searcher.search(n, &progress_bar);
         progress_bar.inc(1);
         future
     });
