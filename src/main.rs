@@ -148,6 +148,9 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 }
 
 fn print_timings(timings: &mut Vec<f64>) {
+    if timings.is_empty() {
+        return;
+    }
     timings.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
     let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
