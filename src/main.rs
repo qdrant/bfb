@@ -180,7 +180,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     progress_bar.set_style(progress_style);
 
     let query_stream = (0..args.num_vectors).take_while(|_| !stopped.load(Ordering::Relaxed)).map(|n| {
-        let future = searcher.search(n);
+        let future = searcher.search(n, &progress_bar);
         progress_bar.inc(1);
         future
     });

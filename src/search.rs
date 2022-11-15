@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
+use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::SearchPoints;
 use crate::{Args, random_filter, random_vector};
@@ -24,7 +25,7 @@ impl SearchProcessor {
         }
     }
 
-    pub async fn search(&self, _req_id: usize) -> Result<(), anyhow::Error> {
+    pub async fn search(&self, _req_id: usize, progress_bar: &ProgressBar) -> Result<(), anyhow::Error> {
         if self.stopped.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
@@ -51,7 +52,7 @@ impl SearchProcessor {
         self.full_timings.lock().unwrap().push(elapsed);
 
         if res.time > self.args.timing_threshold {
-            println!("Slow search: {:?}", res.time);
+            progress_bar.println(format!("Slow search: {:?}", res.time));
         }
         self.server_timings.lock().unwrap().push(res.time);
         Ok(())
