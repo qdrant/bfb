@@ -40,7 +40,7 @@ impl SearchProcessor {
             vector: query_vector,
             filter: query_filter,
             limit: self.args.search_limit as u64,
-            with_payload: Some(true.into()),
+            with_payload: Some(self.args.search_with_payload.into()),
             params: Some(SearchParams {
                 hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
                 ..Default::default()

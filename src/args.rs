@@ -70,4 +70,8 @@ pub struct Args {
     /// `hnsw_ef` parameter used during search
     #[clap(long)]
     pub search_hnsw_ef: Option<usize>,
+
+    /// Whether to request payload in search results
+    #[clap(long, default_value_t = false)]
+    pub search_with_payload: bool,
 }
