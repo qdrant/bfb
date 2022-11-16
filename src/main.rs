@@ -114,9 +114,6 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let client = QdrantClient::new(Some(get_config(args))).await?;
 
-    let upserter = UpsertProcessor::new(args.clone(), stopped.clone(), client);
-
-
     let multiprogress = MultiProgress::new();
 
     let sent_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
@@ -126,11 +123,14 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         .expect("Failed to create progress style");
     sent_bar.set_style(progress_style);
 
+    let sent_bar_arc = Arc::new(sent_bar);
+    let upserter = UpsertProcessor::new(args.clone(), stopped.clone(), client, sent_bar_arc.clone());
+
     let num_batches = args.num_vectors / args.batch_size;
 
     let query_stream = (0..num_batches).take_while(|_| !stopped.load(Ordering::Relaxed)).map(|n| {
         let future = upserter.upsert(n);
-        sent_bar.inc(args.batch_size as u64);
+        sent_bar_arc.inc(args.batch_size as u64);
         future
     });
 
@@ -139,9 +139,9 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         result?;
     }
     if stopped.load(Ordering::Relaxed) {
-        sent_bar.abandon();
+        sent_bar_arc.abandon();
     } else {
-        sent_bar.finish();
+        sent_bar_arc.finish();
     }
 
     Ok(())

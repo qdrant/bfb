@@ -2,6 +2,7 @@ use std::cmp::min;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Error;
+use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::{PointId, PointStruct};
@@ -12,12 +13,13 @@ pub struct UpsertProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     client: QdrantClient,
+    progress_bar: Arc<ProgressBar>
 }
 
 
 impl UpsertProcessor {
-    pub fn new(args: Args, stopped: Arc<AtomicBool>, client: QdrantClient) -> Self {
-        UpsertProcessor { args, stopped, client }
+    pub fn new(args: Args, stopped: Arc<AtomicBool>, client: QdrantClient, progress_bar: Arc<ProgressBar>) -> Self {
+        UpsertProcessor { args, stopped, client, progress_bar }
     }
 
     pub async fn upsert(&self, batch_id: usize) -> Result<(), anyhow::Error> {
@@ -58,7 +60,7 @@ impl UpsertProcessor {
 
         let res = self.client.upsert_points(&self.args.collection_name, points).await?;
         if res.time > self.args.timing_threshold {
-            println!("Slow upsert: {:?}", res.time);
+            self.progress_bar.println(format!("Slow upsert: {:?}", res.time));
         }
         Ok::<(), Error>(())
     }
