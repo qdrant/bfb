@@ -74,4 +74,16 @@ pub struct Args {
     /// Whether to request payload in search results
     #[clap(long, default_value_t = false)]
     pub search_with_payload: bool,
+
+    /// wait on upsert
+    #[clap(long, default_value_t = false)]
+    pub wait_on_upsert: bool,
+
+    /// replication factor
+    #[clap(long, default_value_t = 1)]
+    pub replication_factor: usize,
+
+    /// timeout for requests in seconds
+    #[clap(long)]
+    pub timeout: Option<usize>,
 }

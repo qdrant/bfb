@@ -24,6 +24,11 @@ fn get_config(args: &Args) -> QdrantClientConfig {
     let mut config = QdrantClientConfig::from_url(&args.uri);
     let api_key = std::env::var("QDRANT_API_KEY").ok();
 
+    if let Some(timeout) = args.timeout {
+        config.set_timeout(Duration::from_secs(timeout as u64));
+        config.set_connect_timeout(Duration::from_secs(timeout as u64));
+    }
+
     if let Some(api_key) = api_key {
         config.set_api_key(&api_key);
     }
@@ -91,6 +96,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 )
             }
         ),
+        replication_factor: Some(args.replication_factor as u32),
         ..Default::default()
     }).await?;
 
