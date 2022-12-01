@@ -1,11 +1,12 @@
 use std::cmp::min;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
-use qdrant_client::qdrant::{PointId, PointStruct};
+use qdrant_client::qdrant::{PointId, PointStruct, Vectors};
 use rand::Rng;
 use crate::{Args, random_payload, random_vector};
 
@@ -13,7 +14,7 @@ pub struct UpsertProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     client: QdrantClient,
-    progress_bar: Arc<ProgressBar>
+    progress_bar: Arc<ProgressBar>,
 }
 
 
@@ -47,9 +48,20 @@ impl UpsertProcessor {
                 })
             };
 
+            let vectors: Vectors = if self.args.vectors_per_point > 1 {
+                let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point).map(|i| {
+                    let vector_name = format!("{}", i);
+                    let vector = random_vector(self.args.dim);
+                    (vector_name, vector)
+                }).collect();
+                vectors_map.into()
+            } else {
+                random_vector(self.args.dim).into()
+            };
+
             points.push(PointStruct::new(
                 point_id,
-                random_vector(self.args.dim),
+                vectors,
                 random_payload(self.args.keywords),
             ));
         }
