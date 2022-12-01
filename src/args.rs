@@ -11,6 +11,9 @@ pub struct Args {
     #[clap(short, long, default_value_t = 100_000)]
     pub num_vectors: usize,
 
+    #[clap(long, default_value_t = 1)]
+    pub vectors_per_point: usize,
+
     /// If set, will use vector ids within range [0, max_id)
     /// To simulate overwriting existing vectors
     #[clap(short, long)]

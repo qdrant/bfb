@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, VectorParams, VectorsConfig};
+use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, VectorParams, VectorParamsMap, VectorsConfig};
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
@@ -77,23 +77,35 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         return Ok(());
     }
 
+    let _vector_param = VectorParams {
+        size: args.dim as u64,
+        distance: match args.distance.as_str() {
+            "Cosine" => Distance::Cosine.into(),
+            "Dot" => Distance::Dot.into(),
+            "Euclid" => Distance::Euclid.into(),
+            _ => { panic!("Unknown distance {}", args.distance) }
+        },
+    };
+
+    let vector_params = if args.vectors_per_point == 1 {
+        Config::Params(_vector_param)
+    } else {
+        let params = (0..args.vectors_per_point)
+            .map(|idx| (
+                idx.to_string(), _vector_param.clone()
+            ))
+            .collect();
+
+        Config::ParamsMap(VectorParamsMap {
+            map: params,
+        })
+    };
+
     client.create_collection(&CreateCollection {
         collection_name: args.collection_name.clone(),
         vectors_config: Some(
             VectorsConfig {
-                config: Some(
-                    Config::Params(
-                        VectorParams {
-                            size: args.dim as u64,
-                            distance: match args.distance.as_str() {
-                                "Cosine" => Distance::Cosine.into(),
-                                "Dot" => Distance::Dot.into(),
-                                "Euclid" => Distance::Euclid.into(),
-                                _ => { panic!("Unknown distance {}", args.distance) }
-                            },
-                        }
-                    )
-                )
+                config: Some(vector_params)
             }
         ),
         replication_factor: Some(args.replication_factor as u32),

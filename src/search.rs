@@ -4,6 +4,7 @@ use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::{SearchParams, SearchPoints};
 use crate::{Args, random_filter, random_vector};
+use crate::common::random_vector_name;
 
 pub struct SearchProcessor {
     args: Args,
@@ -35,6 +36,12 @@ impl SearchProcessor {
 
         let start = std::time::Instant::now();
 
+        let vector_name = if self.args.vectors_per_point > 1 {
+            Some(random_vector_name(self.args.vectors_per_point))
+        } else {
+            None
+        };
+
         let res = self.client.search_points(&SearchPoints {
             collection_name: self.args.collection_name.to_string(),
             vector: query_vector,
@@ -47,7 +54,7 @@ impl SearchProcessor {
             }),
             score_threshold: None,
             offset: None,
-            vector_name: None,
+            vector_name,
             with_vectors: None,
         }).await?;
         let elapsed = start.elapsed().as_secs_f64();

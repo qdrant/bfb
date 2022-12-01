@@ -52,3 +52,8 @@ pub fn random_vector(dim: usize) -> Vec<f32> {
     let mut rng = rand::thread_rng();
     (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect()
 }
+
+pub fn random_vector_name(max: usize) -> String {
+    let mut rng = rand::thread_rng();
+    format!("{}", rng.gen_range(0..max))
+}
