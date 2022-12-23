@@ -109,6 +109,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             }
         ),
         replication_factor: Some(args.replication_factor as u32),
+        shard_number: args.shards.map(|x| x as u32),
         ..Default::default()
     }).await?;
 

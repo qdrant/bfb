@@ -86,6 +86,9 @@ pub struct Args {
     #[clap(long, default_value_t = 1)]
     pub replication_factor: usize,
 
+    #[clap(long)]
+    pub shards: Option<usize>,
+
     /// timeout for requests in seconds
     #[clap(long)]
     pub timeout: Option<usize>,
