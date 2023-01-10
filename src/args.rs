@@ -1,6 +1,6 @@
 use clap::Parser;
 
-/// Big Fucking Benchmark tool for stress-testing Qdrant
+/// Big F*cking Benchmark tool for stress-testing Qdrant
 #[derive(Parser, Debug, Clone)]
 #[clap(version, about)]
 pub struct Args {
