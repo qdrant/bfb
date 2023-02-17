@@ -71,9 +71,9 @@ impl UpsertProcessor {
         }
 
         let res = if self.args.wait_on_upsert {
-            self.client.upsert_points_blocking(&self.args.collection_name, points).await?
+            self.client.upsert_points_blocking(&self.args.collection_name, points, None).await?
         } else {
-            self.client.upsert_points(&self.args.collection_name, points).await?
+            self.client.upsert_points(&self.args.collection_name, points, None).await?
         };
         if res.time > self.args.timing_threshold {
             self.progress_bar.println(format!("Slow upsert: {:?}", res.time));

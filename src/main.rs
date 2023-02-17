@@ -125,6 +125,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             KEYWORD_PAYLOAD_KEY,
             FieldType::Keyword,
             None,
+            None,
         ).await.unwrap();
     }
     Ok(())

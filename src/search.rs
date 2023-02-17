@@ -56,6 +56,7 @@ impl SearchProcessor {
             offset: None,
             vector_name,
             with_vectors: None,
+            read_consistency: None,
         }).await?;
         let elapsed = start.elapsed().as_secs_f64();
 
