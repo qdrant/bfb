@@ -58,6 +58,18 @@ pub struct Args {
     #[clap(long, default_value = "Cosine")]
     pub distance: String,
 
+    /// Store vectors on disk
+    #[clap(long, default_value_t = false)]
+    pub on_disk_vectors: bool,
+
+    /// On disk payload
+    #[clap(long, default_value_t = false)]
+    pub on_disk_payload: bool,
+
+    /// On disk hnsw
+    #[clap(long, default_value_t = false)]
+    pub on_disk_hnsw: bool,
+
     /// Log requests if the take longer than this
     #[clap(long, default_value_t = 0.1)]
     pub timing_threshold: f64,

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, VectorParams, VectorParamsMap, VectorsConfig};
+use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff, VectorParams, VectorParamsMap, VectorsConfig};
 use qdrant_client::qdrant::vectors_config::Config;
 use tokio::runtime;
 use tokio::time::sleep;
@@ -108,6 +108,23 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 config: Some(vector_params)
             }
         ),
+        hnsw_config: Some(
+            HnswConfigDiff {
+                on_disk: Some(args.on_disk_hnsw),
+                ..Default::default()
+            }
+        ),
+        optimizers_config: Some(
+            OptimizersConfigDiff {
+                memmap_threshold: if args.on_disk_vectors {
+                    Some(20000)
+                } else {
+                    None
+                },
+                ..Default::default()
+            }
+        ),
+        on_disk_payload: Some(args.on_disk_payload),
         replication_factor: Some(args.replication_factor as u32),
         shard_number: args.shards.map(|x| x as u32),
         ..Default::default()
