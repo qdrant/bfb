@@ -59,8 +59,8 @@ pub struct Args {
     pub distance: String,
 
     /// Store vectors on disk
-    #[clap(long, default_value_t = false)]
-    pub on_disk_vectors: bool,
+    #[clap(long)]
+    pub mmap_threshold: Option<usize>,
 
     /// On disk payload
     #[clap(long, default_value_t = false)]

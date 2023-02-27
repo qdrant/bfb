@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
+use crate::common::random_vector_name;
+use crate::{random_filter, random_vector, Args};
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::{SearchParams, SearchPoints};
-use crate::{Args, random_filter, random_vector};
-use crate::common::random_vector_name;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 pub struct SearchProcessor {
     args: Args,
@@ -13,7 +13,6 @@ pub struct SearchProcessor {
     pub server_timings: Mutex<Vec<f64>>,
     pub full_timings: Mutex<Vec<f64>>,
 }
-
 
 impl SearchProcessor {
     pub fn new(args: Args, stopped: Arc<AtomicBool>, client: QdrantClient) -> Self {
@@ -26,7 +25,11 @@ impl SearchProcessor {
         }
     }
 
-    pub async fn search(&self, _req_id: usize, progress_bar: &ProgressBar) -> Result<(), anyhow::Error> {
+    pub async fn search(
+        &self,
+        _req_id: usize,
+        progress_bar: &ProgressBar,
+    ) -> Result<(), anyhow::Error> {
         if self.stopped.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
@@ -42,22 +45,25 @@ impl SearchProcessor {
             None
         };
 
-        let res = self.client.search_points(&SearchPoints {
-            collection_name: self.args.collection_name.to_string(),
-            vector: query_vector,
-            filter: query_filter,
-            limit: self.args.search_limit as u64,
-            with_payload: Some(self.args.search_with_payload.into()),
-            params: Some(SearchParams {
-                hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
-                ..Default::default()
-            }),
-            score_threshold: None,
-            offset: None,
-            vector_name,
-            with_vectors: None,
-            read_consistency: None,
-        }).await?;
+        let res = self
+            .client
+            .search_points(&SearchPoints {
+                collection_name: self.args.collection_name.to_string(),
+                vector: query_vector,
+                filter: query_filter,
+                limit: self.args.search_limit as u64,
+                with_payload: Some(self.args.search_with_payload.into()),
+                params: Some(SearchParams {
+                    hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
+                    ..Default::default()
+                }),
+                score_threshold: None,
+                offset: None,
+                vector_name,
+                with_vectors: None,
+                read_consistency: None,
+            })
+            .await?;
         let elapsed = start.elapsed().as_secs_f64();
 
         self.full_timings.lock().unwrap().push(elapsed);

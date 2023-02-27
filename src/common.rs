@@ -1,8 +1,8 @@
 use core::option::Option;
 use core::option::Option::{None, Some};
 use qdrant_client::client::Payload;
-use qdrant_client::qdrant::{FieldCondition, Filter, Match};
 use qdrant_client::qdrant::r#match::MatchValue;
+use qdrant_client::qdrant::{FieldCondition, Filter, Match};
 use rand::Rng;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
@@ -30,16 +30,19 @@ pub fn random_filter(keywords: Option<usize>) -> Option<Filter> {
     let mut have_any = false;
     if let Some(keyword_variants) = keywords {
         have_any = true;
-        filter.must.push(FieldCondition {
-            key: KEYWORD_PAYLOAD_KEY.to_string(),
-            r#match: Some(Match {
-                match_value: Some(MatchValue::Keyword(random_keyword(keyword_variants))),
-            }),
-            range: None,
-            geo_bounding_box: None,
-            geo_radius: None,
-            values_count: None,
-        }.into())
+        filter.must.push(
+            FieldCondition {
+                key: KEYWORD_PAYLOAD_KEY.to_string(),
+                r#match: Some(Match {
+                    match_value: Some(MatchValue::Keyword(random_keyword(keyword_variants))),
+                }),
+                range: None,
+                geo_bounding_box: None,
+                geo_radius: None,
+                values_count: None,
+            }
+            .into(),
+        )
     }
     if have_any {
         Some(filter)

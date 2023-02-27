@@ -1,24 +1,27 @@
-mod common;
-mod upsert;
-mod search;
 mod args;
+mod common;
+mod search;
+mod upsert;
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use qdrant_client::client::{QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff, VectorParams, VectorParamsMap, VectorsConfig};
-use qdrant_client::qdrant::vectors_config::Config;
-use tokio::runtime;
-use tokio::time::sleep;
+use crate::common::{random_filter, random_payload, random_vector, KEYWORD_PAYLOAD_KEY};
+use crate::search::SearchProcessor;
+use crate::upsert::UpsertProcessor;
 use anyhow::Result;
+use args::Args;
 use clap::Parser;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use args::Args;
-use crate::common::{KEYWORD_PAYLOAD_KEY, random_filter, random_payload, random_vector};
-use crate::search::SearchProcessor;
-use crate::upsert::UpsertProcessor;
+use qdrant_client::client::{QdrantClient, QdrantClientConfig};
+use qdrant_client::qdrant::vectors_config::Config;
+use qdrant_client::qdrant::{
+    CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff,
+    VectorParams, VectorParamsMap, VectorsConfig,
+};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::runtime;
+use tokio::time::sleep;
 
 fn get_config(args: &Args) -> QdrantClientConfig {
     let mut config = QdrantClientConfig::from_url(&args.uri);
@@ -83,7 +86,9 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             "Cosine" => Distance::Cosine.into(),
             "Dot" => Distance::Dot.into(),
             "Euclid" => Distance::Euclid.into(),
-            _ => { panic!("Unknown distance {}", args.distance) }
+            _ => {
+                panic!("Unknown distance {}", args.distance)
+            }
         },
     };
 
@@ -91,44 +96,32 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         Config::Params(_vector_param)
     } else {
         let params = (0..args.vectors_per_point)
-            .map(|idx| (
-                idx.to_string(), _vector_param.clone()
-            ))
+            .map(|idx| (idx.to_string(), _vector_param.clone()))
             .collect();
 
-        Config::ParamsMap(VectorParamsMap {
-            map: params,
-        })
+        Config::ParamsMap(VectorParamsMap { map: params })
     };
 
-    client.create_collection(&CreateCollection {
-        collection_name: args.collection_name.clone(),
-        vectors_config: Some(
-            VectorsConfig {
-                config: Some(vector_params)
-            }
-        ),
-        hnsw_config: Some(
-            HnswConfigDiff {
+    client
+        .create_collection(&CreateCollection {
+            collection_name: args.collection_name.clone(),
+            vectors_config: Some(VectorsConfig {
+                config: Some(vector_params),
+            }),
+            hnsw_config: Some(HnswConfigDiff {
                 on_disk: Some(args.on_disk_hnsw),
                 ..Default::default()
-            }
-        ),
-        optimizers_config: Some(
-            OptimizersConfigDiff {
-                memmap_threshold: if args.on_disk_vectors {
-                    Some(20000)
-                } else {
-                    None
-                },
+            }),
+            optimizers_config: Some(OptimizersConfigDiff {
+                memmap_threshold: args.mmap_threshold.map(|x| x as u64),
                 ..Default::default()
-            }
-        ),
-        on_disk_payload: Some(args.on_disk_payload),
-        replication_factor: Some(args.replication_factor as u32),
-        shard_number: args.shards.map(|x| x as u32),
-        ..Default::default()
-    }).await?;
+            }),
+            on_disk_payload: Some(args.on_disk_payload),
+            replication_factor: Some(args.replication_factor as u32),
+            shard_number: args.shards.map(|x| x as u32),
+            ..Default::default()
+        })
+        .await?;
 
     if stopped.load(Ordering::Relaxed) {
         return Ok(());
@@ -137,13 +130,16 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     sleep(Duration::from_secs(1)).await;
 
     if args.keywords.is_some() {
-        client.create_field_index_blocking(
-            args.collection_name.clone(),
-            KEYWORD_PAYLOAD_KEY,
-            FieldType::Keyword,
-            None,
-            None,
-        ).await.unwrap();
+        client
+            .create_field_index_blocking(
+                args.collection_name.clone(),
+                KEYWORD_PAYLOAD_KEY,
+                FieldType::Keyword,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
     }
     Ok(())
 }
@@ -161,15 +157,18 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     sent_bar.set_style(progress_style);
 
     let sent_bar_arc = Arc::new(sent_bar);
-    let upserter = UpsertProcessor::new(args.clone(), stopped.clone(), client, sent_bar_arc.clone());
+    let upserter =
+        UpsertProcessor::new(args.clone(), stopped.clone(), client, sent_bar_arc.clone());
 
     let num_batches = args.num_vectors / args.batch_size;
 
-    let query_stream = (0..num_batches).take_while(|_| !stopped.load(Ordering::Relaxed)).map(|n| {
-        let future = upserter.upsert(n);
-        sent_bar_arc.inc(args.batch_size as u64);
-        future
-    });
+    let query_stream = (0..num_batches)
+        .take_while(|_| !stopped.load(Ordering::Relaxed))
+        .map(|n| {
+            let future = upserter.upsert(n);
+            sent_bar_arc.inc(args.batch_size as u64);
+            future
+        });
 
     let mut upsert_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let Some(result) = upsert_stream.next().await {
@@ -216,11 +215,13 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         .expect("Failed to create progress style");
     progress_bar.set_style(progress_style);
 
-    let query_stream = (0..args.num_vectors).take_while(|_| !stopped.load(Ordering::Relaxed)).map(|n| {
-        let future = searcher.search(n, &progress_bar);
-        progress_bar.inc(1);
-        future
-    });
+    let query_stream = (0..args.num_vectors)
+        .take_while(|_| !stopped.load(Ordering::Relaxed))
+        .map(|n| {
+            let future = searcher.search(n, &progress_bar);
+            progress_bar.inc(1);
+            future
+        });
 
     let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let Some(result) = search_stream.next().await {
@@ -264,7 +265,6 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-
 fn main() {
     let args = Args::parse();
 
@@ -273,12 +273,16 @@ fn main() {
 
     ctrlc::set_handler(move || {
         r.store(true, Ordering::SeqCst);
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)
         .enable_all()
         .build();
 
-    runtime.unwrap().block_on(run_benchmark(args, stopped)).unwrap();
+    runtime
+        .unwrap()
+        .block_on(run_benchmark(args, stopped))
+        .unwrap();
 }
