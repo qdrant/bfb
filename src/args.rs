@@ -1,5 +1,14 @@
 use clap::Parser;
 
+
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+pub enum QuantizationArg {
+    #[default]
+    None,
+    Scalar
+}
+
+
 /// Big F*cking Benchmark tool for stress-testing Qdrant
 #[derive(Parser, Debug, Clone)]
 #[clap(version, about)]
@@ -104,4 +113,7 @@ pub struct Args {
     /// timeout for requests in seconds
     #[clap(long)]
     pub timeout: Option<usize>,
+
+    #[clap(long)]
+    pub quantization: Option<QuantizationArg>,
 }

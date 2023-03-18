@@ -13,15 +13,14 @@ use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
 use qdrant_client::qdrant::vectors_config::Config;
-use qdrant_client::qdrant::{
-    CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff,
-    VectorParams, VectorParamsMap, VectorsConfig,
-};
+use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff, QuantizationConfig, QuantizationType, ScalarQuantization, VectorParams, VectorParamsMap, VectorsConfig};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use qdrant_client::qdrant::quantization_config::Quantization;
 use tokio::runtime;
 use tokio::time::sleep;
+use crate::args::QuantizationArg;
 
 fn get_config(args: &Args) -> QdrantClientConfig {
     let mut config = QdrantClientConfig::from_url(&args.uri);
@@ -119,6 +118,23 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             on_disk_payload: Some(args.on_disk_payload),
             replication_factor: Some(args.replication_factor as u32),
             shard_number: args.shards.map(|x| x as u32),
+            quantization_config: match args.quantization {
+                Some(quantization) => match quantization {
+                    QuantizationArg::None => None,
+                    QuantizationArg::Scalar => {
+                        Some(QuantizationConfig {
+                            quantization: Some(Quantization::Scalar(
+                                ScalarQuantization {
+                                    r#type: i32::from(QuantizationType::Int8),
+                                    quantile: Some(0.99),
+                                    always_ram: None,
+                                }
+                            )),
+                        })
+                    }
+                },
+                None => None,
+            },
             ..Default::default()
         })
         .await?;
@@ -274,7 +290,7 @@ fn main() {
     ctrlc::set_handler(move || {
         r.store(true, Ordering::SeqCst);
     })
-    .expect("Error setting Ctrl-C handler");
+        .expect("Error setting Ctrl-C handler");
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)
