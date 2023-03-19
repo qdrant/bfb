@@ -71,6 +71,14 @@ pub struct Args {
     #[clap(long)]
     pub mmap_threshold: Option<usize>,
 
+    /// Index vectors on disk
+    #[clap(long)]
+    pub indexing_threshold: Option<usize>,
+
+    /// Number of segments
+    #[clap(long)]
+    pub segments: Option<usize>,
+
     /// On disk payload
     #[clap(long, default_value_t = false)]
     pub on_disk_payload: bool,
