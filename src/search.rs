@@ -2,7 +2,7 @@ use crate::common::random_vector_name;
 use crate::{random_filter, random_vector, Args};
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
-use qdrant_client::qdrant::{SearchParams, SearchPoints};
+use qdrant_client::qdrant::{QuantizationSearchParams, SearchParams, SearchPoints};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -55,6 +55,10 @@ impl SearchProcessor {
                 with_payload: Some(self.args.search_with_payload.into()),
                 params: Some(SearchParams {
                     hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
+                    quantization: Some(QuantizationSearchParams {
+                        ignore: None,
+                        rescore: Some(self.args.quantization_rescore),
+                    }),
                     ..Default::default()
                 }),
                 score_threshold: None,
