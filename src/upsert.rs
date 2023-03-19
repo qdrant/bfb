@@ -51,7 +51,8 @@ impl UpsertProcessor {
 
             let point_id: PointId = PointId {
                 point_id_options: Some(if self.args.uuids {
-                    PointIdOptions::Uuid(uuid::Uuid::from_u128(idx as u128).to_string())
+                    let random_uuid = uuid::Uuid::new_v4();
+                    PointIdOptions::Uuid(random_uuid.to_string())
                 } else {
                     PointIdOptions::Num(idx)
                 }),
