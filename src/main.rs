@@ -179,7 +179,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let sent_bar_arc = Arc::new(sent_bar);
 
-        let reader = if let Some(path) = &args.fbin.as_ref() {
+    let reader = if let Some(path) = &args.fbin.as_ref() {
         FBinReader::new(Path::new(path)).into()
     } else {
         None
