@@ -64,28 +64,3 @@ impl Iterator for FBinReader {
         Some(vector)
     }
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_read_fbin() {
-        let reader = FBinReader::new(Path::new("/Users/justjoinmeicloud.com/qdrant/vector-db-benchmark/datasets/yandex-text-to-image/vectors.fbin"));
-        eprintln!("reader.dim = {:#?}", reader.dim);
-        eprintln!("reader.num_vectors = {:#?}", reader.num_vectors);
-
-        // read vector
-        let vector = reader.read_vector(0);
-        eprintln!("vector = {:#?}", vector);
-
-        // Test iterator
-        for (i, vector) in reader.take(10).enumerate() {
-            eprintln!("vector[{}] = {:?}", i, vector);
-        }
-
-
-
-    }
-}
