@@ -9,13 +9,17 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use crate::fbin_reader::FBinReader;
+
 
 pub struct UpsertProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     client: QdrantClient,
     progress_bar: Arc<ProgressBar>,
+    reader: Option<FBinReader>,
 }
+
 
 impl UpsertProcessor {
     pub fn new(
@@ -23,12 +27,14 @@ impl UpsertProcessor {
         stopped: Arc<AtomicBool>,
         client: QdrantClient,
         progress_bar: Arc<ProgressBar>,
+        reader: Option<FBinReader>,
     ) -> Self {
         UpsertProcessor {
             args,
             stopped,
             client,
             progress_bar,
+            reader,
         }
     }
 
@@ -58,17 +64,22 @@ impl UpsertProcessor {
                 }),
             };
 
-            let vectors: Vectors = if self.args.vectors_per_point > 1 {
-                let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
-                    .map(|i| {
-                        let vector_name = format!("{}", i);
-                        let vector = random_vector(self.args.dim);
-                        (vector_name, vector)
-                    })
-                    .collect();
-                vectors_map.into()
+            let vectors: Vectors = if !(self.args.fbin.is_some()) {
+                if self.args.vectors_per_point > 1 {
+                    let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
+                        .map(|i| {
+                            let vector_name = format!("{}", i);
+                            let vector = random_vector(self.args.dim);
+                            (vector_name, vector)
+                        })
+                        .collect();
+                    vectors_map.into()
+                } else {
+                    random_vector(self.args.dim).into()
+                }
             } else {
-                random_vector(self.args.dim).into()
+                let reader = self.reader.as_ref().unwrap();
+                reader.read_vector(idx as usize).to_vec().into()
             };
 
             points.push(PointStruct::new(

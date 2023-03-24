@@ -42,8 +42,7 @@ impl FBinReader {
     }
 
     pub fn read_vector(&self, idx: usize) -> &[f32] {
-        let float_size = std::mem::size_of::<f32>();
-        let vector_size = self.dim as usize * float_size;
+        let vector_size = self.dim as usize;
         let vector_offset = self.header_size + idx * vector_size;
         let vector_raw = &self.mmap[vector_offset..vector_offset + vector_size];
         let arr: &[f32] = unsafe { transmute(vector_raw) };
@@ -73,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_read_fbin() {
-        let reader = FBinReader::new(Path::new("/home/generall/projects/vector_search/bfb/base.1M.fbin"));
+        let reader = FBinReader::new(Path::new("/Users/justjoinmeicloud.com/qdrant/vector-db-benchmark/datasets/yandex-text-to-image/vectors.fbin"));
         eprintln!("reader.dim = {:#?}", reader.dim);
         eprintln!("reader.num_vectors = {:#?}", reader.num_vectors);
 
@@ -85,6 +84,8 @@ mod tests {
         for (i, vector) in reader.take(10).enumerate() {
             eprintln!("vector[{}] = {:?}", i, vector);
         }
+
+
 
     }
 }

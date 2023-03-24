@@ -4,6 +4,7 @@ mod search;
 mod upsert;
 mod fbin_reader;
 
+use std::path::Path;
 use crate::common::{random_filter, random_payload, random_vector, KEYWORD_PAYLOAD_KEY};
 use crate::search::SearchProcessor;
 use crate::upsert::UpsertProcessor;
@@ -22,6 +23,7 @@ use qdrant_client::qdrant::quantization_config::Quantization;
 use tokio::runtime;
 use tokio::time::sleep;
 use crate::args::QuantizationArg;
+use crate::fbin_reader::FBinReader;
 
 fn get_config(args: &Args) -> QdrantClientConfig {
     let mut config = QdrantClientConfig::from_url(&args.uri);
@@ -176,8 +178,14 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     sent_bar.set_style(progress_style);
 
     let sent_bar_arc = Arc::new(sent_bar);
+
+        let reader = if let Some(path) = &args.fbin.as_ref() {
+        FBinReader::new(Path::new(path)).into()
+    } else {
+        None
+    };
     let upserter =
-        UpsertProcessor::new(args.clone(), stopped.clone(), client, sent_bar_arc.clone());
+        UpsertProcessor::new(args.clone(), stopped.clone(), client, sent_bar_arc.clone(), reader);
 
     let num_batches = args.num_vectors / args.batch_size;
 
