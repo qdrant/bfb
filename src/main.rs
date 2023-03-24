@@ -2,6 +2,7 @@ mod args;
 mod common;
 mod search;
 mod upsert;
+mod fbin_reader;
 
 use crate::common::{random_filter, random_payload, random_vector, KEYWORD_PAYLOAD_KEY};
 use crate::search::SearchProcessor;

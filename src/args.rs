@@ -17,6 +17,10 @@ pub struct Args {
     #[clap(long, default_value = "http://localhost:6334")]
     pub uri: String,
 
+    /// Source of data to upload - fbin file. Random if not specified
+    #[clap(long)]
+    pub fbin: Option<String>,
+    
     #[clap(short, long, default_value_t = 100_000)]
     pub num_vectors: usize,
 
