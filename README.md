@@ -20,6 +20,8 @@ Options:
           Number of parallel requests to send [default: 2]
   -b, --batch-size <BATCH_SIZE>
           [default: 100]
+      --fbin <filename>
+          Path to the file with vectors in .fbin format
       --skip-create
           Skip creation of the collection
       --skip-wait-index
