@@ -5,21 +5,22 @@ use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::{QuantizationSearchParams, SearchParams, SearchPoints};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use rand::prelude::SliceRandom;
 
 pub struct SearchProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
-    client: QdrantClient,
+    clients: Vec<QdrantClient>,
     pub server_timings: Mutex<Vec<f64>>,
     pub full_timings: Mutex<Vec<f64>>,
 }
 
 impl SearchProcessor {
-    pub fn new(args: Args, stopped: Arc<AtomicBool>, client: QdrantClient) -> Self {
+    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<QdrantClient>) -> Self {
         SearchProcessor {
             args,
             stopped,
-            client,
+            clients,
             server_timings: Mutex::new(Vec::new()),
             full_timings: Mutex::new(Vec::new()),
         }
@@ -46,7 +47,9 @@ impl SearchProcessor {
         };
 
         let res = self
-            .client
+            .clients
+            .choose(&mut rand::thread_rng())
+            .unwrap()
             .search_points(&SearchPoints {
                 collection_name: self.args.collection_name.to_string(),
                 vector: query_vector,

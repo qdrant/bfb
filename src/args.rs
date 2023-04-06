@@ -15,7 +15,7 @@ pub enum QuantizationArg {
 pub struct Args {
     /// Qdrant service URI
     #[clap(long, default_value = "http://localhost:6334")]
-    pub uri: String,
+    pub uri: Vec<String>,
 
     /// Source of data to upload - fbin file. Random if not specified
     #[clap(long)]
@@ -103,6 +103,10 @@ pub struct Args {
     #[clap(long)]
     pub keywords: Option<usize>,
 
+    /// Use separate request to set payload on just upserted points
+    #[clap(long, default_value_t = false)]
+    pub set_payload: bool,
+    
     /// `hnsw_ef` parameter used during search
     #[clap(long)]
     pub search_hnsw_ef: Option<usize>,

@@ -20,28 +20,42 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use qdrant_client::qdrant::quantization_config::Quantization;
+use rand::Rng;
 use tokio::runtime;
 use tokio::time::sleep;
 use crate::args::QuantizationArg;
 use crate::fbin_reader::FBinReader;
 
-fn get_config(args: &Args) -> QdrantClientConfig {
-    let mut config = QdrantClientConfig::from_url(&args.uri);
-    let api_key = std::env::var("QDRANT_API_KEY").ok();
+fn choose_owned<T>(mut items: Vec<T>) -> T {
+    let mut rng = rand::thread_rng();
+    // Get random id
+    let id = rng.gen_range(0..items.len());
+    // Remove item from vector
+    items.swap_remove(id)
+}
 
-    if let Some(timeout) = args.timeout {
-        config.set_timeout(Duration::from_secs(timeout as u64));
-        config.set_connect_timeout(Duration::from_secs(timeout as u64));
-    }
+fn get_config(args: &Args) -> Vec<QdrantClientConfig> {
+    let mut configs = Vec::new();
 
-    if let Some(api_key) = api_key {
-        config.set_api_key(&api_key);
+    for uri in args.uri.iter() {
+        let mut config = QdrantClientConfig::from_url(uri);
+        let api_key = std::env::var("QDRANT_API_KEY").ok();
+
+        if let Some(timeout) = args.timeout {
+            config.set_timeout(Duration::from_secs(timeout as u64));
+            config.set_connect_timeout(Duration::from_secs(timeout as u64));
+        }
+
+        if let Some(api_key) = api_key {
+            config.set_api_key(&api_key);
+        }
+        configs.push(config);
     }
-    config
+    configs
 }
 
 async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
-    let client = QdrantClient::new(Some(get_config(args))).await?;
+    let client = QdrantClient::new(Some(choose_owned(get_config(args)))).await?;
     let start = std::time::Instant::now();
     let mut seen = 0;
     loop {
@@ -63,7 +77,7 @@ async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
 }
 
 async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(args))).await?;
+    let client = QdrantClient::new(Some(choose_owned(get_config(args)))).await?;
 
     match client.delete_collection(&args.collection_name).await {
         Ok(_) => {}
@@ -166,7 +180,10 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 }
 
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(args))).await?;
+    let mut clients = Vec::new();
+    for config in get_config(args) {
+        clients.push(QdrantClient::new(Some(config)).await?);
+    }
 
     let multiprogress = MultiProgress::new();
 
@@ -185,7 +202,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         None
     };
     let upserter =
-        UpsertProcessor::new(args.clone(), stopped.clone(), client, sent_bar_arc.clone(), reader);
+        UpsertProcessor::new(args.clone(), stopped.clone(), clients, sent_bar_arc.clone(), reader);
 
     let num_batches = args.num_vectors / args.batch_size;
 
@@ -231,9 +248,13 @@ fn print_timings(timings: &mut Vec<f64>) {
 }
 
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(get_config(args))).await?;
+    let mut clients = Vec::new();
+    for config in get_config(args) {
+        clients.push(QdrantClient::new(Some(config)).await?);
+    }
 
-    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), client);
+
+    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
 
     let multiprogress = MultiProgress::new();
     let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));

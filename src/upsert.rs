@@ -9,13 +9,14 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use rand::prelude::SliceRandom;
 use crate::fbin_reader::FBinReader;
 
 
 pub struct UpsertProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
-    client: QdrantClient,
+    clients: Vec<QdrantClient>,
     progress_bar: Arc<ProgressBar>,
     reader: Option<FBinReader>,
 }
@@ -25,14 +26,14 @@ impl UpsertProcessor {
     pub fn new(
         args: Args,
         stopped: Arc<AtomicBool>,
-        client: QdrantClient,
+        clients: Vec<QdrantClient>,
         progress_bar: Arc<ProgressBar>,
         reader: Option<FBinReader>,
     ) -> Self {
         UpsertProcessor {
             args,
             stopped,
-            client,
+            clients,
             progress_bar,
             reader,
         }
@@ -48,6 +49,9 @@ impl UpsertProcessor {
 
         let mut rng = rand::thread_rng();
         let mut points = Vec::new();
+
+        let mut batch_ids = Vec::new();
+
         for i in 0..min(self.args.batch_size, points_left) {
             let idx = if let Some(max_id) = self.args.max_id {
                 rng.gen_range(0..max_id) as u64
@@ -63,6 +67,8 @@ impl UpsertProcessor {
                     PointIdOptions::Num(idx)
                 }),
             };
+
+            batch_ids.push(point_id.clone());
 
             let vectors: Vectors = if let Some(reader) = &self.reader {
                 reader.read_vector(idx as usize).to_vec().into()
@@ -91,14 +97,45 @@ impl UpsertProcessor {
         }
 
         let res = if self.args.wait_on_upsert {
-            self.client
+            self.clients
+                .choose(&mut rng)
+                .unwrap()
                 .upsert_points_blocking(&self.args.collection_name, points, None)
                 .await?
         } else {
-            self.client
+            self.clients
+                .choose(&mut rng)
+                .unwrap()
                 .upsert_points(&self.args.collection_name, points, None)
                 .await?
         };
+
+        if self.args.set_payload {
+            if self.args.wait_on_upsert {
+                self.clients
+                    .choose(&mut rng)
+                    .unwrap()
+                    .set_payload_blocking(
+                        &self.args.collection_name,
+                        &batch_ids.into(),
+                        random_payload(self.args.keywords),
+                        None,
+                    )
+                    .await?;
+            } else {
+                self.clients
+                    .choose(&mut rng)
+                    .unwrap()
+                    .set_payload(
+                        &self.args.collection_name,
+                        &batch_ids.into(),
+                        random_payload(self.args.keywords),
+                        None,
+                    )
+                    .await?;
+            }
+        }
+
         if res.time > self.args.timing_threshold {
             self.progress_bar
                 .println(format!("Slow upsert: {:?}", res.time));
