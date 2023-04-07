@@ -214,6 +214,11 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             future
         });
 
+    if stopped.load(Ordering::Relaxed) {
+        sent_bar_arc.abandon();
+        return Ok(());
+    }
+
     let mut upsert_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let Some(result) = upsert_stream.next().await {
         result?;
