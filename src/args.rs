@@ -1,4 +1,7 @@
+use std::{fmt, str};
+
 use clap::Parser;
+use qdrant_client::qdrant;
 
 
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
@@ -130,6 +133,10 @@ pub struct Args {
     #[clap(long, default_value_t = 1)]
     pub write_consistency_factor: usize,
 
+    /// Write ordering parameter to use for all write requests
+    #[clap(long)]
+    pub write_ordering: Option<WriteOrdering>,
+
     /// timeout for requests in seconds
     #[clap(long)]
     pub timeout: Option<usize>,
@@ -140,4 +147,63 @@ pub struct Args {
     /// Enable quantization re-score during search
     #[clap(long, default_value_t = false)]
     pub quantization_rescore: bool,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum WriteOrdering {
+    Weak,
+    Medium,
+    Strong,
+}
+
+impl fmt::Display for WriteOrdering {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            Self::Weak => "Weak",
+            Self::Medium => "Medium",
+            Self::Strong => "Strong",
+        };
+
+        str.fmt(f)
+    }
+}
+
+impl str::FromStr for WriteOrdering {
+    type Err = anyhow::Error;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        match str {
+            "Weak" => Ok(Self::Weak),
+            "Medium" => Ok(Self::Medium),
+            "Strong" => Ok(Self::Strong),
+            _ => Err(anyhow::format_err!(
+                "invalid WriteOrdering value {str}, \
+                 valid values are Weak, Medium or Strong"
+            )),
+        }
+    }
+}
+
+impl From<WriteOrdering> for qdrant::WriteOrdering {
+    fn from(ordering: WriteOrdering) -> Self {
+        qdrant::WriteOrdering {
+            r#type: ordering.into(),
+        }
+    }
+}
+
+impl From<WriteOrdering> for i32 {
+    fn from(ordering: WriteOrdering) -> Self {
+        qdrant::WriteOrderingType::from(ordering) as _
+    }
+}
+
+impl From<WriteOrdering> for qdrant::WriteOrderingType {
+    fn from(ordering: WriteOrdering) -> Self {
+        match ordering {
+            WriteOrdering::Weak => Self::Weak,
+            WriteOrdering::Medium => Self::Medium,
+            WriteOrdering::Strong => Self::Strong,
+        }
+    }
 }

@@ -96,17 +96,19 @@ impl UpsertProcessor {
             return Ok(());
         }
 
+        let ordering = self.args.write_ordering.map(Into::into);
+
         let res = if self.args.wait_on_upsert {
             self.clients
                 .choose(&mut rng)
                 .unwrap()
-                .upsert_points_blocking(&self.args.collection_name, points, None)
+                .upsert_points_blocking(&self.args.collection_name, points, ordering.clone())
                 .await?
         } else {
             self.clients
                 .choose(&mut rng)
                 .unwrap()
-                .upsert_points(&self.args.collection_name, points, None)
+                .upsert_points(&self.args.collection_name, points, ordering.clone())
                 .await?
         };
 
@@ -119,7 +121,7 @@ impl UpsertProcessor {
                         &self.args.collection_name,
                         &batch_ids.into(),
                         random_payload(self.args.keywords),
-                        None,
+                        ordering,
                     )
                     .await?;
             } else {
@@ -130,7 +132,7 @@ impl UpsertProcessor {
                         &self.args.collection_name,
                         &batch_ids.into(),
                         random_payload(self.args.keywords),
-                        None,
+                        ordering,
                     )
                     .await?;
             }
