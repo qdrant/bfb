@@ -68,7 +68,7 @@ impl SearchProcessor {
                 offset: None,
                 vector_name,
                 with_vectors: None,
-                read_consistency: None,
+                read_consistency: self.args.read_consistency.map(Into::into),
             })
             .await?;
         let elapsed = start.elapsed().as_secs_f64();
