@@ -126,6 +126,10 @@ pub struct Args {
     #[clap(long)]
     pub shards: Option<usize>,
 
+    /// Write consistency factor to use for collection creation
+    #[clap(long, default_value_t = 1)]
+    pub write_consistency_factor: usize,
+
     /// timeout for requests in seconds
     #[clap(long)]
     pub timeout: Option<usize>,
