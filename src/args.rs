@@ -1,4 +1,7 @@
+use std::{fmt, str};
+
 use clap::Parser;
+use qdrant_client::qdrant;
 
 
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
@@ -20,7 +23,7 @@ pub struct Args {
     /// Source of data to upload - fbin file. Random if not specified
     #[clap(long)]
     pub fbin: Option<String>,
-    
+
     #[clap(short, long, default_value_t = 100_000)]
     pub num_vectors: usize,
 
@@ -126,6 +129,18 @@ pub struct Args {
     #[clap(long)]
     pub shards: Option<usize>,
 
+    /// Write consistency factor to use for collection creation
+    #[clap(long, default_value_t = 1)]
+    pub write_consistency_factor: usize,
+
+    /// Write ordering parameter to use for all write requests
+    #[clap(long)]
+    pub write_ordering: Option<WriteOrdering>,
+
+    /// Read consistency parameter to use for all read requests
+    #[clap(long)]
+    pub read_consistency: Option<ReadConsistency>,
+
     /// timeout for requests in seconds
     #[clap(long)]
     pub timeout: Option<usize>,
@@ -136,4 +151,167 @@ pub struct Args {
     /// Enable quantization re-score during search
     #[clap(long, default_value_t = false)]
     pub quantization_rescore: bool,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum WriteOrdering {
+    Weak,
+    Medium,
+    Strong,
+}
+
+impl fmt::Display for WriteOrdering {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            Self::Weak => "Weak",
+            Self::Medium => "Medium",
+            Self::Strong => "Strong",
+        };
+
+        str.fmt(f)
+    }
+}
+
+impl str::FromStr for WriteOrdering {
+    type Err = anyhow::Error;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        match str {
+            "Weak" => Ok(Self::Weak),
+            "Medium" => Ok(Self::Medium),
+            "Strong" => Ok(Self::Strong),
+            _ => Err(anyhow::format_err!(
+                "invalid WriteOrdering value {str}, \
+                 valid values are Weak, Medium or Strong"
+            )),
+        }
+    }
+}
+
+impl From<WriteOrdering> for qdrant::WriteOrdering {
+    fn from(ordering: WriteOrdering) -> Self {
+        qdrant::WriteOrdering {
+            r#type: ordering.into(),
+        }
+    }
+}
+
+impl From<WriteOrdering> for i32 {
+    fn from(ordering: WriteOrdering) -> Self {
+        qdrant::WriteOrderingType::from(ordering) as _
+    }
+}
+
+impl From<WriteOrdering> for qdrant::WriteOrderingType {
+    fn from(ordering: WriteOrdering) -> Self {
+        match ordering {
+            WriteOrdering::Weak => Self::Weak,
+            WriteOrdering::Medium => Self::Medium,
+            WriteOrdering::Strong => Self::Strong,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ReadConsistency {
+    Type(ReadConsistencyType),
+    Factor(u64),
+}
+
+impl fmt::Display for ReadConsistency {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Type(consistency) => consistency.fmt(f),
+            Self::Factor(factor) => factor.fmt(f),
+        }
+    }
+}
+
+impl str::FromStr for ReadConsistency {
+    type Err = anyhow::Error;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        if let Ok(consistency) = str.parse() {
+            return Ok(Self::Type(consistency));
+        }
+
+        if let Ok(factor) = str.parse() {
+            return Ok(Self::Factor(factor));
+        }
+
+        Err(anyhow::format_err!(
+            "invalid ReadConsistency value {str}, \
+             valid values are All, Majority, Quorum or a positive integer number"
+        ))
+    }
+}
+
+impl From<ReadConsistency> for qdrant::ReadConsistency {
+    fn from(consistency: ReadConsistency) -> Self {
+        let consistency = match consistency {
+            ReadConsistency::Type(consistency) => consistency.into(),
+            ReadConsistency::Factor(factor) => qdrant::read_consistency::Value::Factor(factor),
+        };
+
+        qdrant::ReadConsistency {
+            value: consistency.into(),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ReadConsistencyType {
+    All,
+    Majority,
+    Quorum,
+}
+
+impl fmt::Display for ReadConsistencyType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            Self::All => "All",
+            Self::Majority => "Majority",
+            Self::Quorum => "Quorum",
+        };
+
+        str.fmt(f)
+    }
+}
+
+impl str::FromStr for ReadConsistencyType {
+    type Err = anyhow::Error;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        match str {
+            "All" => Ok(Self::All),
+            "Majority" => Ok(Self::Majority),
+            "Quorum" => Ok(Self::Quorum),
+            _ => Err(anyhow::format_err!(
+                "invalid ReadConsistencyType value {str}, \
+                 valid values are All, Majority or Quorum"
+            )),
+        }
+    }
+}
+
+impl From<ReadConsistencyType> for qdrant::read_consistency::Value {
+    fn from(consistency: ReadConsistencyType) -> Self {
+        qdrant::read_consistency::Value::Type(consistency.into())
+    }
+}
+
+impl From<ReadConsistencyType> for i32 {
+    fn from(consistency: ReadConsistencyType) -> Self {
+        qdrant::ReadConsistencyType::from(consistency) as _
+    }
+}
+
+impl From<ReadConsistencyType> for qdrant::ReadConsistencyType {
+    fn from(consistency: ReadConsistencyType) -> Self {
+        match consistency {
+            ReadConsistencyType::All => qdrant::ReadConsistencyType::All,
+            ReadConsistencyType::Majority => qdrant::ReadConsistencyType::Majority,
+            ReadConsistencyType::Quorum => qdrant::ReadConsistencyType::Quorum,
+        }
+    }
 }

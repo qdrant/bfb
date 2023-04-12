@@ -136,6 +136,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             }),
             on_disk_payload: Some(args.on_disk_payload),
             replication_factor: Some(args.replication_factor as u32),
+            write_consistency_factor: Some(args.write_consistency_factor as u32),
             shard_number: args.shards.map(|x| x as u32),
             quantization_config: match args.quantization {
                 Some(quantization) => match quantization {
