@@ -147,7 +147,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                                 ScalarQuantization {
                                     r#type: i32::from(QuantizationType::Int8),
                                     quantile: Some(0.99),
-                                    always_ram: None,
+                                    always_ram: args.quantization_in_ram,
                                 }
                             )),
                         })

@@ -148,6 +148,10 @@ pub struct Args {
     #[clap(long)]
     pub quantization: Option<QuantizationArg>,
 
+    /// Keep quantized vectors in memory
+    #[clap(long)]
+    pub quantization_in_ram: Option<bool>,
+
     /// Enable quantization re-score during search
     #[clap(long, default_value_t = false)]
     pub quantization_rescore: bool,
