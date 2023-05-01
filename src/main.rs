@@ -132,6 +132,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 default_segment_number: args.segments.map(|x| x as u64),
                 memmap_threshold: args.mmap_threshold.map(|x| x as u64),
                 indexing_threshold: args.indexing_threshold.map(|x| x as u64),
+                max_segment_size: args.max_segment_size.map(|x| x as u64),
                 ..Default::default()
             }),
             on_disk_payload: Some(args.on_disk_payload),

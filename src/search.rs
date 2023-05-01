@@ -60,7 +60,7 @@ impl SearchProcessor {
                     hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
                     quantization: Some(QuantizationSearchParams {
                         ignore: None,
-                        rescore: Some(self.args.quantization_rescore),
+                        rescore: self.args.quantization_rescore,
                     }),
                     ..Default::default()
                 }),

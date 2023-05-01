@@ -86,6 +86,9 @@ pub struct Args {
     #[clap(long)]
     pub segments: Option<usize>,
 
+    #[clap(long)]
+    pub max_segment_size: Option<usize>,
+
     /// On disk payload
     #[clap(long, default_value_t = false)]
     pub on_disk_payload: bool,
@@ -153,8 +156,8 @@ pub struct Args {
     pub quantization_in_ram: Option<bool>,
 
     /// Enable quantization re-score during search
-    #[clap(long, default_value_t = false)]
-    pub quantization_rescore: bool,
+    #[clap(long)]
+    pub quantization_rescore: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]
