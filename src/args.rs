@@ -27,9 +27,11 @@ pub struct Args {
     #[clap(long)]
     pub fbin: Option<String>,
 
+    /// Number of points to upload
     #[clap(short, long, default_value_t = 100_000)]
     pub num_vectors: usize,
 
+    /// Number of named vectors per point
     #[clap(long, default_value_t = 1)]
     pub vectors_per_point: usize,
 
@@ -38,6 +40,7 @@ pub struct Args {
     #[clap(short, long)]
     pub max_id: Option<usize>,
 
+    /// Number of dimensions in each vector
     #[clap(short, long, default_value_t = 128)]
     pub dim: usize,
 
@@ -51,7 +54,7 @@ pub struct Args {
     #[clap(short, long, default_value_t = 100)]
     pub batch_size: usize,
 
-    /// Skip creation of the collection
+    /// Skip creating a collection
     #[clap(long, default_value_t = false)]
     pub skip_create: bool,
 
@@ -59,11 +62,11 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub create_if_missing: bool,
 
-    /// If set, after upload will wait until collection is indexed
+    /// Skip wait until collection is indexed after upload
     #[clap(long, default_value_t = false)]
     pub skip_wait_index: bool,
 
-    /// Perform data upload
+    /// Skip uploading new points
     #[clap(long, default_value_t = false)]
     pub skip_upload: bool,
 
