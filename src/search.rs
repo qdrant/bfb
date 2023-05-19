@@ -3,9 +3,9 @@ use crate::{random_filter, random_vector, Args};
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::{QuantizationSearchParams, SearchParams, SearchPoints};
+use rand::prelude::SliceRandom;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use rand::prelude::SliceRandom;
 
 pub struct SearchProcessor {
     args: Args,

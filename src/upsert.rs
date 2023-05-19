@@ -1,17 +1,16 @@
+use crate::fbin_reader::FBinReader;
 use crate::{random_payload, random_vector, Args};
 use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::{PointId, PointStruct, Vectors};
+use rand::prelude::SliceRandom;
 use rand::Rng;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use rand::prelude::SliceRandom;
-use crate::fbin_reader::FBinReader;
-
 
 pub struct UpsertProcessor {
     args: Args,
@@ -20,7 +19,6 @@ pub struct UpsertProcessor {
     progress_bar: Arc<ProgressBar>,
     reader: Option<FBinReader>,
 }
-
 
 impl UpsertProcessor {
     pub fn new(
