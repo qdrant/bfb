@@ -148,6 +148,10 @@ pub struct Args {
     #[clap(long)]
     pub timeout: Option<usize>,
 
+    /// Keep going on search error
+    #[clap(long, default_value_t = false)]
+    pub ignore_errors: bool,
+
     #[clap(long)]
     pub quantization: Option<QuantizationArg>,
 
