@@ -1,11 +1,12 @@
 mod args;
 mod common;
+mod fbin_reader;
 mod search;
 mod upsert;
-mod fbin_reader;
 
-use std::path::Path;
+use crate::args::QuantizationArg;
 use crate::common::{random_filter, random_payload, random_vector, KEYWORD_PAYLOAD_KEY};
+use crate::fbin_reader::FBinReader;
 use crate::search::SearchProcessor;
 use crate::upsert::UpsertProcessor;
 use anyhow::Result;
@@ -14,17 +15,20 @@ use clap::Parser;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
+use qdrant_client::qdrant::quantization_config::Quantization;
 use qdrant_client::qdrant::vectors_config::Config;
-use qdrant_client::qdrant::{CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff, QuantizationConfig, QuantizationType, ScalarQuantization, VectorParams, VectorParamsMap, VectorsConfig};
+use qdrant_client::qdrant::{
+    CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff,
+    QuantizationConfig, QuantizationType, ScalarQuantization, VectorParams, VectorParamsMap,
+    VectorsConfig,
+};
+use rand::Rng;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use qdrant_client::qdrant::quantization_config::Quantization;
-use rand::Rng;
 use tokio::runtime;
 use tokio::time::sleep;
-use crate::args::QuantizationArg;
-use crate::fbin_reader::FBinReader;
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
@@ -55,7 +59,7 @@ fn get_config(args: &Args) -> Vec<QdrantClientConfig> {
 }
 
 async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
-    let client = QdrantClient::new(Some(choose_owned(get_config(args)))).await?;
+    let client = QdrantClient::new(Some(choose_owned(get_config(args))))?;
     let start = std::time::Instant::now();
     let mut seen = 0;
     loop {
@@ -77,7 +81,7 @@ async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
 }
 
 async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(choose_owned(get_config(args)))).await?;
+    let client = QdrantClient::new(Some(choose_owned(get_config(args))))?;
 
     match client.delete_collection(&args.collection_name).await {
         Ok(_) => {}
@@ -108,6 +112,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         },
         hnsw_config: None,
         quantization_config: None,
+        on_disk: None,
     };
 
     let vector_params = if args.vectors_per_point == 1 {
@@ -144,17 +149,13 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             quantization_config: match args.quantization {
                 Some(quantization) => match quantization {
                     QuantizationArg::None => None,
-                    QuantizationArg::Scalar => {
-                        Some(QuantizationConfig {
-                            quantization: Some(Quantization::Scalar(
-                                ScalarQuantization {
-                                    r#type: i32::from(QuantizationType::Int8),
-                                    quantile: Some(0.99),
-                                    always_ram: args.quantization_in_ram,
-                                }
-                            )),
-                        })
-                    }
+                    QuantizationArg::Scalar => Some(QuantizationConfig {
+                        quantization: Some(Quantization::Scalar(ScalarQuantization {
+                            r#type: i32::from(QuantizationType::Int8),
+                            quantile: Some(0.99),
+                            always_ram: args.quantization_in_ram,
+                        })),
+                    }),
                 },
                 None => None,
             },
@@ -186,7 +187,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
     for config in get_config(args) {
-        clients.push(QdrantClient::new(Some(config)).await?);
+        clients.push(QdrantClient::new(Some(config))?);
     }
 
     let multiprogress = MultiProgress::new();
@@ -205,8 +206,13 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     } else {
         None
     };
-    let upserter =
-        UpsertProcessor::new(args.clone(), stopped.clone(), clients, sent_bar_arc.clone(), reader);
+    let upserter = UpsertProcessor::new(
+        args.clone(),
+        stopped.clone(),
+        clients,
+        sent_bar_arc.clone(),
+        reader,
+    );
 
     let num_batches = args.num_vectors / args.batch_size;
 
@@ -259,9 +265,8 @@ fn print_timings(timings: &mut Vec<f64>) {
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
     for config in get_config(args) {
-        clients.push(QdrantClient::new(Some(config)).await?);
+        clients.push(QdrantClient::new(Some(config))?);
     }
-
 
     let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
 
@@ -331,7 +336,7 @@ fn main() {
     ctrlc::set_handler(move || {
         r.store(true, Ordering::SeqCst);
     })
-        .expect("Error setting Ctrl-C handler");
+    .expect("Error setting Ctrl-C handler");
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)

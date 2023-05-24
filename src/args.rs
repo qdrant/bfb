@@ -3,14 +3,12 @@ use std::{fmt, str};
 use clap::Parser;
 use qdrant_client::qdrant;
 
-
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
 pub enum QuantizationArg {
     #[default]
     None,
-    Scalar
+    Scalar,
 }
-
 
 /// Big F*cking Benchmark tool for stress-testing Qdrant
 #[derive(Parser, Debug, Clone)]
@@ -112,7 +110,7 @@ pub struct Args {
     /// Use separate request to set payload on just upserted points
     #[clap(long, default_value_t = false)]
     pub set_payload: bool,
-    
+
     /// `hnsw_ef` parameter used during search
     #[clap(long)]
     pub search_hnsw_ef: Option<usize>,

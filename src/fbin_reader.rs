@@ -1,7 +1,7 @@
+use memmap2::{Mmap, MmapOptions};
 use std::fs::OpenOptions;
 use std::mem::transmute;
 use std::path::Path;
-use memmap2::{Mmap, MmapOptions};
 
 pub struct FBinReader {
     pub num_vectors: i32,
@@ -10,7 +10,6 @@ pub struct FBinReader {
     pub header_size: usize,
     mmap: Mmap,
 }
-
 
 impl FBinReader {
     pub fn new(path: &Path) -> Self {
@@ -49,7 +48,6 @@ impl FBinReader {
         arr
     }
 }
-
 
 impl Iterator for FBinReader {
     type Item = Vec<f32>;
