@@ -286,10 +286,16 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let Some(result) = search_stream.next().await {
-        if !args.ignore_errors {
-            result?;
-        } else if let Err(err) = result {
+        // Continue with no error
+        let err = match result {
+            Ok(()) => continue,
+            Err(err) => err,
+        };
+
+        if args.ignore_errors {
             progress_bar.println(format!("Error: {}", err));
+        } else {
+            return Err(err);
         }
     }
 
