@@ -18,9 +18,9 @@ use qdrant_client::client::{QdrantClient, QdrantClientConfig};
 use qdrant_client::qdrant::quantization_config::Quantization;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
-    CollectionStatus, CreateCollection, Distance, FieldType, HnswConfigDiff, OptimizersConfigDiff,
-    QuantizationConfig, QuantizationType, ScalarQuantization, VectorParams, VectorParamsMap,
-    VectorsConfig,
+    CollectionStatus, CompressionRatio, CreateCollection, Distance, FieldType, HnswConfigDiff,
+    OptimizersConfigDiff, ProductQuantization, QuantizationConfig, QuantizationType,
+    ScalarQuantization, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use rand::Rng;
 use std::path::Path;
@@ -153,6 +153,36 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         quantization: Some(Quantization::Scalar(ScalarQuantization {
                             r#type: i32::from(QuantizationType::Int8),
                             quantile: Some(0.99),
+                            always_ram: args.quantization_in_ram,
+                        })),
+                    }),
+                    QuantizationArg::X4 => Some(QuantizationConfig {
+                        quantization: Some(Quantization::Product(ProductQuantization {
+                            compression: i32::from(CompressionRatio::X4),
+                            always_ram: args.quantization_in_ram,
+                        })),
+                    }),
+                    QuantizationArg::X8 => Some(QuantizationConfig {
+                        quantization: Some(Quantization::Product(ProductQuantization {
+                            compression: i32::from(CompressionRatio::X8),
+                            always_ram: args.quantization_in_ram,
+                        })),
+                    }),
+                    QuantizationArg::X16 => Some(QuantizationConfig {
+                        quantization: Some(Quantization::Product(ProductQuantization {
+                            compression: i32::from(CompressionRatio::X16),
+                            always_ram: args.quantization_in_ram,
+                        })),
+                    }),
+                    QuantizationArg::X32 => Some(QuantizationConfig {
+                        quantization: Some(Quantization::Product(ProductQuantization {
+                            compression: i32::from(CompressionRatio::X32),
+                            always_ram: args.quantization_in_ram,
+                        })),
+                    }),
+                    QuantizationArg::X64 => Some(QuantizationConfig {
+                        quantization: Some(Quantization::Product(ProductQuantization {
+                            compression: i32::from(CompressionRatio::X64),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
