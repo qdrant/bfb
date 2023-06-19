@@ -142,9 +142,13 @@ pub struct Args {
     #[clap(long)]
     pub read_consistency: Option<ReadConsistency>,
 
-    /// timeout for requests in seconds
+    /// Timeout for requests in seconds
     #[clap(long)]
     pub timeout: Option<usize>,
+
+    /// Keep going on search error
+    #[clap(long, default_value_t = false)]
+    pub ignore_errors: bool,
 
     #[clap(long)]
     pub quantization: Option<QuantizationArg>,
