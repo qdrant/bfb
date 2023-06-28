@@ -95,6 +95,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub on_disk_hnsw: bool,
 
+    /// On disk vectors
+    #[clap(long)]
+    pub on_disk_vectors: Option<bool>,
+
     /// Log requests if the take longer than this
     #[clap(long, default_value_t = 0.1)]
     pub timing_threshold: f64,
@@ -160,6 +164,10 @@ pub struct Args {
     /// Enable quantization re-score during search
     #[clap(long)]
     pub quantization_rescore: Option<bool>,
+
+    /// Quantization oversampling factor
+    #[clap(long)]
+    pub quantization_oversampling: Option<f64>,
 }
 
 #[derive(Copy, Clone, Debug)]

@@ -110,9 +110,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 panic!("Unknown distance {}", args.distance)
             }
         },
-        hnsw_config: None,
-        quantization_config: None,
-        on_disk: None,
+        on_disk: args.on_disk_vectors,
+        ..Default::default()
     };
 
     let vector_params = if args.vectors_per_point == 1 {

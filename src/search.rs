@@ -61,6 +61,7 @@ impl SearchProcessor {
                     quantization: Some(QuantizationSearchParams {
                         ignore: None,
                         rescore: self.args.quantization_rescore,
+                        oversampling: self.args.quantization_oversampling,
                     }),
                     ..Default::default()
                 }),
