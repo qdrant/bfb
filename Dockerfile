@@ -1,7 +1,7 @@
 # Leveraging the pre-built Docker images with
 # cargo-chef and the Rust toolchain
 # https://www.lpalmieri.com/posts/fast-rust-docker-builds/
-FROM --platform=${BUILDPLATFORM:-linux/amd64} lukemathwalker/cargo-chef:latest-rust-1.69 AS chef
+FROM --platform=${BUILDPLATFORM:-linux/amd64} lukemathwalker/cargo-chef:latest-rust-1.70 AS chef
 WORKDIR /bfb
 
 FROM chef AS planner
