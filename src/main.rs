@@ -345,7 +345,9 @@ async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let query_stream = (0..args.num_vectors)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
-            let future = scroller.scroll(n, &progress_bar);
+            // use request number as offset to simulate scroll
+            let offset = n as u64;
+            let future = scroller.scroll(offset, &progress_bar);
             progress_bar.inc(1);
             future
         });

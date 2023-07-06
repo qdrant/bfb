@@ -27,7 +27,7 @@ impl ScrollProcessor {
 
     pub async fn scroll(
         &self,
-        _req_id: usize,
+        offset: u64,
         progress_bar: &ProgressBar,
     ) -> Result<(), anyhow::Error> {
         if self.stopped.load(std::sync::atomic::Ordering::Relaxed) {
@@ -47,7 +47,7 @@ impl ScrollProcessor {
                 filter: query_filter,
                 limit: self.args.scroll_limit.map(|v| v as u32),
                 with_payload: Some(self.args.search_with_payload.into()),
-                offset: None,
+                offset: Some(offset.into()),
                 with_vectors: None,
                 read_consistency: self.args.read_consistency.map(Into::into),
             })
