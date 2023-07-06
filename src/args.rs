@@ -66,6 +66,14 @@ pub struct Args {
     #[clap(long, default_value_t = 10)]
     pub search_limit: usize,
 
+    /// Perform scroll
+    #[clap(long, default_value_t = false)]
+    pub scroll: bool,
+
+    /// Scroll limit
+    #[clap(long)]
+    pub scroll_limit: Option<usize>,
+
     #[clap(long, default_value = "benchmark")]
     pub collection_name: String,
 

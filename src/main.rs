@@ -3,6 +3,7 @@ mod common;
 mod fbin_reader;
 mod search;
 mod upsert;
+mod scroll;
 
 use crate::args::QuantizationArg;
 use crate::common::{random_filter, random_payload, random_vector, KEYWORD_PAYLOAD_KEY};
@@ -29,6 +30,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime;
 use tokio::time::sleep;
+use crate::scroll::ScrollProcessor;
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
@@ -262,6 +264,11 @@ fn print_timings(timings: &mut Vec<f64>) {
 }
 
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    println!("Starting search...");
+
     let mut clients = Vec::new();
     for config in get_config(args) {
         clients.push(QdrantClient::new(Some(config))?);
@@ -309,7 +316,66 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     println!("--- Search timings ---");
     print_timings(&mut timings);
     let mut timings = searcher.server_timings.lock().unwrap();
-    println!("--- Server timings ---");
+    println!("--- Search server timings ---");
+    print_timings(&mut timings);
+
+    Ok(())
+}
+
+async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    println!("Starting scroll...");
+
+    let mut clients = Vec::new();
+    for config in get_config(args) {
+        clients.push(QdrantClient::new(Some(config))?);
+    }
+
+    let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients);
+
+    let multiprogress = MultiProgress::new();
+    let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
+    let progress_style = ProgressStyle::default_bar()
+        .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
+        .expect("Failed to create progress style");
+    progress_bar.set_style(progress_style);
+
+    let query_stream = (0..args.num_vectors)
+        .take_while(|_| !stopped.load(Ordering::Relaxed))
+        .map(|n| {
+            let future = scroller.scroll(n, &progress_bar);
+            progress_bar.inc(1);
+            future
+        });
+
+    let mut scroll_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
+    while let Some(result) = scroll_stream.next().await {
+        // Continue with no error
+        let err = match result {
+            Ok(()) => continue,
+            Err(err) => err,
+        };
+
+        if args.ignore_errors {
+            progress_bar.println(format!("Error: {}", err));
+        } else {
+            return Err(err);
+        }
+    }
+
+    if stopped.load(Ordering::Relaxed) {
+        progress_bar.abandon();
+    } else {
+        progress_bar.finish();
+    }
+
+    let mut timings = scroller.full_timings.lock().unwrap();
+    println!("--- Scroll timings ---");
+    print_timings(&mut timings);
+    let mut timings = scroller.server_timings.lock().unwrap();
+    println!("--- Scroll server timings ---");
     print_timings(&mut timings);
 
     Ok(())
@@ -332,6 +398,10 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     if args.search {
         search(&args, stopped.clone()).await?;
+    }
+
+    if args.scroll {
+        scroll(&args, stopped.clone()).await?;
     }
     Ok(())
 }
