@@ -77,7 +77,13 @@ impl SearchProcessor {
         if res.time > self.args.timing_threshold {
             progress_bar.println(format!("Slow search: {:?}", res.time));
         }
+
         self.server_timings.lock().unwrap().push(res.time);
+
+        if let Some(delay_millis) = self.args.delay {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
+        }
+
         Ok(())
     }
 }

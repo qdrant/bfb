@@ -168,6 +168,10 @@ pub struct Args {
     /// Quantization oversampling factor
     #[clap(long)]
     pub quantization_oversampling: Option<f64>,
+
+    /// Delay between requests in milliseconds
+    #[clap(long)]
+    pub delay: Option<usize>,
 }
 
 #[derive(Copy, Clone, Debug)]

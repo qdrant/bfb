@@ -11,6 +11,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::time::sleep;
 
 pub struct UpsertProcessor {
     args: Args,
@@ -104,12 +105,12 @@ impl UpsertProcessor {
                     ordering.clone(),
                 )
             })
-            .await?
+                .await?
         } else {
             retry_with_clients(&self.clients, |client| {
                 client.upsert_points(&self.args.collection_name, points.clone(), ordering.clone())
             })
-            .await?
+                .await?
         };
 
         if self.args.set_payload {
@@ -123,7 +124,7 @@ impl UpsertProcessor {
                         ordering.clone(),
                     )
                 })
-                .await?;
+                    .await?;
             } else {
                 retry_with_clients(&self.clients, |client| {
                     client.set_payload(
@@ -133,7 +134,7 @@ impl UpsertProcessor {
                         ordering.clone(),
                     )
                 })
-                .await?;
+                    .await?;
             }
         }
 
@@ -141,6 +142,11 @@ impl UpsertProcessor {
             self.progress_bar
                 .println(format!("Slow upsert: {:?}", res.time));
         }
+
+        if let Some(delay_millis) = self.args.delay {
+            sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
+        }
+
         Ok::<(), Error>(())
     }
 }
