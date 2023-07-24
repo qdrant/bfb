@@ -1,11 +1,11 @@
+use crate::common::retry_with_clients;
 use crate::fbin_reader::FBinReader;
 use crate::{random_payload, random_vector, Args};
 use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
-use qdrant_client::qdrant::{PointId, PointStruct, Vectors};
-use rand::prelude::SliceRandom;
+use qdrant_client::qdrant::{PointId, PointStruct, PointsSelector, Vectors};
 use rand::Rng;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -97,42 +97,43 @@ impl UpsertProcessor {
         let ordering = self.args.write_ordering.map(Into::into);
 
         let res = if self.args.wait_on_upsert {
-            self.clients
-                .choose(&mut rng)
-                .unwrap()
-                .upsert_points_blocking(&self.args.collection_name, points, ordering.clone())
-                .await?
+            retry_with_clients(&self.clients, |client| {
+                client.upsert_points_blocking(
+                    &self.args.collection_name,
+                    points.clone(),
+                    ordering.clone(),
+                )
+            })
+            .await?
         } else {
-            self.clients
-                .choose(&mut rng)
-                .unwrap()
-                .upsert_points(&self.args.collection_name, points, ordering.clone())
-                .await?
+            retry_with_clients(&self.clients, |client| {
+                client.upsert_points(&self.args.collection_name, points.clone(), ordering.clone())
+            })
+            .await?
         };
 
         if self.args.set_payload {
+            let points: PointsSelector = batch_ids.into();
             if self.args.wait_on_upsert {
-                self.clients
-                    .choose(&mut rng)
-                    .unwrap()
-                    .set_payload_blocking(
+                retry_with_clients(&self.clients, |client| {
+                    client.set_payload_blocking(
                         &self.args.collection_name,
-                        &batch_ids.into(),
+                        &points,
                         random_payload(self.args.keywords),
-                        ordering,
+                        ordering.clone(),
                     )
-                    .await?;
+                })
+                .await?;
             } else {
-                self.clients
-                    .choose(&mut rng)
-                    .unwrap()
-                    .set_payload(
+                retry_with_clients(&self.clients, |client| {
+                    client.set_payload(
                         &self.args.collection_name,
-                        &batch_ids.into(),
+                        &points,
                         random_payload(self.args.keywords),
-                        ordering,
+                        ordering.clone(),
                     )
-                    .await?;
+                })
+                .await?;
             }
         }
 

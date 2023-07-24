@@ -1,8 +1,9 @@
 use core::option::Option;
 use core::option::Option::{None, Some};
-use qdrant_client::client::Payload;
+use qdrant_client::client::{Payload, QdrantClient};
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{FieldCondition, Filter, Match};
+use rand::prelude::SliceRandom;
 use rand::Rng;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
@@ -59,4 +60,23 @@ pub fn random_vector(dim: usize) -> Vec<f32> {
 pub fn random_vector_name(max: usize) -> String {
     let mut rng = rand::thread_rng();
     format!("{}", rng.gen_range(0..max))
+}
+
+pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = anyhow::Result<R>>>(
+    clients: &'a [QdrantClient],
+    mut call: impl FnMut(&'a QdrantClient) -> T,
+) -> anyhow::Result<R> {
+    let mut permutation = (0..clients.len()).collect::<Vec<_>>();
+    permutation.shuffle(&mut rand::thread_rng());
+    let mut res = Err(anyhow::anyhow!("No clients"));
+    for client_id in permutation {
+        let client = clients.get(client_id).unwrap();
+
+        res = call(client).await;
+
+        if res.is_ok() {
+            break;
+        }
+    }
+    res
 }
