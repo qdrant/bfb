@@ -50,6 +50,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub skip_create: bool,
 
+    /// Create if not exists. Avoid re-creating collection
+    #[clap(long, default_value_t = false)]
+    pub create_if_missing: bool,
+
     /// If set, after upload will wait until collection is indexed
     #[clap(long, default_value_t = false)]
     pub skip_wait_index: bool,

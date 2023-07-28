@@ -83,6 +83,12 @@ async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
 async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let client = QdrantClient::new(Some(choose_owned(get_config(args))))?;
 
+
+    if args.create_if_missing && client.collection_info(&args.collection_name).await.is_ok() {
+        println!("Collection already exists");
+        return Ok(());
+    }
+
     match client.delete_collection(&args.collection_name).await {
         Ok(_) => {}
         Err(e) => {
@@ -345,7 +351,7 @@ fn main() {
     ctrlc::set_handler(move || {
         r.store(true, Ordering::SeqCst);
     })
-    .expect("Error setting Ctrl-C handler");
+        .expect("Error setting Ctrl-C handler");
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)
