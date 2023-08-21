@@ -158,31 +158,31 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     }),
                     QuantizationArg::ProductX4 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: i32::from(CompressionRatio::X4),
+                            compression: CompressionRatio::X4.into(),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
                     QuantizationArg::ProductX8 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: i32::from(CompressionRatio::X8),
+                            compression: CompressionRatio::X8.into(),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
                     QuantizationArg::ProductX16 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: i32::from(CompressionRatio::X16),
+                            compression: CompressionRatio::X16.into(),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
                     QuantizationArg::ProductX32 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: i32::from(CompressionRatio::X32),
+                            compression: CompressionRatio::X32.into(),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
                     QuantizationArg::ProductX64 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: i32::from(CompressionRatio::X64),
+                            compression: CompressionRatio::X64.into(),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
