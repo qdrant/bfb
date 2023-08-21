@@ -156,31 +156,31 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
-                    QuantizationArg::X4 => Some(QuantizationConfig {
+                    QuantizationArg::ProductX4 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
                             compression: i32::from(CompressionRatio::X4),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
-                    QuantizationArg::X8 => Some(QuantizationConfig {
+                    QuantizationArg::ProductX8 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
                             compression: i32::from(CompressionRatio::X8),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
-                    QuantizationArg::X16 => Some(QuantizationConfig {
+                    QuantizationArg::ProductX16 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
                             compression: i32::from(CompressionRatio::X16),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
-                    QuantizationArg::X32 => Some(QuantizationConfig {
+                    QuantizationArg::ProductX32 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
                             compression: i32::from(CompressionRatio::X32),
                             always_ram: args.quantization_in_ram,
                         })),
                     }),
-                    QuantizationArg::X64 => Some(QuantizationConfig {
+                    QuantizationArg::ProductX64 => Some(QuantizationConfig {
                         quantization: Some(Quantization::Product(ProductQuantization {
                             compression: i32::from(CompressionRatio::X64),
                             always_ram: args.quantization_in_ram,

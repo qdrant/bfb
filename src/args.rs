@@ -8,11 +8,11 @@ pub enum QuantizationArg {
     #[default]
     None,
     Scalar,
-    X4,
-    X8,
-    X16,
-    X32,
-    X64,
+    ProductX4,
+    ProductX8,
+    ProductX16,
+    ProductX32,
+    ProductX64,
 }
 
 /// Big F*cking Benchmark tool for stress-testing Qdrant
