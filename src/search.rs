@@ -58,6 +58,7 @@ impl SearchProcessor {
                     rescore: self.args.quantization_rescore,
                     oversampling: self.args.quantization_oversampling,
                 }),
+                indexed_only: self.args.indexed_only,
                 ..Default::default()
             }),
             score_threshold: None,
@@ -76,6 +77,10 @@ impl SearchProcessor {
 
         if res.time > self.args.timing_threshold {
             progress_bar.println(format!("Slow search: {:?}", res.time));
+        }
+
+        if res.result.len() < self.args.search_limit {
+            progress_bar.println(format!("Search result is too small: {} of {}", res.result.len(), self.args.search_limit));
         }
 
         self.server_timings.lock().unwrap().push(res.time);

@@ -181,6 +181,10 @@ pub struct Args {
     /// Delay between requests in milliseconds
     #[clap(long)]
     pub delay: Option<usize>,
+
+    /// Skip unindexed segments during search
+    #[clap(long)]
+    pub indexed_only: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]
