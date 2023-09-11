@@ -124,6 +124,14 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub set_payload: bool,
 
+    /// `hnsw_ef_construct` parameter used during index
+    #[clap(long)]
+    pub hnsw_ef_construct: Option<usize>,
+
+    /// `hnsw_m` parameter used during index
+    #[clap(long)]
+    pub hnsw_m: Option<usize>,
+
     /// `hnsw_ef` parameter used during search
     #[clap(long)]
     pub search_hnsw_ef: Option<usize>,
