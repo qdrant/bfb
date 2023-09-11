@@ -138,6 +138,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             }),
             hnsw_config: Some(HnswConfigDiff {
                 on_disk: Some(args.on_disk_hnsw),
+                m: args.hnsw_m.map(|x| x as u64),
+                ef_construct: args.hnsw_ef_construct.map(|x| x as u64),
                 ..Default::default()
             }),
             optimizers_config: Some(OptimizersConfigDiff {
