@@ -35,7 +35,7 @@ impl SearchProcessor {
         }
 
         let query_vector = random_vector(self.args.dim);
-        let query_filter = random_filter(self.args.keywords);
+        let query_filter = random_filter(self.args.keywords, self.args.float_payloads);
 
         let start = std::time::Instant::now();
 
@@ -80,7 +80,11 @@ impl SearchProcessor {
         }
 
         if res.result.len() < self.args.search_limit {
-            progress_bar.println(format!("Search result is too small: {} of {}", res.result.len(), self.args.search_limit));
+            progress_bar.println(format!(
+                "Search result is too small: {} of {}",
+                res.result.len(),
+                self.args.search_limit
+            ));
         }
 
         self.server_timings.lock().unwrap().push(res.time);
