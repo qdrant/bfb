@@ -7,7 +7,7 @@ use rand::prelude::SliceRandom;
 use rand::Rng;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
-pub const FLOAT_PAYLOAD_KEY: &str = "a";
+pub const FLOAT_PAYLOAD_KEY: &str = "b";
 
 pub fn random_keyword(num_variants: usize) -> String {
     let mut rng = rand::thread_rng();
