@@ -87,7 +87,7 @@ impl UpsertProcessor {
             points.push(PointStruct::new(
                 point_id,
                 vectors,
-                random_payload(self.args.keywords),
+                random_payload(self.args.keywords, self.args.float_payloads),
             ));
         }
 
@@ -105,12 +105,12 @@ impl UpsertProcessor {
                     ordering.clone(),
                 )
             })
-                .await?
+            .await?
         } else {
             retry_with_clients(&self.clients, |client| {
                 client.upsert_points(&self.args.collection_name, points.clone(), ordering.clone())
             })
-                .await?
+            .await?
         };
 
         if self.args.set_payload {
@@ -120,21 +120,21 @@ impl UpsertProcessor {
                     client.set_payload_blocking(
                         &self.args.collection_name,
                         &points,
-                        random_payload(self.args.keywords),
+                        random_payload(self.args.keywords, self.args.float_payloads),
                         ordering.clone(),
                     )
                 })
-                    .await?;
+                .await?;
             } else {
                 retry_with_clients(&self.clients, |client| {
                     client.set_payload(
                         &self.args.collection_name,
                         &points,
-                        random_payload(self.args.keywords),
+                        random_payload(self.args.keywords, self.args.float_payloads),
                         ordering.clone(),
                     )
                 })
-                    .await?;
+                .await?;
             }
         }
 
