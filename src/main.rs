@@ -206,7 +206,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 
     sleep(Duration::from_secs(1)).await;
 
-    if args.keywords.is_some() {
+    if !args.skip_field_indices && args.keywords.is_some() {
         client
             .create_field_index_blocking(
                 args.collection_name.clone(),
@@ -219,7 +219,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             .unwrap();
     }
 
-    if args.float_payloads {
+    if !args.skip_field_indices && args.float_payloads {
         client
             .create_field_index_blocking(
                 args.collection_name.clone(),
