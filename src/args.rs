@@ -116,6 +116,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub uuids: bool,
 
+    /// Skip field indices creation if payloads are not empty
+    #[clap(long, default_value_t = false)]
+    pub skip_field_indices: bool,
+
     /// Use keyword payloads. Defines how many different keywords there are in the payload
     #[clap(long)]
     pub keywords: Option<usize>,
