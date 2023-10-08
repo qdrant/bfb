@@ -14,7 +14,7 @@ use crate::upsert::UpsertProcessor;
 use anyhow::Result;
 use args::Args;
 use clap::Parser;
-use common::FLOAT_PAYLOAD_KEY;
+use common::{FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY};
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
@@ -260,7 +260,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             .unwrap();
     }
 
-    if args.int_payloads.is_some() {
+    if !args.skip_field_indices && args.int_payloads.is_some() {
         client
             .create_field_index_blocking(
                 args.collection_name.clone(),
@@ -273,6 +273,18 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             .unwrap();
     }
 
+    if !args.skip_field_indices && args.geo_payloads {
+        client
+            .create_field_index_blocking(
+                args.collection_name.clone(),
+                GEO_PAYLOAD_KEY,
+                FieldType::Geo,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+    }
     Ok(())
 }
 

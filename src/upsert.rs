@@ -122,6 +122,7 @@ impl UpsertProcessor {
                     self.args.keywords,
                     self.args.float_payloads,
                     self.args.int_payloads,
+                    self.args.geo_payloads,
                 ),
             ));
         }
@@ -159,6 +160,7 @@ impl UpsertProcessor {
                             self.args.keywords,
                             self.args.float_payloads,
                             self.args.int_payloads,
+                            self.args.geo_payloads,
                         ),
                         ordering.clone(),
                     )
@@ -173,6 +175,7 @@ impl UpsertProcessor {
                             self.args.keywords,
                             self.args.float_payloads,
                             self.args.int_payloads,
+                            self.args.geo_payloads,
                         ),
                         ordering.clone(),
                     )

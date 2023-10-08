@@ -3,12 +3,20 @@ use core::option::Option;
 use core::option::Option::{None, Some};
 use qdrant_client::client::{Payload, QdrantClient};
 use qdrant_client::qdrant::r#match::MatchValue;
-use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, Vector};
+use qdrant_client::qdrant::{FieldCondition, Filter, GeoPoint, GeoRadius, Match, Range, Vector};
 use rand::prelude::SliceRandom;
 use rand::Rng;
+use serde_json::json;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
+pub const GEO_PAYLOAD_KEY: &str = "geo";
+
+const BERLIN: GeoPoint = GeoPoint {
+    lat: 52.52437,
+    lon: 13.41053,
+};
+const GEO_RADIUS: f64 = 1.0;
 
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
 
@@ -22,6 +30,7 @@ pub fn random_payload(
     keywords: Option<usize>,
     float_payloads: bool,
     integer_payload: Option<usize>,
+    geo_payloads: bool,
 ) -> Payload {
     let mut payload = Payload::new();
     if let Some(keyword_variants) = keywords {
@@ -36,6 +45,16 @@ pub fn random_payload(
         payload.insert(INTEGERS_PAYLOAD_KEY, value as i64);
     }
 
+    if geo_payloads {
+        payload.insert(
+            GEO_PAYLOAD_KEY,
+            json!(
+            {
+                "lon": BERLIN.lon + rand::thread_rng().gen_range(-GEO_RADIUS..=GEO_RADIUS),
+                "lat": BERLIN.lat + rand::thread_rng().gen_range(-GEO_RADIUS..=GEO_RADIUS),
+            }),
+        );
+    }
     payload
 }
 
@@ -43,6 +62,7 @@ pub fn random_filter(
     keywords: Option<usize>,
     float_payloads: bool,
     integer_payload: Option<usize>,
+    geo_payloads: bool,
 ) -> Option<Filter> {
     let mut filter = Filter {
         should: vec![],
@@ -102,6 +122,24 @@ pub fn random_filter(
                 }),
                 geo_bounding_box: None,
                 geo_radius: None,
+                geo_polygon: None,
+                values_count: None,
+            }
+            .into(),
+        )
+    }
+    if geo_payloads {
+        have_any = true;
+        filter.must.push(
+            FieldCondition {
+                key: GEO_PAYLOAD_KEY.to_string(),
+                r#match: None,
+                range: None,
+                geo_bounding_box: None,
+                geo_radius: Some(GeoRadius {
+                    center: Some(BERLIN),
+                    radius: GEO_RADIUS as f32,
+                }),
                 geo_polygon: None,
                 values_count: None,
             }
