@@ -131,6 +131,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub float_payloads: bool,
 
+    /// Use integer payloads
+    #[clap(long)]
+    pub int_payloads: Option<usize>,
+
     /// Use separate request to set payload on just upserted points
     #[clap(long, default_value_t = false)]
     pub set_payload: bool,

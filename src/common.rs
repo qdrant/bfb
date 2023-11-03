@@ -9,13 +9,19 @@ use rand::Rng;
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
 
+pub const INTEGERS_PAYLOAD_KEY: &str = "c";
+
 pub fn random_keyword(num_variants: usize) -> String {
     let mut rng = rand::thread_rng();
     let variant = rng.gen_range(0..num_variants);
     format!("keyword_{}", variant)
 }
 
-pub fn random_payload(keywords: Option<usize>, float_payloads: bool) -> Payload {
+pub fn random_payload(
+    keywords: Option<usize>,
+    float_payloads: bool,
+    integer_payload: Option<usize>,
+) -> Payload {
     let mut payload = Payload::new();
     if let Some(keyword_variants) = keywords {
         payload.insert(KEYWORD_PAYLOAD_KEY, random_keyword(keyword_variants));
@@ -23,10 +29,20 @@ pub fn random_payload(keywords: Option<usize>, float_payloads: bool) -> Payload 
     if float_payloads {
         payload.insert(FLOAT_PAYLOAD_KEY, rand::thread_rng().gen_range(-1.0..1.0));
     }
+
+    if let Some(integer_range) = integer_payload {
+        let value = rand::thread_rng().gen_range(0..integer_range);
+        payload.insert(INTEGERS_PAYLOAD_KEY, value as i64);
+    }
+
     payload
 }
 
-pub fn random_filter(keywords: Option<usize>, float_payloads: bool) -> Option<Filter> {
+pub fn random_filter(
+    keywords: Option<usize>,
+    float_payloads: bool,
+    integer_payload: Option<usize>,
+) -> Option<Filter> {
     let mut filter = Filter {
         should: vec![],
         must: vec![],
@@ -68,6 +84,27 @@ pub fn random_filter(keywords: Option<usize>, float_payloads: bool) -> Option<Fi
             .into(),
         )
     }
+    if let Some(integer_range) = integer_payload {
+        have_any = true;
+        let rand_int = rand::thread_rng().gen_range(0..integer_range);
+        filter.must.push(
+            FieldCondition {
+                key: INTEGERS_PAYLOAD_KEY.to_string(),
+                r#match: None,
+                range: Some(Range {
+                    gt: Some(rand_int as f64),
+                    gte: None,
+                    lt: None,
+                    lte: None,
+                }),
+                geo_bounding_box: None,
+                geo_radius: None,
+                values_count: None,
+            }
+            .into(),
+        )
+    }
+
     if have_any {
         Some(filter)
     } else {

@@ -35,7 +35,11 @@ impl SearchProcessor {
         }
 
         let query_vector = random_vector(self.args.dim);
-        let query_filter = random_filter(self.args.keywords, self.args.float_payloads);
+        let query_filter = random_filter(
+            self.args.keywords,
+            self.args.float_payloads,
+            self.args.int_payloads,
+        );
 
         let start = std::time::Instant::now();
 

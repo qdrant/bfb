@@ -5,7 +5,9 @@ mod search;
 mod upsert;
 
 use crate::args::QuantizationArg;
-use crate::common::{random_filter, random_payload, random_vector, KEYWORD_PAYLOAD_KEY};
+use crate::common::{
+    random_filter, random_payload, random_vector, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+};
 use crate::fbin_reader::FBinReader;
 use crate::search::SearchProcessor;
 use crate::upsert::UpsertProcessor;
@@ -231,6 +233,20 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             .await
             .unwrap();
     }
+
+    if args.int_payloads.is_some() {
+        client
+            .create_field_index_blocking(
+                args.collection_name.clone(),
+                INTEGERS_PAYLOAD_KEY,
+                FieldType::Integer,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
     Ok(())
 }
 
