@@ -60,6 +60,7 @@ pub fn random_filter(
                 range: None,
                 geo_bounding_box: None,
                 geo_radius: None,
+                geo_polygon: None,
                 values_count: None,
             }
             .into(),
@@ -79,6 +80,7 @@ pub fn random_filter(
                 }),
                 geo_bounding_box: None,
                 geo_radius: None,
+                geo_polygon: None,
                 values_count: None,
             }
             .into(),
@@ -99,17 +101,14 @@ pub fn random_filter(
                 }),
                 geo_bounding_box: None,
                 geo_radius: None,
+                geo_polygon: None,
                 values_count: None,
             }
             .into(),
         )
     }
 
-    if have_any {
-        Some(filter)
-    } else {
-        None
-    }
+    have_any.then_some(filter)
 }
 
 pub fn random_vector(dim: usize) -> Vec<f32> {
