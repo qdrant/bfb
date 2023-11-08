@@ -16,8 +16,3 @@ qdrant-client = "1.6.0"
 rand = "0.8.5"
 tokio = { version = "1.29.1", features = ["full"] }
 uuid = { version = "1.4.0", features = ["serde", "v4"] }
-
-
-[patch.crates-io]
-# Temporary patch until <https://github.com/hyperium/tonic/pull/1401> is merged
-qdrant-client = { git = 'https://github.com/qdrant/rust-client', branch = "dev" }
