@@ -308,7 +308,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-fn print_timings(timings: &mut Vec<f64>) {
+fn print_timings(args: &Args, timings: &mut Vec<f64>) {
     if timings.is_empty() {
         return;
     }
@@ -319,12 +319,19 @@ fn print_timings(timings: &mut Vec<f64>) {
     let min_time: f64 = timings.first().copied().unwrap_or(0.0);
     let max_time: f64 = timings.last().copied().unwrap_or(0.0);
     let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
-    let p99_time: f64 = timings[(timings.len() as f32 * 0.99) as usize];
 
     println!("Min search time: {}", min_time);
     println!("Avg search time: {}", avg_time);
     println!("p95 search time: {}", p95_time);
-    println!("p99 search time: {}", p99_time);
+
+    for digits in 2..=args.p9 {
+        let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
+        let index = ((timings.len() as f64 * factor) as usize).min(timings.len() - 1);
+        let nines = "9".repeat(digits);
+        let time = timings[index];
+        println!("p{nines} search time: {time}");
+    }
+
     println!("Max search time: {}", max_time);
 }
 
@@ -374,10 +381,10 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let mut timings = searcher.full_timings.lock().unwrap();
     println!("--- Search timings ---");
-    print_timings(&mut timings);
+    print_timings(args, &mut timings);
     let mut timings = searcher.server_timings.lock().unwrap();
     println!("--- Server timings ---");
-    print_timings(&mut timings);
+    print_timings(args, &mut timings);
 
     Ok(())
 }
