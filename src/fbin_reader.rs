@@ -42,7 +42,7 @@ impl FBinReader {
 
     pub fn read_vector(&self, idx: usize) -> &[f32] {
         let vector_size = self.dim as usize;
-        let vector_offset = self.header_size + idx * vector_size;
+        let vector_offset = self.header_size + idx * vector_size * std::mem::size_of::<f32>();
         let vector_raw = &self.mmap[vector_offset..vector_offset + vector_size];
         let arr: &[f32] = unsafe { transmute(vector_raw) };
         arr
