@@ -404,7 +404,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     println!("--- RPS ---");
     print_timings(args, &mut rps, "rps");
 
-    if !args.json.is_none() {
+    if args.json.is_some() {
         println!("--- Writing results to json file ---");
         write_to_json(
             args.json.as_ref().unwrap(),
