@@ -11,6 +11,7 @@ pub struct SearchProcessor {
     stopped: Arc<AtomicBool>,
     clients: Vec<QdrantClient>,
     pub server_timings: Mutex<Vec<f64>>,
+    pub rps: Mutex<Vec<f64>>,
     pub full_timings: Mutex<Vec<f64>>,
 }
 
@@ -21,6 +22,7 @@ impl SearchProcessor {
             stopped,
             clients,
             server_timings: Mutex::new(Vec::new()),
+            rps: Mutex::new(Vec::new()),
             full_timings: Mutex::new(Vec::new()),
         }
     }
@@ -92,6 +94,7 @@ impl SearchProcessor {
         }
 
         self.server_timings.lock().unwrap().push(res.time);
+        self.rps.lock().unwrap().push(progress_bar.per_sec());
 
         if let Some(delay_millis) = self.args.delay {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
