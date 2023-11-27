@@ -2,7 +2,7 @@
 
 Benchmarking tool for the [Qdrant](https://github.com/qdrant/qdrant) project
 
-```
+```bash
 Usage: bfb [OPTIONS]
 
 Options:
@@ -11,13 +11,13 @@ Options:
       --fbin <FBIN>
           Source of data to upload - fbin file. Random if not specified
   -n, --num-vectors <NUM_VECTORS>
-          [default: 100000]
+          Number of points to upload [default: 100000]
       --vectors-per-point <VECTORS_PER_POINT>
-          [default: 1]
+          Number of named vectors per point [default: 1]
   -m, --max-id <MAX_ID>
           If set, will use vector ids within range [0, max_id) To simulate overwriting existing vectors
   -d, --dim <DIM>
-          [default: 128]
+          Number of dimensions in each vector [default: 128]
   -t, --threads <THREADS>
           [default: 2]
   -p, --parallel <PARALLEL>
@@ -25,15 +25,21 @@ Options:
   -b, --batch-size <BATCH_SIZE>
           [default: 100]
       --skip-create
-          Skip creation of the collection
+          Skip creating a collection
+      --create-if-missing
+          Create if not exists. Avoid re-creating collection
       --skip-wait-index
-          If set, after upload will wait until collection is indexed
+          Skip wait until collection is indexed after upload
       --skip-upload
-          Perform data upload
+          Skip uploading new points
       --search
           Perform search
       --search-limit <SEARCH_LIMIT>
           Search limit [default: 10]
+      --json <JSON>
+          Store results to csv
+      --p9 <P9>
+          Number of 9 digits to show in p99* results [default: 2]
       --collection-name <COLLECTION_NAME>
           [default: benchmark]
       --distance <DISTANCE>
@@ -45,18 +51,31 @@ Options:
       --segments <SEGMENTS>
           Number of segments
       --max-segment-size <MAX_SEGMENT_SIZE>
+
       --on-disk-payload
           On disk payload
       --on-disk-hnsw
           On disk hnsw
+      --on-disk-vectors <ON_DISK_VECTORS>
+          On disk vectors [possible values: true, false]
       --timing-threshold <TIMING_THRESHOLD>
           Log requests if the take longer than this [default: 0.1]
       --uuids
           Use UUIDs instead of sequential ids
+      --skip-field-indices
+          Skip field indices creation if payloads are not empty
       --keywords <KEYWORDS>
           Use keyword payloads. Defines how many different keywords there are in the payload
+      --float-payloads
+          Use float payloads
+      --int-payloads <INT_PAYLOADS>
+          Use integer payloads
       --set-payload
           Use separate request to set payload on just upserted points
+      --hnsw-ef-construct <HNSW_EF_CONSTRUCT>
+          `hnsw_ef_construct` parameter used during index
+      --hnsw-m <HNSW_M>
+          `hnsw_m` parameter used during index
       --search-hnsw-ef <SEARCH_HNSW_EF>
           `hnsw_ef` parameter used during search
       --search-with-payload
@@ -66,6 +85,7 @@ Options:
       --replication-factor <REPLICATION_FACTOR>
           replication factor [default: 1]
       --shards <SHARDS>
+
       --write-consistency-factor <WRITE_CONSISTENCY_FACTOR>
           Write consistency factor to use for collection creation [default: 1]
       --write-ordering <WRITE_ORDERING>
@@ -77,11 +97,17 @@ Options:
       --ignore-errors
           Keep going on search error
       --quantization <QUANTIZATION>
-          [possible values: none, scalar]
+          [possible values: none, scalar, product-x4, product-x8, product-x16, product-x32, product-x64]
       --quantization-in-ram <QUANTIZATION_IN_RAM>
           Keep quantized vectors in memory [possible values: true, false]
       --quantization-rescore <QUANTIZATION_RESCORE>
           Enable quantization re-score during search [possible values: true, false]
+      --quantization-oversampling <QUANTIZATION_OVERSAMPLING>
+          Quantization oversampling factor
+      --delay <DELAY>
+          Delay between requests in milliseconds
+      --indexed-only <INDEXED_ONLY>
+          Skip unindexed segments during search [possible values: true, false]
   -h, --help
           Print help
   -V, --version
@@ -90,12 +116,19 @@ Options:
 
 API KEY:
 
-```
+```bash
 export QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA'
 ```
 
 or
 
-```
+```bash
 docker run -it --rm -e QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA' ./bfb .....
+```
+
+### Export results in json/csv:
+
+```bash
+./bfb --json out.json ...
+cat out.json | jq '[.rps, .server_timings, .full_timings] | first | @csv' >> out.csv
 ```
