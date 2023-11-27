@@ -189,6 +189,8 @@ dependencies = [
  "memmap2",
  "qdrant-client",
  "rand",
+ "serde",
+ "serde_json",
  "tokio",
  "uuid",
 ]

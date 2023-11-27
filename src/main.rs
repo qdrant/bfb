@@ -26,6 +26,8 @@ use qdrant_client::qdrant::{
     ScalarQuantization, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -308,7 +310,20 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-fn print_timings(args: &Args, timings: &mut Vec<f64>) {
+#[derive(Serialize, Deserialize)]
+struct SearcherResults {
+    server_timings: Vec<f64>,
+    rps: Vec<f64>,
+    full_timings: Vec<f64>,
+}
+
+fn write_to_json(path: &String, results: SearcherResults) {
+    let mut file = File::create(path).unwrap();
+    serde_json::to_writer(&mut file, &results).unwrap();
+    println!("Search results written to {}", path);
+}
+
+fn print_timings(args: &Args, timings: &mut Vec<f64>, metric_name: &str) {
     if timings.is_empty() {
         return;
     }
@@ -320,19 +335,19 @@ fn print_timings(args: &Args, timings: &mut Vec<f64>) {
     let max_time: f64 = timings.last().copied().unwrap_or(0.0);
     let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
 
-    println!("Min search time: {}", min_time);
-    println!("Avg search time: {}", avg_time);
-    println!("p95 search time: {}", p95_time);
+    println!("Min {metric_name}: {min_time}");
+    println!("Avg {metric_name}: {avg_time}");
+    println!("p95 {metric_name}: {p95_time}");
 
     for digits in 2..=args.p9 {
         let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
         let index = ((timings.len() as f64 * factor) as usize).min(timings.len() - 1);
         let nines = "9".repeat(digits);
         let time = timings[index];
-        println!("p{nines} search time: {time}");
+        println!("p{nines} {metric_name}: {time}");
     }
 
-    println!("Max search time: {}", max_time);
+    println!("Max {metric_name}: {max_time}");
 }
 
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
@@ -379,12 +394,27 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         progress_bar.finish();
     }
 
-    let mut timings = searcher.full_timings.lock().unwrap();
+    let mut full_timings = searcher.full_timings.lock().unwrap();
     println!("--- Search timings ---");
-    print_timings(args, &mut timings);
-    let mut timings = searcher.server_timings.lock().unwrap();
+    print_timings(args, &mut full_timings, "search time");
+    let mut server_timings = searcher.server_timings.lock().unwrap();
     println!("--- Server timings ---");
-    print_timings(args, &mut timings);
+    print_timings(args, &mut server_timings, "search time");
+    let mut rps = searcher.rps.lock().unwrap();
+    println!("--- RPS ---");
+    print_timings(args, &mut rps, "rps");
+
+    if !args.json.is_none() {
+        println!("--- Writing results to json file ---");
+        write_to_json(
+            args.json.as_ref().unwrap(),
+            SearcherResults {
+                server_timings: server_timings.to_vec(),
+                rps: rps.to_vec(),
+                full_timings: full_timings.to_vec(),
+            },
+        );
+    }
 
     Ok(())
 }

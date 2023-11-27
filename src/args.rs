@@ -78,6 +78,10 @@ pub struct Args {
     #[clap(long, default_value_t = 10)]
     pub search_limit: usize,
 
+    /// Store results to csv
+    #[clap(long)]
+    pub json: Option<String>,
+
     /// Number of 9 digits to show in p99* results
     #[clap(long, long, default_value_t = 2)]
     pub p9: usize,
