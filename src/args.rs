@@ -44,6 +44,7 @@ pub struct Args {
     #[clap(short, long, default_value_t = 128)]
     pub dim: usize,
 
+    /// Number of worker threads to use
     #[clap(short, long, default_value_t = 2)]
     pub threads: usize,
 
@@ -86,9 +87,11 @@ pub struct Args {
     #[clap(long, long, default_value_t = 2)]
     pub p9: usize,
 
+    /// Name of the collection to use
     #[clap(long, default_value = "benchmark")]
     pub collection_name: String,
 
+    /// Distance function used for comparing vectors
     #[clap(long, default_value = "Cosine")]
     pub distance: String,
 
@@ -104,6 +107,7 @@ pub struct Args {
     #[clap(long)]
     pub segments: Option<usize>,
 
+    /// Do not create segments larger this size (in kilobytes).
     #[clap(long)]
     pub max_segment_size: Option<usize>,
 
@@ -163,14 +167,15 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub search_with_payload: bool,
 
-    /// wait on upsert
+    /// Wait on upsert
     #[clap(long, default_value_t = false)]
     pub wait_on_upsert: bool,
 
-    /// replication factor
+    /// Replication factor
     #[clap(long, default_value_t = 1)]
     pub replication_factor: usize,
 
+    /// Number of shards in the collection
     #[clap(long)]
     pub shards: Option<usize>,
 
@@ -213,7 +218,7 @@ pub struct Args {
     #[clap(long)]
     pub delay: Option<usize>,
 
-    /// Skip unindexed segments during search
+    /// Skip un-indexed segments during search
     #[clap(long)]
     pub indexed_only: Option<bool>,
 }
