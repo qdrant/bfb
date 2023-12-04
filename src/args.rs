@@ -115,9 +115,9 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub on_disk_payload: bool,
 
-    /// On disk hnsw
+    /// On disk index
     #[clap(long, default_value_t = false)]
-    pub on_disk_hnsw: bool,
+    pub on_disk_index: bool,
 
     /// On disk vectors
     #[clap(long)]

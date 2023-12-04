@@ -23,8 +23,8 @@ use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
     CollectionStatus, CompressionRatio, CreateCollection, Distance, FieldType, HnswConfigDiff,
     OptimizersConfigDiff, ProductQuantization, QuantizationConfig, QuantizationType,
-    ScalarQuantization, SparseVectorConfig, SparseVectorParams, VectorParams, VectorParamsMap,
-    VectorsConfig,
+    ScalarQuantization, SparseIndexConfig, SparseVectorConfig, SparseVectorParams, VectorParams,
+    VectorParamsMap, VectorsConfig,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -146,7 +146,17 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 
     let sparse_vectors_config = if args.sparse_vectors {
         let params = (0..args.vectors_per_point)
-            .map(|idx| (idx.to_string(), SparseVectorParams { index: None }))
+            .map(|idx| {
+                (
+                    idx.to_string(),
+                    SparseVectorParams {
+                        index: Some(SparseIndexConfig {
+                            full_scan_threshold: None,
+                            on_disk: Some(args.on_disk_index),
+                        }),
+                    },
+                )
+            })
             .collect();
 
         Some(SparseVectorConfig { map: params })
@@ -159,7 +169,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             collection_name: args.collection_name.clone(),
             vectors_config,
             hnsw_config: Some(HnswConfigDiff {
-                on_disk: Some(args.on_disk_hnsw),
+                on_disk: Some(args.on_disk_index),
                 m: args.hnsw_m.map(|x| x as u64),
                 ef_construct: args.hnsw_ef_construct.map(|x| x as u64),
                 ..Default::default()
