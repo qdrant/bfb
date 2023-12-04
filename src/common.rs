@@ -1,8 +1,9 @@
+use crate::args::Args;
 use core::option::Option;
 use core::option::Option::{None, Some};
 use qdrant_client::client::{Payload, QdrantClient};
 use qdrant_client::qdrant::r#match::MatchValue;
-use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range};
+use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, Vector};
 use rand::prelude::SliceRandom;
 use rand::Rng;
 
@@ -111,7 +112,26 @@ pub fn random_filter(
     have_any.then_some(filter)
 }
 
-pub fn random_vector(dim: usize) -> Vec<f32> {
+pub fn random_vector(args: &Args) -> Vector {
+    if args.sparse_vectors == Some(true) {
+        random_sparse_vector(args.dim).into()
+    } else {
+        random_dense_vector(args.dim).into()
+    }
+}
+
+pub fn random_sparse_vector(max_size: usize) -> Vec<(u32, f32)> {
+    let mut rng = rand::thread_rng();
+    let size = rng.gen_range(1..max_size);
+    // (index, value)
+    let mut pairs = Vec::with_capacity(size);
+    for i in 1..=size {
+        pairs.push((i as u32, rng.gen_range(-1.0..1.0) as f32));
+    }
+    pairs
+}
+
+pub fn random_dense_vector(dim: usize) -> Vec<f32> {
     let mut rng = rand::thread_rng();
     (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect()
 }

@@ -6,7 +6,7 @@ mod upsert;
 
 use crate::args::QuantizationArg;
 use crate::common::{
-    random_filter, random_payload, random_vector, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+    random_dense_vector, random_filter, random_payload, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
 use crate::search::SearchProcessor;
@@ -23,7 +23,8 @@ use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
     CollectionStatus, CompressionRatio, CreateCollection, Distance, FieldType, HnswConfigDiff,
     OptimizersConfigDiff, ProductQuantization, QuantizationConfig, QuantizationType,
-    ScalarQuantization, VectorParams, VectorParamsMap, VectorsConfig,
+    ScalarQuantization, SparseVectorConfig, SparseVectorParams, VectorParams, VectorParamsMap,
+    VectorsConfig,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -134,6 +135,16 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         Config::ParamsMap(VectorParamsMap { map: params })
     };
 
+    let sparse_vectors_config = if args.sparse_vectors == Some(true) {
+        let params = (0..args.vectors_per_point)
+            .map(|idx| (idx.to_string(), SparseVectorParams { index: None }))
+            .collect();
+
+        Some(SparseVectorConfig { map: params })
+    } else {
+        None
+    };
+
     client
         .create_collection(&CreateCollection {
             collection_name: args.collection_name.clone(),
@@ -200,6 +211,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 },
                 None => None,
             },
+            sparse_vectors_config,
             ..Default::default()
         })
         .await?;
