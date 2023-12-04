@@ -135,10 +135,11 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         Config::ParamsMap(VectorParamsMap { map: params })
     };
 
-    let sparse_vectors_config = if args.sparse_vectors == Some(true) {
+    let sparse_vectors_config = if args.sparse_vectors {
         let params = (0..args.vectors_per_point)
             .map(|idx| (idx.to_string(), SparseVectorParams { index: None }))
             .collect();
+        println!("Sparse vectors params: {:?}", params);
 
         Some(SparseVectorConfig { map: params })
     } else {
