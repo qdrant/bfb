@@ -113,7 +113,7 @@ pub fn random_filter(
 }
 
 pub fn random_vector(args: &Args) -> Vector {
-    if args.sparse_vectors == Some(true) {
+    if args.sparse_vectors {
         random_sparse_vector(args.dim).into()
     } else {
         random_dense_vector(args.dim).into()

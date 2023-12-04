@@ -36,7 +36,7 @@ impl SearchProcessor {
             return Ok(());
         }
 
-        let (query_vector, sparse_indices) = if self.args.sparse_vectors == Some(true) {
+        let (query_vector, sparse_indices) = if self.args.sparse_vectors {
             let sparse_vector: Vector = random_sparse_vector(self.args.dim).into();
             (sparse_vector.data, sparse_vector.indices)
         } else {
@@ -50,7 +50,7 @@ impl SearchProcessor {
 
         let start = std::time::Instant::now();
 
-        let vector_name = if self.args.vectors_per_point > 1 {
+        let vector_name = if self.args.vectors_per_point > 1 || self.args.sparse_vectors {
             Some(random_vector_name(self.args.vectors_per_point))
         } else {
             None

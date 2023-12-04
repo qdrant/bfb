@@ -80,12 +80,11 @@ impl UpsertProcessor {
                     })
                     .collect();
                 vectors_map.into()
-            } else if self.args.sparse_vectors == Some(true) {
+            } else if self.args.sparse_vectors {
                 // single sparse vector must be named
-                let vectors_map: HashMap<_, _> =
-                    vec![(format!("{}", i), random_vector(&self.args))]
-                        .into_iter()
-                        .collect();
+                let vectors_map: HashMap<_, _> = vec![("0".to_string(), random_vector(&self.args))]
+                    .into_iter()
+                    .collect();
                 vectors_map.into()
             } else {
                 random_dense_vector(self.args.dim).into()
