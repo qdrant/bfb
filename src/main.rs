@@ -125,7 +125,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         ..Default::default()
     };
 
-    let vector_params = if args.vectors_per_point == 1 {
+    let dense_vector_params = if args.vectors_per_point == 1 {
         Config::Params(_vector_param)
     } else {
         let params = (0..args.vectors_per_point)
@@ -135,11 +135,18 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         Config::ParamsMap(VectorParamsMap { map: params })
     };
 
+    let vectors_config = if args.sparse_vectors {
+        Some(VectorsConfig {
+            config: Some(dense_vector_params),
+        })
+    } else {
+        None
+    };
+
     let sparse_vectors_config = if args.sparse_vectors {
         let params = (0..args.vectors_per_point)
             .map(|idx| (idx.to_string(), SparseVectorParams { index: None }))
             .collect();
-        println!("Sparse vectors params: {:?}", params);
 
         Some(SparseVectorConfig { map: params })
     } else {
@@ -149,9 +156,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     client
         .create_collection(&CreateCollection {
             collection_name: args.collection_name.clone(),
-            vectors_config: Some(VectorsConfig {
-                config: Some(vector_params),
-            }),
+            vectors_config,
             hnsw_config: Some(HnswConfigDiff {
                 on_disk: Some(args.on_disk_hnsw),
                 m: args.hnsw_m.map(|x| x as u64),
