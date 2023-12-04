@@ -221,6 +221,10 @@ pub struct Args {
     /// Skip un-indexed segments during search
     #[clap(long)]
     pub indexed_only: Option<bool>,
+
+    /// Whether to use sparse vectors
+    #[clap(long)]
+    pub sparse_vectors: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]

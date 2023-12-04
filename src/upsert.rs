@@ -1,6 +1,6 @@
-use crate::common::retry_with_clients;
+use crate::common::{random_vector, retry_with_clients};
 use crate::fbin_reader::FBinReader;
-use crate::{random_payload, random_vector, Args};
+use crate::{random_dense_vector, random_payload, Args};
 use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
@@ -75,13 +75,20 @@ impl UpsertProcessor {
                 let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
                     .map(|i| {
                         let vector_name = format!("{}", i);
-                        let vector = random_vector(self.args.dim);
+                        let vector = random_vector(&self.args);
                         (vector_name, vector)
                     })
                     .collect();
                 vectors_map.into()
+            } else if self.args.sparse_vectors == Some(true) {
+                // single sparse vector must be named
+                let vectors_map: HashMap<_, _> =
+                    vec![(format!("{}", i), random_vector(&self.args))]
+                        .into_iter()
+                        .collect();
+                vectors_map.into()
             } else {
-                random_vector(self.args.dim).into()
+                random_dense_vector(self.args.dim).into()
             };
 
             points.push(PointStruct::new(

@@ -1,8 +1,8 @@
-use crate::common::{random_vector_name, retry_with_clients};
-use crate::{random_filter, random_vector, Args};
+use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients};
+use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
-use qdrant_client::qdrant::{QuantizationSearchParams, SearchParams, SearchPoints};
+use qdrant_client::qdrant::{QuantizationSearchParams, SearchParams, SearchPoints, Vector};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -36,7 +36,12 @@ impl SearchProcessor {
             return Ok(());
         }
 
-        let query_vector = random_vector(self.args.dim);
+        let (query_vector, sparse_indices) = if self.args.sparse_vectors == Some(true) {
+            let sparse_vector: Vector = random_sparse_vector(self.args.dim).into();
+            (sparse_vector.data, sparse_vector.indices)
+        } else {
+            (random_dense_vector(self.args.dim), None)
+        };
         let query_filter = random_filter(
             self.args.keywords,
             self.args.float_payloads,
@@ -72,6 +77,9 @@ impl SearchProcessor {
             vector_name,
             with_vectors: None,
             read_consistency: self.args.read_consistency.map(Into::into),
+            timeout: None,
+            shard_key_selector: None,
+            sparse_indices,
         };
 
         let res =
