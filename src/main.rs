@@ -152,7 +152,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     SparseVectorParams {
                         index: Some(SparseIndexConfig {
                             full_scan_threshold: None,
-                            on_disk: Some(args.on_disk_index),
+                            on_disk: args.on_disk_index,
                         }),
                     },
                 )
@@ -169,7 +169,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             collection_name: args.collection_name.clone(),
             vectors_config,
             hnsw_config: Some(HnswConfigDiff {
-                on_disk: Some(args.on_disk_index),
+                on_disk: args.on_disk_index,
                 m: args.hnsw_m.map(|x| x as u64),
                 ef_construct: args.hnsw_ef_construct.map(|x| x as u64),
                 ..Default::default()
