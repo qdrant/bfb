@@ -120,13 +120,21 @@ pub fn random_vector(args: &Args) -> Vector {
     }
 }
 
+/// Generate random sparse vector with random size and random values.
+/// - `max_size` - maximum size of vector
 pub fn random_sparse_vector(max_size: usize) -> Vec<(u32, f32)> {
     let mut rng = rand::thread_rng();
     let size = rng.gen_range(1..max_size);
     // (index, value)
     let mut pairs = Vec::with_capacity(size);
     for i in 1..=size {
-        pairs.push((i as u32, rng.gen_range(-1.0..1.0) as f32));
+        // probability of skipping a dimension to make the vectors sparse
+        let skip = rng.gen_bool(0.05);
+        if skip {
+            continue;
+        }
+        // Only positive values are generated to make sure to hit the pruning path.
+        pairs.push((i as u32, rng.gen_range(0.0..10.0) as f32));
     }
     pairs
 }
