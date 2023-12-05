@@ -40,7 +40,7 @@ pub struct Args {
     #[clap(short, long)]
     pub max_id: Option<usize>,
 
-    /// Number of dimensions in each vector
+    /// Number of dimensions in each dense vector or max dimension for sparse vectors
     #[clap(short, long, default_value_t = 128)]
     pub dim: usize,
 
