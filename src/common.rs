@@ -129,7 +129,7 @@ pub fn random_sparse_vector(max_size: usize) -> Vec<(u32, f32)> {
     let mut pairs = Vec::with_capacity(size);
     for i in 1..=size {
         // probability of skipping a dimension to make the vectors sparse
-        let skip = rng.gen_bool(0.05);
+        let skip = rng.gen_bool(0.1);
         if skip {
             continue;
         }
