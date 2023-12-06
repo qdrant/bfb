@@ -223,8 +223,12 @@ pub struct Args {
     pub indexed_only: Option<bool>,
 
     /// Whether to use sparse vectors
-    #[clap(long, default_value_t = false)]
-    pub sparse_vectors: bool,
+    #[clap(long)]
+    pub sparse_vectors: Option<f64>,
+
+    /// Number of named vectors per point
+    #[clap(long, default_value_t = 1)]
+    pub sparse_vectors_per_point: usize,
 }
 
 #[derive(Copy, Clone, Debug)]

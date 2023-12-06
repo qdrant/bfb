@@ -1,11 +1,12 @@
-use crate::common::{random_vector, retry_with_clients};
+use crate::common::{random_sparse_vector, random_vector, retry_with_clients};
 use crate::fbin_reader::FBinReader;
 use crate::{random_dense_vector, random_payload, Args};
 use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
-use qdrant_client::qdrant::{PointId, PointStruct, PointsSelector, Vectors};
+use qdrant_client::qdrant::vectors::VectorsOptions;
+use qdrant_client::qdrant::{PointId, PointStruct, PointsSelector, Vector, Vectors};
 use rand::Rng;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -71,7 +72,7 @@ impl UpsertProcessor {
 
             let vectors: Vectors = if let Some(reader) = &self.reader {
                 reader.read_vector(idx as usize).to_vec().into()
-            } else if self.args.vectors_per_point > 1 {
+            } else if self.args.vectors_per_point != 1 {
                 let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
                     .map(|i| {
                         let vector_name = format!("{}", i);
@@ -80,14 +81,35 @@ impl UpsertProcessor {
                     })
                     .collect();
                 vectors_map.into()
-            } else if self.args.sparse_vectors {
-                // single sparse vector must be named
-                let vectors_map: HashMap<_, _> = vec![("0".to_string(), random_vector(&self.args))]
-                    .into_iter()
-                    .collect();
-                vectors_map.into()
             } else {
                 random_dense_vector(self.args.dim).into()
+            };
+
+            let vectors: Vectors = if let Some(sparsity) = self.args.sparse_vectors {
+                let mut vectors_map: HashMap<_, _> = Default::default();
+
+                for i in 0..self.args.sparse_vectors_per_point {
+                    let vector_name = format!("{}_sparse", i);
+                    let vector = Vector::from(random_sparse_vector(self.args.dim, sparsity));
+                    vectors_map.insert(vector_name, vector);
+                }
+
+                match vectors.vectors_options {
+                    None => {}
+                    Some(vectors) => match vectors {
+                        VectorsOptions::Vector(vector) => {
+                            vectors_map.insert("".to_string(), vector);
+                        }
+                        VectorsOptions::Vectors(vectors) => {
+                            for (name, vector) in vectors.vectors.into_iter() {
+                                vectors_map.insert(name, vector);
+                            }
+                        }
+                    },
+                }
+                vectors_map.into()
+            } else {
+                vectors
             };
 
             points.push(PointStruct::new(
