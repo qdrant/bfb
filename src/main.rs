@@ -135,20 +135,15 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         Config::ParamsMap(VectorParamsMap { map: params })
     };
 
-    // TODO enable mix configurations (dense+sparse)
-    let vectors_config = if args.sparse_vectors {
-        None
-    } else {
-        Some(VectorsConfig {
-            config: Some(dense_vector_params),
-        })
-    };
+    let vectors_config = Some(VectorsConfig {
+        config: Some(dense_vector_params),
+    });
 
-    let sparse_vectors_config = if args.sparse_vectors {
-        let params = (0..args.vectors_per_point)
+    let sparse_vectors_config = if args.sparse_vectors.is_some() {
+        let params = (0..args.sparse_vectors_per_point)
             .map(|idx| {
                 (
-                    idx.to_string(),
+                    format!("{idx}_sparse").to_string(),
                     SparseVectorParams {
                         index: Some(SparseIndexConfig {
                             full_scan_threshold: None,

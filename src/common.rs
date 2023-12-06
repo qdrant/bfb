@@ -113,23 +113,20 @@ pub fn random_filter(
 }
 
 pub fn random_vector(args: &Args) -> Vector {
-    if args.sparse_vectors {
-        random_sparse_vector(args.dim).into()
-    } else {
-        random_dense_vector(args.dim).into()
-    }
+    random_dense_vector(args.dim).into()
 }
 
 /// Generate random sparse vector with random size and random values.
 /// - `max_size` - maximum size of vector
-pub fn random_sparse_vector(max_size: usize) -> Vec<(u32, f32)> {
+/// - `sparsity` - how many non-zero values should be in vector
+pub fn random_sparse_vector(max_size: usize, sparsity: f64) -> Vec<(u32, f32)> {
     let mut rng = rand::thread_rng();
     let size = rng.gen_range(1..max_size);
     // (index, value)
     let mut pairs = Vec::with_capacity(size);
     for i in 1..=size {
         // probability of skipping a dimension to make the vectors sparse
-        let skip = rng.gen_bool(0.1);
+        let skip = !rng.gen_bool(sparsity);
         if skip {
             continue;
         }

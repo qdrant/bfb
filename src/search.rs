@@ -2,7 +2,9 @@ use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
-use qdrant_client::qdrant::{QuantizationSearchParams, SearchParams, SearchPoints, Vector};
+use qdrant_client::qdrant::{
+    QuantizationSearchParams, SearchParams, SearchPoints, SparseIndices, Vector,
+};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +29,32 @@ impl SearchProcessor {
         }
     }
 
+    fn get_sparse_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
+        if let Some(sparsity) = self.args.sparse_vectors {
+            let sparse_vector: Vector = random_sparse_vector(self.args.dim, sparsity).into();
+            let query_vector = sparse_vector.data;
+            let sparse_indices = sparse_vector.indices;
+            let name = format!(
+                "{}_sparse",
+                random_vector_name(self.args.sparse_vectors_per_point)
+            );
+            (query_vector, sparse_indices, Some(name))
+        } else {
+            panic!("No sparse vectors configured")
+        }
+    }
+
+    fn get_dense_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
+        let query_vector = random_dense_vector(self.args.dim);
+        let sparse_indices = None;
+        if self.args.vectors_per_point > 1 {
+            let name = random_vector_name(self.args.vectors_per_point);
+            (query_vector, sparse_indices, Some(name))
+        } else {
+            (query_vector, sparse_indices, None)
+        }
+    }
+
     pub async fn search(
         &self,
         _req_id: usize,
@@ -36,25 +64,29 @@ impl SearchProcessor {
             return Ok(());
         }
 
-        let (query_vector, sparse_indices) = if self.args.sparse_vectors {
-            let sparse_vector: Vector = random_sparse_vector(self.args.dim).into();
-            (sparse_vector.data, sparse_vector.indices)
-        } else {
-            (random_dense_vector(self.args.dim), None)
+        let start = std::time::Instant::now();
+
+        let has_sparse = self.args.sparse_vectors.is_some();
+        let has_dense = self.args.vectors_per_point > 0;
+
+        let use_sparse = match (has_sparse, has_dense) {
+            (true, true) => rand::random::<bool>(),
+            (true, false) => true,
+            (false, true) => false,
+            (false, false) => panic!("No sparse or dense vectors"),
         };
+
+        let (query_vector, sparse_indices, vector_name) = if use_sparse {
+            self.get_sparse_query()
+        } else {
+            self.get_dense_query()
+        };
+
         let query_filter = random_filter(
             self.args.keywords,
             self.args.float_payloads,
             self.args.int_payloads,
         );
-
-        let start = std::time::Instant::now();
-
-        let vector_name = if self.args.vectors_per_point > 1 || self.args.sparse_vectors {
-            Some(random_vector_name(self.args.vectors_per_point))
-        } else {
-            None
-        };
 
         let request = SearchPoints {
             collection_name: self.args.collection_name.to_string(),
