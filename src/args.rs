@@ -222,7 +222,7 @@ pub struct Args {
     #[clap(long)]
     pub indexed_only: Option<bool>,
 
-    /// Whether to use sparse vectors
+    /// Whether to use sparse vectors and with how much sparsity
     #[clap(long, value_name = "SPARSITY")]
     pub sparse_vectors: Option<f64>,
 
