@@ -31,7 +31,9 @@ impl SearchProcessor {
 
     fn get_sparse_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
         if let Some(sparsity) = self.args.sparse_vectors {
-            let sparse_vector: Vector = random_sparse_vector(self.args.dim, sparsity).into();
+            let sparse_vector: Vector =
+                random_sparse_vector(self.args.sparse_dim.unwrap_or(self.args.dim), sparsity)
+                    .into();
             let query_vector = sparse_vector.data;
             let sparse_indices = sparse_vector.indices;
             let name = format!(
