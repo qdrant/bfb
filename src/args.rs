@@ -40,7 +40,7 @@ pub struct Args {
     #[clap(short, long)]
     pub max_id: Option<usize>,
 
-    /// Number of dimensions in each vector
+    /// Number of dimensions in each dense vector or max dimension for sparse vectors
     #[clap(short, long, default_value_t = 128)]
     pub dim: usize,
 
@@ -115,9 +115,9 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub on_disk_payload: bool,
 
-    /// On disk hnsw
-    #[clap(long, default_value_t = false)]
-    pub on_disk_hnsw: bool,
+    /// On disk index
+    #[clap(long)]
+    pub on_disk_index: Option<bool>,
 
     /// On disk vectors
     #[clap(long)]
@@ -221,6 +221,14 @@ pub struct Args {
     /// Skip un-indexed segments during search
     #[clap(long)]
     pub indexed_only: Option<bool>,
+
+    /// Whether to use sparse vectors and with how much sparsity
+    #[clap(long, value_name = "SPARSITY")]
+    pub sparse_vectors: Option<f64>,
+
+    /// Number of named vectors per point
+    #[clap(long, default_value_t = 1)]
+    pub sparse_vectors_per_point: usize,
 }
 
 #[derive(Copy, Clone, Debug)]

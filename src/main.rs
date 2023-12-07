@@ -6,7 +6,7 @@ mod upsert;
 
 use crate::args::QuantizationArg;
 use crate::common::{
-    random_filter, random_payload, random_vector, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+    random_dense_vector, random_filter, random_payload, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
 use crate::search::SearchProcessor;
@@ -23,7 +23,8 @@ use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
     CollectionStatus, CompressionRatio, CreateCollection, Distance, FieldType, HnswConfigDiff,
     OptimizersConfigDiff, ProductQuantization, QuantizationConfig, QuantizationType,
-    ScalarQuantization, VectorParams, VectorParamsMap, VectorsConfig,
+    ScalarQuantization, SparseIndexConfig, SparseVectorConfig, SparseVectorParams, VectorParams,
+    VectorParamsMap, VectorsConfig,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -124,7 +125,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         ..Default::default()
     };
 
-    let vector_params = if args.vectors_per_point == 1 {
+    let dense_vector_params = if args.vectors_per_point == 1 {
         Config::Params(_vector_param)
     } else {
         let params = (0..args.vectors_per_point)
@@ -134,14 +135,36 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         Config::ParamsMap(VectorParamsMap { map: params })
     };
 
+    let vectors_config = Some(VectorsConfig {
+        config: Some(dense_vector_params),
+    });
+
+    let sparse_vectors_config = if args.sparse_vectors.is_some() {
+        let params = (0..args.sparse_vectors_per_point)
+            .map(|idx| {
+                (
+                    format!("{idx}_sparse").to_string(),
+                    SparseVectorParams {
+                        index: Some(SparseIndexConfig {
+                            full_scan_threshold: None,
+                            on_disk: args.on_disk_index,
+                        }),
+                    },
+                )
+            })
+            .collect();
+
+        Some(SparseVectorConfig { map: params })
+    } else {
+        None
+    };
+
     client
         .create_collection(&CreateCollection {
             collection_name: args.collection_name.clone(),
-            vectors_config: Some(VectorsConfig {
-                config: Some(vector_params),
-            }),
+            vectors_config,
             hnsw_config: Some(HnswConfigDiff {
-                on_disk: Some(args.on_disk_hnsw),
+                on_disk: args.on_disk_index,
                 m: args.hnsw_m.map(|x| x as u64),
                 ef_construct: args.hnsw_ef_construct.map(|x| x as u64),
                 ..Default::default()
@@ -200,6 +223,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 },
                 None => None,
             },
+            sparse_vectors_config,
             ..Default::default()
         })
         .await?;
