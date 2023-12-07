@@ -26,7 +26,7 @@ RUN cargo build --release
 
 RUN mv target/release/bfb /bfb/bfb
 
-FROM debian:11-slim
+FROM debian:12-slim
 ARG APP=/bfb
 
 RUN apt-get update \
