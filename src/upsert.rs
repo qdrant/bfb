@@ -90,7 +90,10 @@ impl UpsertProcessor {
 
                 for i in 0..self.args.sparse_vectors_per_point {
                     let vector_name = format!("{}_sparse", i);
-                    let vector = Vector::from(random_sparse_vector(self.args.dim, sparsity));
+                    let vector = Vector::from(random_sparse_vector(
+                        self.args.sparse_dim.unwrap_or(self.args.dim),
+                        sparsity,
+                    ));
                     vectors_map.insert(vector_name, vector);
                 }
 

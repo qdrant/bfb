@@ -229,6 +229,10 @@ pub struct Args {
     /// Number of named vectors per point
     #[clap(long, default_value_t = 1)]
     pub sparse_vectors_per_point: usize,
+
+    /// Max dimension for sparse vectors (overrides --dim)
+    #[clap(long)]
+    pub sparse_dim: Option<usize>,
 }
 
 #[derive(Copy, Clone, Debug)]
