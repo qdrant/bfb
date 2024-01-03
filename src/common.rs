@@ -10,15 +10,14 @@ use serde_json::json;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
-pub const GEO_PAYLOAD_KEY: &str = "geo";
+pub const INTEGERS_PAYLOAD_KEY: &str = "c";
+pub const GEO_PAYLOAD_KEY: &str = "d";
 
 const BERLIN: GeoPoint = GeoPoint {
     lat: 52.52437,
     lon: 13.41053,
 };
 const GEO_RADIUS: f64 = 1.0;
-
-pub const INTEGERS_PAYLOAD_KEY: &str = "c";
 
 pub fn random_keyword(num_variants: usize) -> String {
     let mut rng = rand::thread_rng();
@@ -55,6 +54,7 @@ pub fn random_payload(
             }),
         );
     }
+
     payload
 }
 
