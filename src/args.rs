@@ -147,6 +147,10 @@ pub struct Args {
     #[clap(long)]
     pub int_payloads: Option<usize>,
 
+    /// Use geo payloads
+    #[clap(long, default_value_t = false)]
+    pub geo_payloads: bool,
+
     /// Use separate request to set payload on just upserted points
     #[clap(long, default_value_t = false)]
     pub set_payload: bool,
