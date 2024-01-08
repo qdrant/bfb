@@ -17,9 +17,9 @@ Options:
   -m, --max-id <MAX_ID>
           If set, will use vector ids within range [0, max_id) To simulate overwriting existing vectors
   -d, --dim <DIM>
-          Number of dimensions in each vector [default: 128]
+          Number of dimensions in each dense vector or max dimension for sparse vectors [default: 128]
   -t, --threads <THREADS>
-          [default: 2]
+          Number of worker threads to use [default: 2]
   -p, --parallel <PARALLEL>
           Number of parallel requests to send [default: 2]
   -b, --batch-size <BATCH_SIZE>
@@ -41,9 +41,9 @@ Options:
       --p9 <P9>
           Number of 9 digits to show in p99* results [default: 2]
       --collection-name <COLLECTION_NAME>
-          [default: benchmark]
+          Name of the collection to use [default: benchmark]
       --distance <DISTANCE>
-          [default: Cosine]
+          Distance function used for comparing vectors [default: Cosine]
       --mmap-threshold <MMAP_THRESHOLD>
           Store vectors on disk
       --indexing-threshold <INDEXING_THRESHOLD>
@@ -51,11 +51,11 @@ Options:
       --segments <SEGMENTS>
           Number of segments
       --max-segment-size <MAX_SEGMENT_SIZE>
-
+          Do not create segments larger this size (in kilobytes)
       --on-disk-payload
           On disk payload
-      --on-disk-hnsw
-          On disk hnsw
+      --on-disk-index <ON_DISK_INDEX>
+          On disk index [possible values: true, false]
       --on-disk-vectors <ON_DISK_VECTORS>
           On disk vectors [possible values: true, false]
       --timing-threshold <TIMING_THRESHOLD>
@@ -81,11 +81,11 @@ Options:
       --search-with-payload
           Whether to request payload in search results
       --wait-on-upsert
-          wait on upsert
+          Wait on upsert
       --replication-factor <REPLICATION_FACTOR>
-          replication factor [default: 1]
+          Replication factor [default: 1]
       --shards <SHARDS>
-
+          Number of shards in the collection
       --write-consistency-factor <WRITE_CONSISTENCY_FACTOR>
           Write consistency factor to use for collection creation [default: 1]
       --write-ordering <WRITE_ORDERING>
@@ -107,7 +107,13 @@ Options:
       --delay <DELAY>
           Delay between requests in milliseconds
       --indexed-only <INDEXED_ONLY>
-          Skip unindexed segments during search [possible values: true, false]
+          Skip un-indexed segments during search [possible values: true, false]
+      --sparse-vectors <SPARSITY>
+          Whether to use sparse vectors and with how much sparsity
+      --sparse-vectors-per-point <SPARSE_VECTORS_PER_POINT>
+          Number of named vectors per point [default: 1]
+      --sparse-dim <SPARSE_DIM>
+          Max dimension for sparse vectors (overrides --dim)
   -h, --help
           Print help
   -V, --version
