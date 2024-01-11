@@ -24,7 +24,7 @@ Options:
           Number of parallel requests to send [default: 2]
   -b, --batch-size <BATCH_SIZE>
           [default: 100]
-      --throttle <THROTTLE>
+      --throttle <BPS>
           Throttle updates, in batches per second. [default=no throttling]
       --skip-create
           Skip creating a collection
