@@ -56,7 +56,7 @@ pub struct Args {
     pub batch_size: usize,
 
     /// Throttle updates, in batches per second. [default=no throttling]
-    #[clap(long, value_name = "BPS")]
+    #[clap(long, short = 'T', value_name = "BPS")]
     pub throttle: Option<f32>,
 
     /// Skip creating a collection
