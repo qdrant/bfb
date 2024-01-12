@@ -415,8 +415,24 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             future
         });
 
+    // Stream to throttle or resolve instantly if no throttling is defined
+    let mut throttler: Box<dyn Stream<Item = ()> + Unpin> = match args
+        .throttle_search
+        // Do not support zero or infinite
+        .filter(|throttle| *throttle != 0.0 && !throttle.is_nan() && !throttle.is_infinite())
+        .map(|throttle| Duration::from_secs_f32(1.0 / throttle))
+        // Do not support durations of zero
+        .filter(|duration| !duration.is_zero())
+    {
+        Some(duration) => {
+            let interval = interval(duration);
+            Box::new(IntervalStream::new(interval).map(|_| ()))
+        }
+        None => Box::new(futures::stream::repeat(())),
+    };
+
     let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
-    while let Some(result) = search_stream.next().await {
+    while let (Some(()), Some(result)) = { join!(throttler.next(), search_stream.next(),) } {
         // Continue with no error
         let err = match result {
             Ok(()) => continue,
