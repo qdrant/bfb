@@ -22,8 +22,10 @@ Options:
           Number of worker threads to use [default: 2]
   -p, --parallel <PARALLEL>
           Number of parallel requests to send [default: 2]
-  -b, --batch-size <BATCH_SIZE>
-          [default: 100]
+  -b, --batch-size <POINTS>
+          Batch size for updates, in number of points. [default=100] [default: 100]
+  -T, --throttle <RPS>
+          Throttle updates and searches, in batches/searches per second. [default=no throttling]
       --skip-create
           Skip creating a collection
       --create-if-missing

@@ -6,7 +6,8 @@ mod upsert;
 
 use crate::args::QuantizationArg;
 use crate::common::{
-    random_dense_vector, random_filter, random_payload, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+    random_dense_vector, random_filter, random_payload, throttler, FLOAT_PAYLOAD_KEY,
+    INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
 use crate::search::SearchProcessor;
@@ -14,7 +15,6 @@ use crate::upsert::UpsertProcessor;
 use anyhow::Result;
 use args::Args;
 use clap::Parser;
-use common::FLOAT_PAYLOAD_KEY;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
@@ -33,8 +33,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime;
 use tokio::time::sleep;
+use tokio::{join, runtime};
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
@@ -321,8 +321,9 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         return Ok(());
     }
 
+    let mut throttler = throttler(args.throttle);
     let mut upsert_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
-    while let Some(result) = upsert_stream.next().await {
+    while let (Some(()), Some(result)) = { join!(throttler.next(), upsert_stream.next()) } {
         result?;
     }
     if stopped.load(Ordering::Relaxed) {
@@ -402,8 +403,9 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             future
         });
 
+    let mut throttler = throttler(args.throttle);
     let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
-    while let Some(result) = search_stream.next().await {
+    while let (Some(()), Some(result)) = { join!(throttler.next(), search_stream.next()) } {
         // Continue with no error
         let err = match result {
             Ok(()) => continue,
