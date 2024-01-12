@@ -398,7 +398,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             future
         });
 
-    let mut throttler = throttler(args.throttle_search);
+    let mut throttler = throttler(args.throttle);
     let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let (Some(()), Some(result)) = { join!(throttler.next(), search_stream.next()) } {
         // Continue with no error

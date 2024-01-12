@@ -24,10 +24,8 @@ Options:
           Number of parallel requests to send [default: 2]
   -b, --batch-size <POINTS>
           Batch size for updates, in number of points. [default=100] [default: 100]
-  -T, --throttle <BPS>
-          Throttle updates, in batches per second. [default=no throttling]
-      --throttle-search <SPS>
-          Throttle searches, in searches per second. [default=no throttling]
+  -T, --throttle <RPS>
+          Throttle updates and searches, in batches/searches per second. [default=no throttling]
       --skip-create
           Skip creating a collection
       --create-if-missing
