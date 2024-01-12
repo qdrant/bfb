@@ -357,10 +357,12 @@ fn print_timings(args: &Args, timings: &mut Vec<f64>, metric_name: &str, show_pe
     let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
     let min_time: f64 = timings.first().copied().unwrap_or(0.0);
     let max_time: f64 = timings.last().copied().unwrap_or(0.0);
+    let p50_time: f64 = timings[(timings.len() as f32 * 0.50) as usize];
     let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
 
     println!("Min {metric_name}: {min_time}");
     println!("Avg {metric_name}: {avg_time}");
+    println!("Median {metric_name}: {p50_time}");
 
     if show_percentiles {
         println!("p95 {metric_name}: {p95_time}");
