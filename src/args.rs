@@ -59,6 +59,10 @@ pub struct Args {
     #[clap(long, short = 'T', value_name = "BPS")]
     pub throttle: Option<f32>,
 
+    /// Throttle searches, in searches per second. [default=no throttling]
+    #[clap(long, value_name = "SPS")]
+    pub throttle_search: Option<f32>,
+
     /// Skip creating a collection
     #[clap(long, default_value_t = false)]
     pub skip_create: bool,

@@ -26,6 +26,8 @@ Options:
           [default: 100]
   -T, --throttle <BPS>
           Throttle updates, in batches per second. [default=no throttling]
+      --throttle-search <SPS>
+          Throttle searches, in searches per second. [default=no throttling]
       --skip-create
           Skip creating a collection
       --create-if-missing
