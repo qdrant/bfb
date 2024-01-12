@@ -347,28 +347,33 @@ fn write_to_json(path: &String, results: SearcherResults) {
     println!("Search results written to {}", path);
 }
 
-fn print_timings(args: &Args, timings: &mut Vec<f64>, metric_name: &str) {
-    if timings.is_empty() {
+fn print_stats(args: &Args, values: &mut Vec<f64>, metric_name: &str, show_percentiles: bool) {
+    if values.is_empty() {
         return;
     }
-    // sort timings in ascending order
-    timings.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    // sort values in ascending order
+    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
-    let avg_time: f64 = timings.iter().sum::<f64>() / timings.len() as f64;
-    let min_time: f64 = timings.first().copied().unwrap_or(0.0);
-    let max_time: f64 = timings.last().copied().unwrap_or(0.0);
-    let p95_time: f64 = timings[(timings.len() as f32 * 0.95) as usize];
+    let avg_time: f64 = values.iter().sum::<f64>() / values.len() as f64;
+    let min_time: f64 = values.first().copied().unwrap_or(0.0);
+    let max_time: f64 = values.last().copied().unwrap_or(0.0);
+    let p50_time: f64 = values[(values.len() as f32 * 0.50) as usize];
 
     println!("Min {metric_name}: {min_time}");
     println!("Avg {metric_name}: {avg_time}");
-    println!("p95 {metric_name}: {p95_time}");
+    println!("Median {metric_name}: {p50_time}");
 
-    for digits in 2..=args.p9 {
-        let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
-        let index = ((timings.len() as f64 * factor) as usize).min(timings.len() - 1);
-        let nines = "9".repeat(digits);
-        let time = timings[index];
-        println!("p{nines} {metric_name}: {time}");
+    if show_percentiles {
+        let p95_time: f64 = values[(values.len() as f32 * 0.95) as usize];
+        println!("p95 {metric_name}: {p95_time}");
+
+        for digits in 2..=args.p9 {
+            let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
+            let index = ((values.len() as f64 * factor) as usize).min(values.len() - 1);
+            let nines = "9".repeat(digits);
+            let time = values[index];
+            println!("p{nines} {metric_name}: {time}");
+        }
     }
 
     println!("Max {metric_name}: {max_time}");
@@ -420,13 +425,13 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let mut full_timings = searcher.full_timings.lock().unwrap();
     println!("--- Search timings ---");
-    print_timings(args, &mut full_timings, "search time");
+    print_stats(args, &mut full_timings, "search time", true);
     let mut server_timings = searcher.server_timings.lock().unwrap();
     println!("--- Server timings ---");
-    print_timings(args, &mut server_timings, "search time");
+    print_stats(args, &mut server_timings, "search time", true);
     let mut rps = searcher.rps.lock().unwrap();
     println!("--- RPS ---");
-    print_timings(args, &mut rps, "rps");
+    print_stats(args, &mut rps, "rps", false);
 
     if args.json.is_some() {
         println!("--- Writing results to json file ---");
