@@ -358,13 +358,13 @@ fn print_stats(args: &Args, values: &mut Vec<f64>, metric_name: &str, show_perce
     let min_time: f64 = values.first().copied().unwrap_or(0.0);
     let max_time: f64 = values.last().copied().unwrap_or(0.0);
     let p50_time: f64 = values[(values.len() as f32 * 0.50) as usize];
-    let p95_time: f64 = values[(values.len() as f32 * 0.95) as usize];
 
     println!("Min {metric_name}: {min_time}");
     println!("Avg {metric_name}: {avg_time}");
     println!("Median {metric_name}: {p50_time}");
 
     if show_percentiles {
+        let p95_time: f64 = values[(values.len() as f32 * 0.95) as usize];
         println!("p95 {metric_name}: {p95_time}");
 
         for digits in 2..=args.p9 {
