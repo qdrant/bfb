@@ -6,7 +6,8 @@ mod upsert;
 
 use crate::args::QuantizationArg;
 use crate::common::{
-    random_dense_vector, random_filter, random_payload, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+    random_dense_vector, random_filter, random_payload, throttler, FLOAT_PAYLOAD_KEY,
+    INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
 use crate::search::SearchProcessor;
@@ -14,9 +15,7 @@ use crate::upsert::UpsertProcessor;
 use anyhow::Result;
 use args::Args;
 use clap::Parser;
-use common::FLOAT_PAYLOAD_KEY;
 use futures::stream::StreamExt;
-use futures::Stream;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
 use qdrant_client::qdrant::quantization_config::Quantization;
@@ -34,9 +33,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{interval, sleep};
+use tokio::time::sleep;
 use tokio::{join, runtime};
-use tokio_stream::wrappers::IntervalStream;
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
@@ -323,24 +321,9 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         return Ok(());
     }
 
-    // Stream to throttle or resolve instantly if no throttling is defined
-    let mut throttler: Box<dyn Stream<Item = ()> + Unpin> = match args
-        .throttle
-        // Do not support zero or infinite
-        .filter(|throttle| *throttle != 0.0 && !throttle.is_nan() && !throttle.is_infinite())
-        .map(|throttle| Duration::from_secs_f32(1.0 / throttle))
-        // Do not support durations of zero
-        .filter(|duration| !duration.is_zero())
-    {
-        Some(duration) => {
-            let interval = interval(duration);
-            Box::new(IntervalStream::new(interval).map(|_| ()))
-        }
-        None => Box::new(futures::stream::repeat(())),
-    };
-
+    let mut throttler = throttler(args.throttle);
     let mut upsert_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
-    while let (Some(()), Some(result)) = { join!(throttler.next(), upsert_stream.next(),) } {
+    while let (Some(()), Some(result)) = { join!(throttler.next(), upsert_stream.next()) } {
         result?;
     }
     if stopped.load(Ordering::Relaxed) {
@@ -415,24 +398,9 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             future
         });
 
-    // Stream to throttle or resolve instantly if no throttling is defined
-    let mut throttler: Box<dyn Stream<Item = ()> + Unpin> = match args
-        .throttle_search
-        // Do not support zero or infinite
-        .filter(|throttle| *throttle != 0.0 && !throttle.is_nan() && !throttle.is_infinite())
-        .map(|throttle| Duration::from_secs_f32(1.0 / throttle))
-        // Do not support durations of zero
-        .filter(|duration| !duration.is_zero())
-    {
-        Some(duration) => {
-            let interval = interval(duration);
-            Box::new(IntervalStream::new(interval).map(|_| ()))
-        }
-        None => Box::new(futures::stream::repeat(())),
-    };
-
+    let mut throttler = throttler(args.throttle_search);
     let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
-    while let (Some(()), Some(result)) = { join!(throttler.next(), search_stream.next(),) } {
+    while let (Some(()), Some(result)) = { join!(throttler.next(), search_stream.next()) } {
         // Continue with no error
         let err = match result {
             Ok(()) => continue,

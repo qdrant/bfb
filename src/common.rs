@@ -1,11 +1,16 @@
 use crate::args::Args;
 use core::option::Option;
 use core::option::Option::{None, Some};
+use futures::Stream;
 use qdrant_client::client::{Payload, QdrantClient};
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, Vector};
 use rand::prelude::SliceRandom;
 use rand::Rng;
+use std::time::Duration;
+use tokio::time::interval;
+use tokio_stream::wrappers::IntervalStream;
+use tokio_stream::StreamExt;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
@@ -163,4 +168,23 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = anyhow::R
         }
     }
     res
+}
+
+/// Build a stream that will emit a unit value at the given frequency
+///
+/// If `None` - the stream will emit a unit value every time it is polled.
+pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item = ()> + Unpin> {
+    match hz
+        // Do not support zero or infinite
+        .filter(|throttle| *throttle != 0.0 && !throttle.is_nan() && !throttle.is_infinite())
+        .map(|throttle| Duration::from_secs_f32(1.0 / throttle))
+        // Do not support durations of zero
+        .filter(|duration| !duration.is_zero())
+    {
+        Some(duration) => {
+            let interval = interval(duration);
+            Box::new(IntervalStream::new(interval).map(|_| ()))
+        }
+        None => Box::new(futures::stream::repeat(())),
+    }
 }
