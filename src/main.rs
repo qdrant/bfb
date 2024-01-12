@@ -347,7 +347,7 @@ fn write_to_json(path: &String, results: SearcherResults) {
     println!("Search results written to {}", path);
 }
 
-fn print_timings(args: &Args, timings: &mut Vec<f64>, metric_name: &str) {
+fn print_timings(args: &Args, timings: &mut Vec<f64>, metric_name: &str, show_percentiles: bool) {
     if timings.is_empty() {
         return;
     }
@@ -361,14 +361,17 @@ fn print_timings(args: &Args, timings: &mut Vec<f64>, metric_name: &str) {
 
     println!("Min {metric_name}: {min_time}");
     println!("Avg {metric_name}: {avg_time}");
-    println!("p95 {metric_name}: {p95_time}");
 
-    for digits in 2..=args.p9 {
-        let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
-        let index = ((timings.len() as f64 * factor) as usize).min(timings.len() - 1);
-        let nines = "9".repeat(digits);
-        let time = timings[index];
-        println!("p{nines} {metric_name}: {time}");
+    if show_percentiles {
+        println!("p95 {metric_name}: {p95_time}");
+
+        for digits in 2..=args.p9 {
+            let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
+            let index = ((timings.len() as f64 * factor) as usize).min(timings.len() - 1);
+            let nines = "9".repeat(digits);
+            let time = timings[index];
+            println!("p{nines} {metric_name}: {time}");
+        }
     }
 
     println!("Max {metric_name}: {max_time}");
@@ -420,13 +423,13 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let mut full_timings = searcher.full_timings.lock().unwrap();
     println!("--- Search timings ---");
-    print_timings(args, &mut full_timings, "search time");
+    print_timings(args, &mut full_timings, "search time", true);
     let mut server_timings = searcher.server_timings.lock().unwrap();
     println!("--- Server timings ---");
-    print_timings(args, &mut server_timings, "search time");
+    print_timings(args, &mut server_timings, "search time", true);
     let mut rps = searcher.rps.lock().unwrap();
     println!("--- RPS ---");
-    print_timings(args, &mut rps, "rps");
+    print_timings(args, &mut rps, "rps", false);
 
     if args.json.is_some() {
         println!("--- Writing results to json file ---");
