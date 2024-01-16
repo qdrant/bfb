@@ -54,9 +54,9 @@ impl UpsertProcessor {
 
         for i in 0..min(self.args.batch_size, points_left) {
             let idx = if let Some(max_id) = self.args.max_id {
-                rng.gen_range(0..max_id) as u64
+                rng.gen_range(self.args.offset..max_id) as u64
             } else {
-                batch_id as u64 * self.args.batch_size as u64 + i as u64
+                self.args.offset as u64 + (batch_id as u64 * self.args.batch_size as u64 + i as u64)
             };
 
             let point_id: PointId = PointId {
