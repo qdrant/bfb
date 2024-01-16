@@ -35,8 +35,10 @@ pub struct Args {
     #[clap(long, default_value_t = 1)]
     pub vectors_per_point: usize,
 
-    /// If set, will use vector ids within range [0, max_id)
-    /// To simulate overwriting existing vectors
+    #[clap(short, long, default_value_t = 0)]
+    pub offset: usize,
+
+    /// If set, will randomly upsert/override vector ids within range [offset, max_id)
     #[clap(short, long)]
     pub max_id: Option<usize>,
 
