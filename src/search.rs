@@ -66,6 +66,9 @@ impl SearchProcessor {
             vector_name,
             with_vectors: None,
             read_consistency: self.args.read_consistency.map(Into::into),
+            shard_key_selector: None,
+            timeout: self.args.timeout.map(|v| v as u64),
+            sparse_indices: None,
         };
 
         let res =

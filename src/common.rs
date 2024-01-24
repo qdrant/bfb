@@ -45,6 +45,7 @@ pub fn random_filter(keywords: Option<usize>, float_payloads: bool) -> Option<Fi
                 geo_bounding_box: None,
                 geo_radius: None,
                 values_count: None,
+                geo_polygon: None,
             }
             .into(),
         )
@@ -64,6 +65,7 @@ pub fn random_filter(keywords: Option<usize>, float_payloads: bool) -> Option<Fi
                 geo_bounding_box: None,
                 geo_radius: None,
                 values_count: None,
+                geo_polygon: None,
             }
             .into(),
         )
