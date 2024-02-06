@@ -88,6 +88,7 @@ impl SearchProcessor {
             self.args.keywords,
             self.args.float_payloads,
             self.args.int_payloads,
+            self.args.match_any,
         );
 
         let request = SearchPoints {
