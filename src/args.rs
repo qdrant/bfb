@@ -150,6 +150,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub float_payloads: bool,
 
+    /// Match any count
+    #[clap(long)]
+    pub match_any: Option<usize>,
+
     /// Use integer payloads
     #[clap(long)]
     pub int_payloads: Option<usize>,

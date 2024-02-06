@@ -4,7 +4,7 @@ use core::option::Option::{None, Some};
 use futures::Stream;
 use qdrant_client::client::{Payload, QdrantClient};
 use qdrant_client::qdrant::r#match::MatchValue;
-use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, Vector};
+use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, RepeatedStrings, Vector};
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use std::time::Duration;
@@ -48,7 +48,9 @@ pub fn random_filter(
     keywords: Option<usize>,
     float_payloads: bool,
     integer_payload: Option<usize>,
+    match_any: Option<usize>,
 ) -> Option<Filter> {
+
     let mut filter = Filter {
         should: vec![],
         must: vec![],
@@ -56,12 +58,22 @@ pub fn random_filter(
     };
     let mut have_any = false;
     if let Some(keyword_variants) = keywords {
+
+        let condition = if let Some(match_any) = match_any {
+            MatchValue::Keywords(RepeatedStrings {
+                strings: (0..match_any).map(|_| random_keyword(keyword_variants)).collect(),
+            })
+        } else {
+            MatchValue::Keyword(random_keyword(keyword_variants))
+        };
+
+
         have_any = true;
         filter.must.push(
             FieldCondition {
                 key: KEYWORD_PAYLOAD_KEY.to_string(),
                 r#match: Some(Match {
-                    match_value: Some(MatchValue::Keyword(random_keyword(keyword_variants))),
+                    match_value: Some(condition),
                 }),
                 range: None,
                 geo_bounding_box: None,
@@ -72,6 +84,7 @@ pub fn random_filter(
             .into(),
         )
     }
+
     if float_payloads {
         have_any = true;
         filter.must.push(
