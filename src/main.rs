@@ -36,6 +36,14 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tokio::{join, runtime};
 
+use std::sync::Mutex;
+
+use actix_web::{web, App, HttpResponse, HttpServer};
+use prometheus_client::encoding::text::encode;
+use prometheus_client::encoding::EncodeLabelSet;
+use prometheus_client::metrics::gauge::Gauge;
+use prometheus_client::registry::{self, Registry};
+
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
     // Get random id
@@ -450,7 +458,10 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+async fn run_benchmark(
+    args: Args,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
     if !args.skip_create {
         recreate_collection(&args, stopped.clone()).await?;
     }
@@ -471,6 +482,63 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct Labels {
+    rps: i32,
+    server_timings: i32,
+}
+
+pub struct Metrics {
+    rps: Gauge,
+    latency: Gauge, // TODO: try historgram?
+}
+
+pub struct AppState {
+    pub registry: Registry,
+}
+
+pub async fn metrics_handler(state: web::Data<Mutex<AppState>>) -> actix_web::Result<HttpResponse> {
+    let state = state.lock().unwrap();
+    let mut body = String::new();
+    encode(&mut body, &state.registry).unwrap();
+    Ok(HttpResponse::Ok()
+        .content_type("application/openmetrics-text; version=1.0.0; charset=utf-8")
+        .body(body))
+}
+
+// #[actix_web::main]
+async fn start_metrics_server() -> std::io::Result<()> {
+    println!("Metrics server started");
+
+    let metrics = web::Data::new(Metrics {
+        rps: Gauge::default(),
+        latency: Gauge::default(),
+    });
+    let mut state = AppState {
+        registry: Registry::default(),
+    };
+    state
+        .registry
+        .register("rps", "Requests per second", metrics.rps.clone());
+    state
+        .registry
+        .register("lateny", "Latency of requests", metrics.latency.clone());
+    let state = web::Data::new(Mutex::new(state));
+
+    print!("Metric started xxxx");
+    // println!("{:#?}", state);
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(metrics.clone())
+            .app_data(state.clone())
+            .service(web::resource("/metrics").route(web::get().to(metrics_handler)))
+    })
+    .bind(("127.0.0.1", 9091))?
+    .run()
+    .await
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -485,10 +553,20 @@ fn main() {
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)
         .enable_all()
-        .build();
+        .build()
+        .expect("Failed to create Tokio runtime");
 
-    runtime
-        .unwrap()
-        .block_on(run_benchmark(args, stopped))
-        .unwrap();
+    runtime.spawn(async move {
+        run_benchmark(args, stopped).await;
+    });
+
+    let prom_exporter_runtime = runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime");
+
+    prom_exporter_runtime.spawn(async {
+        start_metrics_server().await;
+    });
 }
