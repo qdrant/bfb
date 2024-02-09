@@ -525,15 +525,16 @@ async fn start_metrics_server() -> std::io::Result<()> {
     print!("Metric started xxxx");
     // println!("{:#?}", state);
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         App::new()
             .app_data(metrics.clone())
             .app_data(state.clone())
             .service(web::resource("/metrics").route(web::get().to(metrics_handler)))
     })
     .bind(("127.0.0.1", 9091))?
-    .run()
-    .await
+    .run();
+
+    tokio::spawn(server).await?
 }
 
 fn main() {
@@ -547,16 +548,6 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    let runtime = runtime::Builder::new_multi_thread()
-        .worker_threads(args.threads)
-        .enable_all()
-        .build()
-        .expect("Failed to create Tokio runtime");
-
-    runtime.spawn(async move {
-        run_benchmark(args, stopped).await;
-    });
-
     let prom_exporter_runtime = runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
@@ -566,4 +557,12 @@ fn main() {
     prom_exporter_runtime.spawn(async {
         start_metrics_server().await;
     });
+
+    let runtime = runtime::Builder::new_multi_thread()
+        .worker_threads(args.threads)
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime");
+
+    runtime.block_on(run_benchmark(args, stopped)).unwrap();
 }
