@@ -458,10 +458,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-async fn run_benchmark(
-    args: Args,
-    stopped: Arc<AtomicBool>,
-) -> Result<()> {
+async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     if !args.skip_create {
         recreate_collection(&args, stopped.clone()).await?;
     }
