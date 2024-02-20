@@ -31,7 +31,7 @@ pub struct Args {
     #[clap(short, long, default_value_t = 100_000)]
     pub num_vectors: usize,
 
-    /// Number of named vectors per point
+    /// Number of named dense vectors per point
     #[clap(long, default_value_t = 1)]
     pub vectors_per_point: usize,
 
@@ -237,7 +237,7 @@ pub struct Args {
     #[clap(long, value_name = "SPARSITY")]
     pub sparse_vectors: Option<f64>,
 
-    /// Number of named vectors per point
+    /// Number of named sparse vectors per point
     #[clap(long, default_value_t = 1)]
     pub sparse_vectors_per_point: usize,
 
