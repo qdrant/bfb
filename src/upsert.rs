@@ -39,7 +39,7 @@ impl UpsertProcessor {
         }
     }
 
-    pub async fn upsert(&self, batch_id: usize) -> Result<(), anyhow::Error> {
+    pub async fn upsert(&self, batch_id: usize) -> Result<(), Error> {
         let points_uploaded = self.args.batch_size * batch_id;
         let points_left = self.args.num_vectors.saturating_sub(points_uploaded);
 

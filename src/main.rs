@@ -348,7 +348,7 @@ fn write_to_json(path: &String, results: SearcherResults) {
     println!("Search results written to {}", path);
 }
 
-fn print_stats(args: &Args, values: &mut Vec<f64>, metric_name: &str, show_percentiles: bool) {
+fn print_stats(args: &Args, values: &mut [f64], metric_name: &str, show_percentiles: bool) {
     if values.is_empty() {
         return;
     }
