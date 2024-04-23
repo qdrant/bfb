@@ -324,7 +324,13 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut throttler = throttler(args.throttle);
     let mut upsert_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let (Some(()), Some(result)) = { join!(throttler.next(), upsert_stream.next()) } {
-        result?;
+        if let Err(err) = result {
+            if let Some(status) = err.downcast_ref::<tonic::Status>() {
+                return Err(anyhow::format_err!("{status}\n{:?}", status.metadata()));
+            } else {
+                return Err(err);
+            }
+        }
     }
     if stopped.load(Ordering::Relaxed) {
         sent_bar_arc.abandon();
