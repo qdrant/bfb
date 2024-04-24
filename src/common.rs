@@ -11,6 +11,7 @@ use std::time::Duration;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::StreamExt;
+use tracing::warn;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
@@ -50,7 +51,6 @@ pub fn random_filter(
     integer_payload: Option<usize>,
     match_any: Option<usize>,
 ) -> Option<Filter> {
-
     let mut filter = Filter {
         should: vec![],
         must: vec![],
@@ -58,15 +58,15 @@ pub fn random_filter(
     };
     let mut have_any = false;
     if let Some(keyword_variants) = keywords {
-
         let condition = if let Some(match_any) = match_any {
             MatchValue::Keywords(RepeatedStrings {
-                strings: (0..match_any).map(|_| random_keyword(keyword_variants)).collect(),
+                strings: (0..match_any)
+                    .map(|_| random_keyword(keyword_variants))
+                    .collect(),
             })
         } else {
             MatchValue::Keyword(random_keyword(keyword_variants))
         };
-
 
         have_any = true;
         filter.must.push(
@@ -166,20 +166,34 @@ pub fn random_vector_name(max: usize) -> String {
 
 pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = anyhow::Result<R>>>(
     clients: &'a [QdrantClient],
+    args: &Args,
     mut call: impl FnMut(&'a QdrantClient) -> T,
 ) -> anyhow::Result<R> {
     let mut permutation = (0..clients.len()).collect::<Vec<_>>();
-    permutation.shuffle(&mut rand::thread_rng());
     let mut res = Err(anyhow::anyhow!("No clients"));
-    for client_id in permutation {
-        let client = clients.get(client_id).unwrap();
 
-        res = call(client).await;
+    for attempt in 0..=args.retries {
+        permutation.shuffle(&mut rand::thread_rng());
+        for client_id in &permutation {
+            let client = clients.get(*client_id).unwrap();
 
-        if res.is_ok() {
-            break;
+            res = call(client).await;
+
+            if res.is_ok() {
+                return res;
+            }
+        }
+
+        let is_last = attempt >= args.retries;
+        if !is_last {
+            if let Err(err) = &res {
+                warn!("Request failed at attempt {}: {err}", attempt + 1);
+            }
+
+            tokio::time::sleep(Duration::from_secs_f32(args.retry_interval.max(0.0))).await;
         }
     }
+
     res
 }
 

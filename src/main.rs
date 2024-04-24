@@ -317,7 +317,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let query_stream = (0..num_batches)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
-            let future = upserter.upsert(n);
+            let future = upserter.upsert(n, args);
             sent_bar_arc.inc(args.batch_size as u64);
             future
         });
@@ -404,7 +404,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let query_stream = (0..args.num_vectors)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
-            let future = searcher.search(n, &progress_bar);
+            let future = searcher.search(n, args, &progress_bar);
             progress_bar.inc(1);
             future
         });

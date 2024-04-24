@@ -60,6 +60,7 @@ impl SearchProcessor {
     pub async fn search(
         &self,
         _req_id: usize,
+        args: &Args,
         progress_bar: &ProgressBar,
     ) -> Result<(), anyhow::Error> {
         if self.stopped.load(std::sync::atomic::Ordering::Relaxed) {
@@ -117,8 +118,8 @@ impl SearchProcessor {
             sparse_indices,
         };
 
-        let res =
-            retry_with_clients(&self.clients, |client| client.search_points(&request)).await?;
+        let res = retry_with_clients(&self.clients, args, |client| client.search_points(&request))
+            .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 
