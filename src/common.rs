@@ -11,6 +11,7 @@ use std::time::Duration;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::StreamExt;
+use tracing::warn;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
@@ -186,8 +187,7 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = anyhow::R
         let is_last = attempt >= args.retries;
         if !is_last {
             if let Err(err) = &res {
-                // TODO: with to logging crate once merged
-                eprintln!("Request failed at attempt {}: {err}", attempt + 1);
+                warn!("Request failed at attempt {}: {err}", attempt + 1);
             }
 
             tokio::time::sleep(Duration::from_secs_f32(args.retry_interval.max(0.0))).await;
