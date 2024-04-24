@@ -166,20 +166,35 @@ pub fn random_vector_name(max: usize) -> String {
 
 pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = anyhow::Result<R>>>(
     clients: &'a [QdrantClient],
+    args: &Args,
     mut call: impl FnMut(&'a QdrantClient) -> T,
 ) -> anyhow::Result<R> {
     let mut permutation = (0..clients.len()).collect::<Vec<_>>();
-    permutation.shuffle(&mut rand::thread_rng());
     let mut res = Err(anyhow::anyhow!("No clients"));
-    for client_id in permutation {
-        let client = clients.get(client_id).unwrap();
 
-        res = call(client).await;
+    for attempt in 0..=args.retries {
+        permutation.shuffle(&mut rand::thread_rng());
+        for client_id in &permutation {
+            let client = clients.get(*client_id).unwrap();
 
-        if res.is_ok() {
-            break;
+            res = call(client).await;
+
+            if res.is_ok() {
+                return res;
+            }
+        }
+
+        let is_last = attempt >= args.retries;
+        if !is_last {
+            if let Err(err) = &res {
+                // TODO: with to logging crate once merged
+                eprintln!("Request failed at attempt {}: {err}", attempt + 1);
+            }
+
+            tokio::time::sleep(Duration::from_secs_f32(args.retry_interval.max(0.0))).await;
         }
     }
+
     res
 }
 
