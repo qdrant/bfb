@@ -282,7 +282,13 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         clients.push(QdrantClient::new(Some(config))?);
     }
 
+    let logger = env_logger::Builder::from_default_env().build();
+
     let multiprogress = MultiProgress::new();
+
+    indicatif_log_bridge::LogWrapper::new(multiprogress.clone(), logger)
+        .try_init()
+        .unwrap();
 
     let sent_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
 
