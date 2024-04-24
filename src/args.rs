@@ -206,6 +206,14 @@ pub struct Args {
     #[clap(long)]
     pub timeout: Option<usize>,
 
+    /// Number of retries for each URI on error, 0 for no retries
+    #[clap(long = "retry", default_value_t = 0)]
+    pub retries: usize,
+
+    /// Number of seconds between each retry.
+    #[clap(long, default_value_t = 0.0, value_name = "SECONDS")]
+    pub retry_interval: f32,
+
     /// Keep going on search error
     #[clap(long, default_value_t = false)]
     pub ignore_errors: bool,

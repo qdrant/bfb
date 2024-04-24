@@ -39,7 +39,7 @@ impl UpsertProcessor {
         }
     }
 
-    pub async fn upsert(&self, batch_id: usize) -> Result<(), Error> {
+    pub async fn upsert(&self, batch_id: usize, args: &Args) -> Result<(), Error> {
         let points_uploaded = self.args.batch_size * batch_id;
         let points_left = self.args.num_vectors.saturating_sub(points_uploaded);
 
@@ -133,7 +133,7 @@ impl UpsertProcessor {
         let ordering = self.args.write_ordering.map(Into::into);
 
         let res = if self.args.wait_on_upsert {
-            retry_with_clients(&self.clients, |client| {
+            retry_with_clients(&self.clients, args, |client| {
                 client.upsert_points_blocking(
                     &self.args.collection_name,
                     points.clone(),
@@ -142,7 +142,7 @@ impl UpsertProcessor {
             })
             .await?
         } else {
-            retry_with_clients(&self.clients, |client| {
+            retry_with_clients(&self.clients, args, |client| {
                 client.upsert_points(&self.args.collection_name, points.clone(), ordering.clone())
             })
             .await?
@@ -151,7 +151,7 @@ impl UpsertProcessor {
         if self.args.set_payload {
             let points: PointsSelector = batch_ids.into();
             if self.args.wait_on_upsert {
-                retry_with_clients(&self.clients, |client| {
+                retry_with_clients(&self.clients, args, |client| {
                     client.set_payload_blocking(
                         &self.args.collection_name,
                         &points,
@@ -165,7 +165,7 @@ impl UpsertProcessor {
                 })
                 .await?;
             } else {
-                retry_with_clients(&self.clients, |client| {
+                retry_with_clients(&self.clients, args, |client| {
                     client.set_payload(
                         &self.args.collection_name,
                         &points,
