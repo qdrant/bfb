@@ -50,7 +50,6 @@ pub fn random_filter(
     integer_payload: Option<usize>,
     match_any: Option<usize>,
 ) -> Option<Filter> {
-
     let mut filter = Filter {
         should: vec![],
         must: vec![],
@@ -58,15 +57,15 @@ pub fn random_filter(
     };
     let mut have_any = false;
     if let Some(keyword_variants) = keywords {
-
         let condition = if let Some(match_any) = match_any {
             MatchValue::Keywords(RepeatedStrings {
-                strings: (0..match_any).map(|_| random_keyword(keyword_variants)).collect(),
+                strings: (0..match_any)
+                    .map(|_| random_keyword(keyword_variants))
+                    .collect(),
             })
         } else {
             MatchValue::Keyword(random_keyword(keyword_variants))
         };
-
 
         have_any = true;
         filter.must.push(
