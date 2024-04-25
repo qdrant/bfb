@@ -136,6 +136,7 @@ impl UpsertProcessor {
             retry_with_clients(&self.clients, args, |client| {
                 client.upsert_points_blocking(
                     &self.args.collection_name,
+                    None,
                     points.clone(),
                     ordering.clone(),
                 )
@@ -143,7 +144,12 @@ impl UpsertProcessor {
             .await?
         } else {
             retry_with_clients(&self.clients, args, |client| {
-                client.upsert_points(&self.args.collection_name, points.clone(), ordering.clone())
+                client.upsert_points(
+                    &self.args.collection_name,
+                    None,
+                    points.clone(),
+                    ordering.clone(),
+                )
             })
             .await?
         };
@@ -154,12 +160,14 @@ impl UpsertProcessor {
                 retry_with_clients(&self.clients, args, |client| {
                     client.set_payload_blocking(
                         &self.args.collection_name,
+                        None,
                         &points,
                         random_payload(
                             self.args.keywords,
                             self.args.float_payloads,
                             self.args.int_payloads,
                         ),
+                        None,
                         ordering.clone(),
                     )
                 })
@@ -168,12 +176,14 @@ impl UpsertProcessor {
                 retry_with_clients(&self.clients, args, |client| {
                     client.set_payload(
                         &self.args.collection_name,
+                        None,
                         &points,
                         random_payload(
                             self.args.keywords,
                             self.args.float_payloads,
                             self.args.int_payloads,
                         ),
+                        None,
                         ordering.clone(),
                     )
                 })
