@@ -55,6 +55,7 @@ pub fn random_filter(
         should: vec![],
         must: vec![],
         must_not: vec![],
+        min_should: None,
     };
     let mut have_any = false;
     if let Some(keyword_variants) = keywords {
@@ -80,6 +81,7 @@ pub fn random_filter(
                 geo_radius: None,
                 geo_polygon: None,
                 values_count: None,
+                datetime_range: None,
             }
             .into(),
         )
@@ -101,6 +103,7 @@ pub fn random_filter(
                 geo_radius: None,
                 geo_polygon: None,
                 values_count: None,
+                datetime_range: None,
             }
             .into(),
         )
@@ -122,6 +125,7 @@ pub fn random_filter(
                 geo_radius: None,
                 geo_polygon: None,
                 values_count: None,
+                datetime_range: None,
             }
             .into(),
         )

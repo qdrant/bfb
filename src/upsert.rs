@@ -167,6 +167,7 @@ impl UpsertProcessor {
                             self.args.float_payloads,
                             self.args.int_payloads,
                         ),
+                        None,
                         ordering.clone(),
                     )
                 })
@@ -182,6 +183,7 @@ impl UpsertProcessor {
                             self.args.float_payloads,
                             self.args.int_payloads,
                         ),
+                        None,
                         ordering.clone(),
                     )
                 })
