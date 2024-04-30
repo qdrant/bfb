@@ -144,11 +144,11 @@ pub struct Args {
 
     /// Use keyword payloads. Defines how many different keywords there are in the payload
     #[clap(long)]
-    pub keywords: Option<usize>,
+    pub keywords: Vec<usize>,
 
     /// Use float payloads
-    #[clap(long, default_value_t = false)]
-    pub float_payloads: bool,
+    #[clap(long)]
+    pub float_payloads: Vec<bool>,
 
     /// Match any count
     #[clap(long)]
@@ -156,7 +156,7 @@ pub struct Args {
 
     /// Use integer payloads
     #[clap(long)]
-    pub int_payloads: Option<usize>,
+    pub int_payloads: Vec<usize>,
 
     /// Use separate request to set payload on just upserted points
     #[clap(long, default_value_t = false)]

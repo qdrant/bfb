@@ -24,22 +24,29 @@ pub fn random_keyword(num_variants: usize) -> String {
     format!("keyword_{}", variant)
 }
 
-pub fn random_payload(
-    keywords: Option<usize>,
-    float_payloads: bool,
-    integer_payload: Option<usize>,
-) -> Payload {
+pub fn random_payload(args: &Args) -> Payload {
     let mut payload = Payload::new();
-    if let Some(keyword_variants) = keywords {
-        payload.insert(KEYWORD_PAYLOAD_KEY, random_keyword(keyword_variants));
-    }
-    if float_payloads {
-        payload.insert(FLOAT_PAYLOAD_KEY, rand::thread_rng().gen_range(-1.0..1.0));
+
+    for (idx, variants) in args.keywords.iter().enumerate() {
+        let prefix = payload_prefixes(idx);
+        payload.insert(
+            format!("{}{}", prefix, KEYWORD_PAYLOAD_KEY),
+            random_keyword(*variants),
+        );
     }
 
-    if let Some(integer_range) = integer_payload {
-        let value = rand::thread_rng().gen_range(0..integer_range);
-        payload.insert(INTEGERS_PAYLOAD_KEY, value as i64);
+    for (idx, _) in args.float_payloads.iter().enumerate() {
+        let prefix = payload_prefixes(idx);
+        payload.insert(
+            format!("{}{}", prefix, FLOAT_PAYLOAD_KEY),
+            rand::thread_rng().gen_range(-1.0..1.0),
+        );
+    }
+
+    for (idx, integer_range) in args.int_payloads.iter().enumerate() {
+        let prefix = payload_prefixes(idx);
+        let value = rand::thread_rng().gen_range(0..*integer_range);
+        payload.insert(format!("{}{}", prefix, INTEGERS_PAYLOAD_KEY), value as i64);
     }
 
     payload
@@ -217,5 +224,13 @@ pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item = ()> + Unpin> {
             Box::new(IntervalStream::new(interval).map(|_| ()))
         }
         None => Box::new(futures::stream::repeat(())),
+    }
+}
+
+pub fn payload_prefixes(id: usize) -> String {
+    if id == 1 {
+        "".to_string()
+    } else {
+        format!("payload_{}_", id)
     }
 }
