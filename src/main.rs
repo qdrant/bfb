@@ -1,19 +1,10 @@
-mod args;
-mod common;
-mod fbin_reader;
-mod search;
-mod upsert;
+use std::fs::File;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
-use crate::args::QuantizationArg;
-use crate::common::{
-    random_dense_vector, random_filter, random_payload, throttler, FLOAT_PAYLOAD_KEY,
-    INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
-};
-use crate::fbin_reader::FBinReader;
-use crate::search::SearchProcessor;
-use crate::upsert::UpsertProcessor;
 use anyhow::Result;
-use args::Args;
 use clap::Parser;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -28,13 +19,25 @@ use qdrant_client::qdrant::{
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::sleep;
 use tokio::{join, runtime};
+
+use args::Args;
+
+use crate::args::QuantizationArg;
+use crate::common::{
+    payload_prefixes, random_dense_vector, random_filter, random_payload, throttler,
+    FLOAT_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+};
+use crate::fbin_reader::FBinReader;
+use crate::search::SearchProcessor;
+use crate::upsert::UpsertProcessor;
+
+mod args;
+mod common;
+mod fbin_reader;
+mod search;
+mod upsert;
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
@@ -234,43 +237,45 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 
     sleep(Duration::from_secs(1)).await;
 
-    if !args.skip_field_indices && args.keywords.is_some() {
-        client
-            .create_field_index_blocking(
-                args.collection_name.clone(),
-                KEYWORD_PAYLOAD_KEY,
-                FieldType::Keyword,
-                None,
-                None,
-            )
-            .await
-            .unwrap();
-    }
+    if !args.skip_field_indices {
+        for (idx, _) in args.keywords.iter().enumerate() {
+            client
+                .create_field_index_blocking(
+                    args.collection_name.clone(),
+                    format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
+                    FieldType::Keyword,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
 
-    if !args.skip_field_indices && args.float_payloads {
-        client
-            .create_field_index_blocking(
-                args.collection_name.clone(),
-                FLOAT_PAYLOAD_KEY,
-                FieldType::Float,
-                None,
-                None,
-            )
-            .await
-            .unwrap();
-    }
+        for (idx, _) in args.float_payloads.iter().enumerate() {
+            client
+                .create_field_index_blocking(
+                    args.collection_name.clone(),
+                    format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
+                    FieldType::Float,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
 
-    if args.int_payloads.is_some() {
-        client
-            .create_field_index_blocking(
-                args.collection_name.clone(),
-                INTEGERS_PAYLOAD_KEY,
-                FieldType::Integer,
-                None,
-                None,
-            )
-            .await
-            .unwrap();
+        for (idx, _) in args.int_payloads.iter().enumerate() {
+            client
+                .create_field_index_blocking(
+                    args.collection_name.clone(),
+                    format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
+                    FieldType::Integer,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
     }
 
     Ok(())
