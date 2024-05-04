@@ -18,6 +18,12 @@ pub const FLOAT_PAYLOAD_KEY: &str = "b";
 
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
 
+#[derive(Debug)]
+pub struct Timing {
+    pub delay_millis: f64, // milliseconds
+    pub value: f64,
+}
+
 pub fn random_keyword(num_variants: usize) -> String {
     let mut rng = rand::thread_rng();
     let variant = rng.gen_range(0..num_variants);

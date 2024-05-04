@@ -25,11 +25,9 @@ use tokio::{join, runtime};
 use args::Args;
 
 use crate::args::QuantizationArg;
-use crate::common::{
-    payload_prefixes, random_dense_vector, random_filter, random_payload, throttler,
-    FLOAT_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
-};
+use crate::common::{payload_prefixes, random_dense_vector, random_filter, random_payload, throttler, FLOAT_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY, Timing};
 use crate::fbin_reader::FBinReader;
+use crate::save_jsonl::save_timings_as_jsonl;
 use crate::search::SearchProcessor;
 use crate::upsert::UpsertProcessor;
 
@@ -38,6 +36,7 @@ mod common;
 mod fbin_reader;
 mod search;
 mod upsert;
+mod save_jsonl;
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
@@ -343,6 +342,8 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         sent_bar_arc.finish();
     }
 
+    upserter.save_data().await;
+
     Ok(())
 }
 
@@ -359,31 +360,31 @@ fn write_to_json(path: &String, results: SearcherResults) {
     println!("Search results written to {}", path);
 }
 
-fn print_stats(args: &Args, values: &mut [f64], metric_name: &str, show_percentiles: bool) {
+fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_percentiles: bool) {
     if values.is_empty() {
         return;
     }
     // sort values in ascending order
-    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    values.sort_unstable_by(|a, b| a.value.partial_cmp(&b.value).unwrap());
 
-    let avg_time: f64 = values.iter().sum::<f64>() / values.len() as f64;
-    let min_time: f64 = values.first().copied().unwrap_or(0.0);
-    let max_time: f64 = values.last().copied().unwrap_or(0.0);
-    let p50_time: f64 = values[(values.len() as f32 * 0.50) as usize];
+    let avg_time: f64 = values.iter().map(|x| x.value).sum::<f64>() / values.len() as f64;
+    let min_time: f64 = values.first().unwrap().value;
+    let max_time = values.last().unwrap().value;
+    let p50_time: f64 = values[(values.len() as f32 * 0.50) as usize].value;
 
     println!("Min {metric_name}: {min_time}");
     println!("Avg {metric_name}: {avg_time}");
     println!("Median {metric_name}: {p50_time}");
 
     if show_percentiles {
-        let p95_time: f64 = values[(values.len() as f32 * 0.95) as usize];
+        let p95_time: f64 = values[(values.len() as f32 * 0.95) as usize].value;
         println!("p95 {metric_name}: {p95_time}");
 
         for digits in 2..=args.p9 {
             let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
             let index = ((values.len() as f64 * factor) as usize).min(values.len() - 1);
             let nines = "9".repeat(digits);
-            let time = values[index];
+            let time = values[index].value;
             println!("p{nines} {metric_name}: {time}");
         }
     }
@@ -451,11 +452,31 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         write_to_json(
             args.json.as_ref().unwrap(),
             SearcherResults {
-                server_timings: server_timings.to_vec(),
-                rps: rps.to_vec(),
-                full_timings: full_timings.to_vec(),
+                server_timings: server_timings.iter().map(|x| x.value).collect(),
+                rps: rps.iter().map(|x| x.value).collect(),
+                full_timings: full_timings.iter().map(|x| x.value).collect(),
             },
         );
+    }
+
+    if let Some(jsonl_path) = &args.jsonl_searches {
+        save_timings_as_jsonl(
+            jsonl_path,
+            args.absolute_time.unwrap_or(false),
+            &server_timings,
+            searcher.start_timestamp_millis,
+            "search_latency",
+        )?;
+    }
+
+    if let Some(jsonl_path) = &args.jsonl_rps {
+        save_timings_as_jsonl(
+            jsonl_path,
+            args.absolute_time.unwrap_or(false),
+            &rps,
+            searcher.start_timestamp_millis,
+            "search_rps",
+        )?;
     }
 
     Ok(())
@@ -491,7 +512,7 @@ fn main() {
     ctrlc::set_handler(move || {
         r.store(true, Ordering::SeqCst);
     })
-    .expect("Error setting Ctrl-C handler");
+        .expect("Error setting Ctrl-C handler");
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)

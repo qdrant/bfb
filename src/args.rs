@@ -252,6 +252,26 @@ pub struct Args {
     /// Max dimension for sparse vectors (overrides --dim)
     #[clap(long)]
     pub sparse_dim: Option<usize>,
+
+    /// Path to the jsonl file to save update timings
+    /// TIP: Use `qdrant/mri` to visualize the timings
+    #[clap(long)]
+    pub jsonl_updates: Option<String>,
+
+    /// Path to the jsonl file to save search timings
+    /// TIP: Use `qdrant/mri` to visualize the timings
+    #[clap(long)]
+    pub jsonl_searches: Option<String>,
+
+    /// Path to the jsonl file to save rps timings
+    /// TIP: Use `qdrant/mri` to visualize the timings
+    #[clap(long)]
+    pub jsonl_rps: Option<String>,
+
+    /// Use timestamp instead of relative time in jsonl
+    /// Default is relative time
+    #[clap(long)]
+    pub absolute_time: Option<bool>
 }
 
 #[derive(Copy, Clone, Debug)]

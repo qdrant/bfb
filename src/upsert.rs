@@ -1,18 +1,23 @@
-use crate::common::{random_sparse_vector, random_vector, retry_with_clients};
-use crate::fbin_reader::FBinReader;
-use crate::{random_dense_vector, random_payload, Args};
+use std::cmp::min;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
+use qdrant_client::qdrant::{PointId, PointsSelector, PointStruct, Vector, Vectors};
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::vectors::VectorsOptions;
-use qdrant_client::qdrant::{PointId, PointStruct, PointsSelector, Vector, Vectors};
 use rand::Rng;
-use std::cmp::min;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::time::sleep;
+
+use crate::{Args, random_dense_vector, random_payload};
+use crate::common::{random_sparse_vector, random_vector, retry_with_clients, Timing};
+use crate::fbin_reader::FBinReader;
+use crate::save_jsonl::save_timings_as_jsonl;
+
 
 pub struct UpsertProcessor {
     args: Args,
@@ -20,6 +25,9 @@ pub struct UpsertProcessor {
     clients: Vec<QdrantClient>,
     progress_bar: Arc<ProgressBar>,
     reader: Option<FBinReader>,
+    start_timestamp_millis: f64,
+    start_time: std::time::Instant,
+    timings: RwLock<Vec<Timing>>,
 }
 
 impl UpsertProcessor {
@@ -36,6 +44,12 @@ impl UpsertProcessor {
             clients,
             progress_bar,
             reader,
+            start_timestamp_millis: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as f64,
+            start_time: std::time::Instant::now(),
+            timings: RwLock::new(Vec::new()),
         }
     }
 
@@ -137,7 +151,7 @@ impl UpsertProcessor {
                     ordering.clone(),
                 )
             })
-            .await?
+                .await?
         } else {
             retry_with_clients(&self.clients, args, |client| {
                 client.upsert_points(
@@ -147,8 +161,15 @@ impl UpsertProcessor {
                     ordering.clone(),
                 )
             })
-            .await?
+                .await?
         };
+
+        let latency = res.time;
+
+        self.timings.write().await.push(Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: latency,
+        });
 
         if self.args.set_payload {
             let points: PointsSelector = batch_ids.into();
@@ -163,7 +184,7 @@ impl UpsertProcessor {
                         ordering.clone(),
                     )
                 })
-                .await?;
+                    .await?;
             } else {
                 retry_with_clients(&self.clients, args, |client| {
                     client.set_payload(
@@ -175,7 +196,7 @@ impl UpsertProcessor {
                         ordering.clone(),
                     )
                 })
-                .await?;
+                    .await?;
             }
         }
 
@@ -189,5 +210,18 @@ impl UpsertProcessor {
         }
 
         Ok::<(), Error>(())
+    }
+
+    pub async fn save_data(&self) {
+        if let Some(jsonl_path) = &self.args.jsonl_updates {
+            save_timings_as_jsonl(
+                jsonl_path,
+                self.args.absolute_time.unwrap_or(false),
+                &self.timings.read().await,
+                self.start_timestamp_millis,
+                "upsert_latency",
+            )
+                .unwrap();
+        }
     }
 }

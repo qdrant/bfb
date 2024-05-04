@@ -1,4 +1,4 @@
-use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients};
+use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
@@ -12,9 +12,11 @@ pub struct SearchProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     clients: Vec<QdrantClient>,
-    pub server_timings: Mutex<Vec<f64>>,
-    pub rps: Mutex<Vec<f64>>,
-    pub full_timings: Mutex<Vec<f64>>,
+    pub start_timestamp_millis: f64,
+    start_time: std::time::Instant,
+    pub server_timings: Mutex<Vec<Timing>>,
+    pub rps: Mutex<Vec<Timing>>,
+    pub full_timings: Mutex<Vec<Timing>>,
 }
 
 impl SearchProcessor {
@@ -23,6 +25,11 @@ impl SearchProcessor {
             args,
             stopped,
             clients,
+            start_timestamp_millis: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as f64,
+            start_time: std::time::Instant::now(),
             server_timings: Mutex::new(Vec::new()),
             rps: Mutex::new(Vec::new()),
             full_timings: Mutex::new(Vec::new()),
@@ -123,7 +130,12 @@ impl SearchProcessor {
 
         let elapsed = start.elapsed().as_secs_f64();
 
-        self.full_timings.lock().unwrap().push(elapsed);
+        let full_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: elapsed,
+        };
+
+        self.full_timings.lock().unwrap().push(full_timing);
 
         if res.time > self.args.timing_threshold {
             progress_bar.println(format!("Slow search: {:?}", res.time));
@@ -137,8 +149,18 @@ impl SearchProcessor {
             ));
         }
 
-        self.server_timings.lock().unwrap().push(res.time);
-        self.rps.lock().unwrap().push(progress_bar.per_sec());
+        let server_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: res.time,
+        };
+
+        let rps_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: progress_bar.per_sec(),
+        };
+
+        self.server_timings.lock().unwrap().push(server_timing);
+        self.rps.lock().unwrap().push(rps_timing);
 
         if let Some(delay_millis) = self.args.delay {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
