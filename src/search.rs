@@ -107,13 +107,13 @@ impl SearchProcessor {
             with_payload: Some(self.args.search_with_payload.into()),
             params: Some(SearchParams {
                 hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
+                exact: Some(self.args.search_exact),
                 quantization: Some(QuantizationSearchParams {
                     ignore: None,
                     rescore: self.args.quantization_rescore,
                     oversampling: self.args.quantization_oversampling,
                 }),
                 indexed_only: self.args.indexed_only,
-                ..Default::default()
             }),
             score_threshold: None,
             offset: None,

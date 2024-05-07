@@ -82,6 +82,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub search: bool,
 
+    /// Perform search without approxmiation
+    #[clap(long, default_value_t = false)]
+    pub search_exact: bool,
+
     /// Search limit
     #[clap(long, default_value_t = 10)]
     pub search_limit: usize,
@@ -271,7 +275,7 @@ pub struct Args {
     /// Use timestamp instead of relative time in jsonl
     /// Default is relative time
     #[clap(long)]
-    pub absolute_time: Option<bool>
+    pub absolute_time: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]

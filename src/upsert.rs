@@ -1,23 +1,22 @@
 use std::cmp::min;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
-use qdrant_client::qdrant::{PointId, PointsSelector, PointStruct, Vector, Vectors};
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::vectors::VectorsOptions;
+use qdrant_client::qdrant::{PointId, PointStruct, PointsSelector, Vector, Vectors};
 use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::{Args, random_dense_vector, random_payload};
 use crate::common::{random_sparse_vector, random_vector, retry_with_clients, Timing};
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
-
+use crate::{random_dense_vector, random_payload, Args};
 
 pub struct UpsertProcessor {
     args: Args,
@@ -151,7 +150,7 @@ impl UpsertProcessor {
                     ordering.clone(),
                 )
             })
-                .await?
+            .await?
         } else {
             retry_with_clients(&self.clients, args, |client| {
                 client.upsert_points(
@@ -161,7 +160,7 @@ impl UpsertProcessor {
                     ordering.clone(),
                 )
             })
-                .await?
+            .await?
         };
 
         let latency = res.time;
@@ -184,7 +183,7 @@ impl UpsertProcessor {
                         ordering.clone(),
                     )
                 })
-                    .await?;
+                .await?;
             } else {
                 retry_with_clients(&self.clients, args, |client| {
                     client.set_payload(
@@ -196,7 +195,7 @@ impl UpsertProcessor {
                         ordering.clone(),
                     )
                 })
-                    .await?;
+                .await?;
             }
         }
 
@@ -221,7 +220,7 @@ impl UpsertProcessor {
                 self.start_timestamp_millis,
                 "upsert_latency",
             )
-                .unwrap();
+            .unwrap();
         }
     }
 }

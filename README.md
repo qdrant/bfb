@@ -36,6 +36,8 @@ Options:
           Skip uploading new points
       --search
           Perform search
+      --search-exact
+          Search without approximation
       --search-limit <SEARCH_LIMIT>
           Search limit [default: 10]
       --json <JSON>
