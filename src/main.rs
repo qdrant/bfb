@@ -25,7 +25,10 @@ use tokio::{join, runtime};
 use args::Args;
 
 use crate::args::QuantizationArg;
-use crate::common::{payload_prefixes, random_dense_vector, random_filter, random_payload, throttler, FLOAT_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY, Timing};
+use crate::common::{
+    payload_prefixes, random_dense_vector, random_filter, random_payload, throttler, Timing,
+    FLOAT_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+};
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
 use crate::search::SearchProcessor;
@@ -34,9 +37,9 @@ use crate::upsert::UpsertProcessor;
 mod args;
 mod common;
 mod fbin_reader;
+mod save_jsonl;
 mod search;
 mod upsert;
-mod save_jsonl;
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
     let mut rng = rand::thread_rng();
@@ -369,7 +372,7 @@ fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_perce
 
     let avg_time: f64 = values.iter().map(|x| x.value).sum::<f64>() / values.len() as f64;
     let min_time: f64 = values.first().unwrap().value;
-    let max_time = values.last().unwrap().value;
+    let max_time: f64 = values.last().unwrap().value;
     let p50_time: f64 = values[(values.len() as f32 * 0.50) as usize].value;
 
     println!("Min {metric_name}: {min_time}");
@@ -512,7 +515,7 @@ fn main() {
     ctrlc::set_handler(move || {
         r.store(true, Ordering::SeqCst);
     })
-        .expect("Error setting Ctrl-C handler");
+    .expect("Error setting Ctrl-C handler");
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)
