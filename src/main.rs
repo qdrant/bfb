@@ -30,14 +30,18 @@ use crate::common::{
     FLOAT_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
+use crate::processor::Processor;
 use crate::save_jsonl::save_timings_as_jsonl;
+use crate::scroll::ScrollProcessor;
 use crate::search::SearchProcessor;
 use crate::upsert::UpsertProcessor;
 
 mod args;
 mod common;
 mod fbin_reader;
+mod processor;
 mod save_jsonl;
+mod scroll;
 mod search;
 mod upsert;
 
@@ -395,14 +399,7 @@ fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_perce
     println!("Max {metric_name}: {max_time}");
 }
 
-async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let mut clients = Vec::new();
-    for config in get_config(args) {
-        clients.push(QdrantClient::new(Some(config))?);
-    }
-
-    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
-
+async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor: P) -> Result<()> {
     let multiprogress = MultiProgress::new();
     let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
     let progress_style = ProgressStyle::default_bar()
@@ -413,7 +410,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let query_stream = (0..args.num_vectors)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
-            let future = searcher.search(n, args, &progress_bar);
+            let future = processor.make_request(n, args, &progress_bar);
             progress_bar.inc(1);
             future
         });
@@ -440,13 +437,13 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         progress_bar.finish();
     }
 
-    let mut full_timings = searcher.full_timings.lock().unwrap();
-    println!("--- Search timings ---");
-    print_stats(args, &mut full_timings, "search time", true);
-    let mut server_timings = searcher.server_timings.lock().unwrap();
+    let mut full_timings = processor.full_timings();
+    println!("--- Request timings ---");
+    print_stats(args, &mut full_timings, "request time", true);
+    let mut server_timings = processor.server_timings();
     println!("--- Server timings ---");
-    print_stats(args, &mut server_timings, "search time", true);
-    let mut rps = searcher.rps.lock().unwrap();
+    print_stats(args, &mut server_timings, "request time", true);
+    let mut rps = processor.rps();
     println!("--- RPS ---");
     print_stats(args, &mut rps, "rps", false);
 
@@ -467,8 +464,8 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             jsonl_path,
             args.absolute_time.unwrap_or(false),
             &server_timings,
-            searcher.start_timestamp_millis,
-            "search_latency",
+            processor.start_timestamp_millis(),
+            "request_latency",
         )?;
     }
 
@@ -477,12 +474,29 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             jsonl_path,
             args.absolute_time.unwrap_or(false),
             &rps,
-            searcher.start_timestamp_millis,
-            "search_rps",
+            processor.start_timestamp_millis(),
+            "request_rps",
         )?;
     }
 
     Ok(())
+}
+async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    let mut clients = Vec::new();
+    for config in get_config(args) {
+        clients.push(QdrantClient::new(Some(config))?);
+    }
+    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
+    process(args, stopped, searcher).await
+}
+
+async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    let mut clients = Vec::new();
+    for config in get_config(args) {
+        clients.push(QdrantClient::new(Some(config))?);
+    }
+    let searcher = ScrollProcessor::new(args.clone(), stopped.clone(), clients);
+    process(args, stopped, searcher).await
 }
 
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
@@ -503,6 +517,11 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     if args.search {
         search(&args, stopped.clone()).await?;
     }
+
+    if args.scroll {
+        scroll(&args, stopped.clone()).await?;
+    }
+
     Ok(())
 }
 

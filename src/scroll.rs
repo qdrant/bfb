@@ -1,16 +1,16 @@
-use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
-use crate::processor::Processor;
-use crate::{random_dense_vector, random_filter, Args};
-use anyhow::Error;
-use indicatif::ProgressBar;
-use qdrant_client::client::QdrantClient;
-use qdrant_client::qdrant::{
-    QuantizationSearchParams, SearchParams, SearchPoints, SparseIndices, Vector,
-};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-pub struct SearchProcessor {
+use anyhow::Error;
+use indicatif::ProgressBar;
+use qdrant_client::client::QdrantClient;
+use qdrant_client::qdrant::ScrollPoints;
+
+use crate::common::{retry_with_clients, Timing};
+use crate::processor::Processor;
+use crate::{random_filter, Args};
+
+pub struct ScrollProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     clients: Vec<QdrantClient>,
@@ -21,9 +21,9 @@ pub struct SearchProcessor {
     pub full_timings: Mutex<Vec<Timing>>,
 }
 
-impl SearchProcessor {
+impl ScrollProcessor {
     pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<QdrantClient>) -> Self {
-        SearchProcessor {
+        ScrollProcessor {
             args,
             stopped,
             clients,
@@ -38,35 +38,7 @@ impl SearchProcessor {
         }
     }
 
-    fn get_sparse_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
-        if let Some(sparsity) = self.args.sparse_vectors {
-            let sparse_vector: Vector =
-                random_sparse_vector(self.args.sparse_dim.unwrap_or(self.args.dim), sparsity)
-                    .into();
-            let query_vector = sparse_vector.data;
-            let sparse_indices = sparse_vector.indices;
-            let name = format!(
-                "{}_sparse",
-                random_vector_name(self.args.sparse_vectors_per_point)
-            );
-            (query_vector, sparse_indices, Some(name))
-        } else {
-            panic!("No sparse vectors configured")
-        }
-    }
-
-    fn get_dense_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
-        let query_vector = random_dense_vector(self.args.dim);
-        let sparse_indices = None;
-        if self.args.vectors_per_point > 1 {
-            let name = random_vector_name(self.args.vectors_per_point);
-            (query_vector, sparse_indices, Some(name))
-        } else {
-            (query_vector, sparse_indices, None)
-        }
-    }
-
-    pub async fn search(
+    pub async fn scroll(
         &self,
         _req_id: usize,
         args: &Args,
@@ -78,22 +50,6 @@ impl SearchProcessor {
 
         let start = std::time::Instant::now();
 
-        let has_sparse = self.args.sparse_vectors.is_some();
-        let has_dense = self.args.vectors_per_point > 0;
-
-        let use_sparse = match (has_sparse, has_dense) {
-            (true, true) => rand::random::<bool>(),
-            (true, false) => true,
-            (false, true) => false,
-            (false, false) => panic!("No sparse or dense vectors"),
-        };
-
-        let (query_vector, sparse_indices, vector_name) = if use_sparse {
-            self.get_sparse_query()
-        } else {
-            self.get_dense_query()
-        };
-
         let query_filter = random_filter(
             self.args.keywords.first().cloned(),
             self.args.float_payloads.first().cloned().unwrap_or(false),
@@ -101,34 +57,19 @@ impl SearchProcessor {
             self.args.match_any,
         );
 
-        let request = SearchPoints {
+        let request = ScrollPoints {
             collection_name: self.args.collection_name.to_string(),
-            vector: query_vector,
             filter: query_filter,
-            limit: self.args.search_limit as u64,
+            limit: Some(self.args.search_limit as u32),
             with_payload: Some(self.args.search_with_payload.into()),
-            params: Some(SearchParams {
-                hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
-                exact: Some(self.args.search_exact),
-                quantization: Some(QuantizationSearchParams {
-                    ignore: None,
-                    rescore: self.args.quantization_rescore,
-                    oversampling: self.args.quantization_oversampling,
-                }),
-                indexed_only: self.args.indexed_only,
-            }),
-            score_threshold: None,
             offset: None,
-            vector_name,
             with_vectors: None,
             read_consistency: self.args.read_consistency.map(Into::into),
-            timeout: None,
             shard_key_selector: None,
-            sparse_indices,
+            order_by: None,
         };
 
-        let res = retry_with_clients(&self.clients, args, |client| client.search_points(&request))
-            .await?;
+        let res = retry_with_clients(&self.clients, args, |client| client.scroll(&request)).await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 
@@ -172,14 +113,14 @@ impl SearchProcessor {
     }
 }
 
-impl Processor for SearchProcessor {
+impl Processor for ScrollProcessor {
     async fn make_request(
         &self,
         _req_id: usize,
         args: &Args,
         progress_bar: &ProgressBar,
     ) -> Result<(), Error> {
-        self.search(_req_id, args, progress_bar).await
+        self.scroll(_req_id, args, progress_bar).await
     }
 
     fn start_timestamp_millis(&self) -> f64 {

@@ -86,6 +86,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub search_exact: bool,
 
+    /// Perform scroll
+    #[clap(long, default_value_t = false)]
+    pub scroll: bool,
+
     /// Search limit
     #[clap(long, default_value_t = 10)]
     pub search_limit: usize,
