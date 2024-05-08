@@ -18,7 +18,7 @@ pub const FLOAT_PAYLOAD_KEY: &str = "b";
 
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Timing {
     pub delay_millis: f64, // milliseconds
     pub value: f64,
