@@ -81,12 +81,12 @@ impl ScrollProcessor {
         self.full_timings.lock().unwrap().push(full_timing);
 
         if res.time > self.args.timing_threshold {
-            progress_bar.println(format!("Slow search: {:?}", res.time));
+            progress_bar.println(format!("Slow scroll: {:?}", res.time));
         }
 
         if res.result.len() < self.args.search_limit {
             progress_bar.println(format!(
-                "Search result is too small: {} of {}",
+                "Scroll result is too small: {} of {}",
                 res.result.len(),
                 self.args.search_limit
             ));
