@@ -234,7 +234,7 @@ pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item = ()> + Unpin> {
 }
 
 pub fn payload_prefixes(id: usize) -> String {
-    if id == 1 {
+    if id == 0 {
         "".to_string()
     } else {
         format!("payload_{}_", id)
