@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Error;
+use futures::TryFutureExt;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
@@ -17,6 +18,30 @@ use crate::common::{random_sparse_vector, random_vector, retry_with_clients, Tim
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
 use crate::{random_dense_vector, random_payload, Args};
+
+fn log_points(points: Vec<PointStruct>) -> impl FnOnce(Error) -> Error {
+    move |e| {
+        let mut nums = Vec::new();
+        let mut uuids = Vec::new();
+
+        for p in &points {
+            if let Some(point_id_option) = p.id.clone().unwrap().point_id_options {
+                match point_id_option {
+                    PointIdOptions::Num(num) => nums.push(num),
+                    PointIdOptions::Uuid(uuid) => uuids.push(uuid),
+                }
+            }
+        }
+
+        tracing::warn!("Failed while upserting points. Error: {}", e);
+        tracing::warn!(
+            "Failed while upserting. point_ids={:?}, point_uuids={:?}",
+            nums,
+            uuids
+        );
+        e
+    }
+}
 
 pub struct UpsertProcessor {
     args: Args,
@@ -143,22 +168,26 @@ impl UpsertProcessor {
 
         let res = if self.args.wait_on_upsert {
             retry_with_clients(&self.clients, args, |client| {
-                client.upsert_points_blocking(
-                    &self.args.collection_name,
-                    None,
-                    points.clone(),
-                    ordering.clone(),
-                )
+                client
+                    .upsert_points_blocking(
+                        &self.args.collection_name,
+                        None,
+                        points.clone(),
+                        ordering.clone(),
+                    )
+                    .map_err(log_points(points.clone()))
             })
             .await?
         } else {
             retry_with_clients(&self.clients, args, |client| {
-                client.upsert_points(
-                    &self.args.collection_name,
-                    None,
-                    points.clone(),
-                    ordering.clone(),
-                )
+                client
+                    .upsert_points(
+                        &self.args.collection_name,
+                        None,
+                        points.clone(),
+                        ordering.clone(),
+                    )
+                    .map_err(log_points(points.clone()))
             })
             .await?
         };
