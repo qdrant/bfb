@@ -32,9 +32,8 @@ fn log_points(points: Vec<PointStruct>) -> impl FnOnce(Error) -> Error {
             }
         }
         tracing::warn!(
-            "Failed while upserting. point_ids={:?} error={}",
+            "Failed while upserting. point_ids={:?} error={e}",
             point_ids.join(", "),
-            e
         );
         e
     }
