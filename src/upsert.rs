@@ -21,23 +21,20 @@ use crate::{random_dense_vector, random_payload, Args};
 
 fn log_points(points: Vec<PointStruct>) -> impl FnOnce(Error) -> Error {
     move |e| {
-        let mut nums = Vec::new();
-        let mut uuids = Vec::new();
+        let mut point_ids = Vec::new();
 
         for p in &points {
             if let Some(point_id_option) = p.id.clone().unwrap().point_id_options {
                 match point_id_option {
-                    PointIdOptions::Num(num) => nums.push(num),
-                    PointIdOptions::Uuid(uuid) => uuids.push(uuid),
+                    PointIdOptions::Num(num) => point_ids.push(num.to_string()),
+                    PointIdOptions::Uuid(uuid) => point_ids.push(uuid.to_string()),
                 }
             }
         }
-
-        tracing::warn!("Failed while upserting points. Error: {}", e);
         tracing::warn!(
-            "Failed while upserting. point_ids={:?}, point_uuids={:?}",
-            nums,
-            uuids
+            "Failed while upserting. point_ids={:?} error={}",
+            point_ids.join(", "),
+            e
         );
         e
     }
