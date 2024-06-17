@@ -442,7 +442,7 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     print_stats(args, &mut full_timings, "request time", true);
     let mut server_timings = processor.server_timings();
     println!("--- Server timings ---");
-    print_stats(args, &mut server_timings, "request time", true);
+    print_stats(args, &mut server_timings, "server time", true);
     let mut rps = processor.rps();
     println!("--- RPS ---");
     print_stats(args, &mut rps, "rps", false);
