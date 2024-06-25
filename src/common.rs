@@ -58,7 +58,7 @@ pub fn random_payload(args: &Args) -> Payload {
     if args.timestamp_payload {
         payload.insert(
             "timestamp",
-            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            chrono::Utc::now().to_rfc3339(),
         );
     }
 
