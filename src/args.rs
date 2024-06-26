@@ -166,6 +166,10 @@ pub struct Args {
     #[clap(long)]
     pub int_payloads: Vec<usize>,
 
+    /// Add payload with the current timestamp to all points
+    #[clap(long)]
+    pub timestamp_payload: bool,
+
     /// Use separate request to set payload on just upserted points
     #[clap(long, default_value_t = false)]
     pub set_payload: bool,

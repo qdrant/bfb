@@ -282,6 +282,20 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 .await
                 .unwrap();
         }
+
+        if args.timestamp_payload {
+            client
+                .create_field_index_blocking(
+                    args.collection_name.clone(),
+                    "timestamp",
+                    FieldType::Datetime,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+        }
     }
 
     Ok(())
