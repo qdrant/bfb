@@ -56,19 +56,21 @@ fn choose_owned<T>(mut items: Vec<T>) -> T {
 fn get_config(args: &Args) -> Vec<QdrantClientConfig> {
     let mut configs = Vec::new();
 
-    for uri in args.uri.iter() {
-        let mut config = QdrantClientConfig::from_url(uri);
-        let api_key = std::env::var("QDRANT_API_KEY").ok();
+    for _i in 0..args.connections {
+        for uri in args.uri.iter() {
+            let mut config = QdrantClientConfig::from_url(uri);
+            let api_key = std::env::var("QDRANT_API_KEY").ok();
 
-        if let Some(timeout) = args.timeout {
-            config.set_timeout(Duration::from_secs(timeout as u64));
-            config.set_connect_timeout(Duration::from_secs(timeout as u64));
-        }
+            if let Some(timeout) = args.timeout {
+                config.set_timeout(Duration::from_secs(timeout as u64));
+                config.set_connect_timeout(Duration::from_secs(timeout as u64));
+            }
 
-        if let Some(api_key) = api_key {
-            config.set_api_key(&api_key);
+            if let Some(api_key) = api_key {
+                config.set_api_key(&api_key);
+            }
+            configs.push(config);
         }
-        configs.push(config);
     }
     configs
 }
@@ -495,6 +497,7 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
 
     Ok(())
 }
+
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
     for config in get_config(args) {
