@@ -54,6 +54,10 @@ pub struct Args {
     #[clap(short, long, default_value_t = 2)]
     pub parallel: usize,
 
+    /// Number of connections to open from the client to the server
+    #[clap(short, long, default_value_t = 1)]
+    pub connections: usize,
+
     /// Batch size for updates, in number of points. [default=100]
     #[clap(short, long, value_name = "POINTS", default_value_t = 100)]
     pub batch_size: usize,
