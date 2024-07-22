@@ -8,6 +8,7 @@ use futures::TryFutureExt;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
+use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors::VectorsOptions;
 use qdrant_client::qdrant::{PointId, PointStruct, PointsSelector, Vector, Vectors};
 use rand::Rng;
@@ -162,12 +163,17 @@ impl UpsertProcessor {
 
         let ordering = self.args.write_ordering.map(Into::into);
 
+        let shard_key = args
+            .shard_key
+            .clone()
+            .map(|shard_key| vec![Key::Keyword(shard_key)]);
+
         let res = if self.args.wait_on_upsert {
             retry_with_clients(&self.clients, args, |client| {
                 client
                     .upsert_points_blocking(
                         &self.args.collection_name,
-                        None,
+                        shard_key.clone(),
                         points.clone(),
                         ordering.clone(),
                     )
@@ -179,7 +185,7 @@ impl UpsertProcessor {
                 client
                     .upsert_points(
                         &self.args.collection_name,
-                        None,
+                        shard_key.clone(),
                         points.clone(),
                         ordering.clone(),
                     )

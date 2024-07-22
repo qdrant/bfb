@@ -288,6 +288,10 @@ pub struct Args {
     /// Default is relative time
     #[clap(long)]
     pub absolute_time: Option<bool>,
+
+    /// Use custom sharding for collection and upsert points to the specified sharding key
+    #[clap(long)]
+    pub shard_key: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug)]

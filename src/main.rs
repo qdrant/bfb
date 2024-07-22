@@ -10,12 +10,13 @@ use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
 use qdrant_client::qdrant::quantization_config::Quantization;
+use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
     CollectionStatus, CompressionRatio, CreateCollection, Distance, FieldType, HnswConfigDiff,
     OptimizersConfigDiff, ProductQuantization, QuantizationConfig, QuantizationType,
-    ScalarQuantization, SparseIndexConfig, SparseVectorConfig, SparseVectorParams, VectorParams,
-    VectorParamsMap, VectorsConfig,
+    ScalarQuantization, ShardingMethod, SparseIndexConfig, SparseVectorConfig, SparseVectorParams,
+    VectorParams, VectorParamsMap, VectorsConfig,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -235,6 +236,10 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 None => None,
             },
             sparse_vectors_config,
+            sharding_method: args
+                .shard_key
+                .as_ref()
+                .map(|_| ShardingMethod::Custom.into()),
             ..Default::default()
         })
         .await?;
@@ -296,8 +301,20 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 )
                 .await
                 .unwrap();
-
         }
+    }
+
+    if let Some(shard_key) = &args.shard_key {
+        client
+            .create_shard_key(
+                args.collection_name.clone(),
+                &Key::Keyword(shard_key.clone()),
+                args.shards.map(|shards| shards as _),
+                Some(args.replication_factor as _),
+                &[],
+            )
+            .await
+            .unwrap();
     }
 
     Ok(())
