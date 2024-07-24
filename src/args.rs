@@ -86,7 +86,7 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub search: bool,
 
-    /// Perform search without approxmiation
+    /// Perform search without approximation
     #[clap(long, default_value_t = false)]
     pub search_exact: bool,
 

@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.80"
-chrono = { version = "0.4", default-features = false, features = ["now", "std"] }
-clap = { version = "4.5.1", features = ["derive"] }
-ctrlc = "3.4.2"
+chrono = { version = "0.4.38", default-features = false, features = ["now", "std"] }
+clap = { version = "4.5.9", features = ["derive"] }
+ctrlc = "3.4.4"
 futures = "0.3.30"
 indicatif = "0.17.8"
 memmap2 = "0.9.4"
@@ -17,10 +17,9 @@ qdrant-client = "1.9"
 rand = "0.8.5"
 serde = "1.0"
 serde_json = "1.0"
-tokio = { version = "1.36.0", features = ["full"] }
-tokio-stream = "0.1.14"
-uuid = { version = "1.7.0", features = ["serde", "v4"] }
-
-env_logger = "0.11"
-indicatif-log-bridge = "0.2"
-tracing = { version = "0.1", features = ["log"] }
+tokio = { version = "1.39.1", features = ["full"] }
+tokio-stream = "0.1.15"
+uuid = { version = "1.10.0", features = ["serde", "v4"] }
+env_logger = "0.11.4"
+indicatif-log-bridge = "0.2.2"
+tracing = { version = "0.1.40", features = ["log"] }
