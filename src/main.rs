@@ -529,8 +529,8 @@ async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     for config in get_config(args) {
         clients.push(QdrantClient::new(Some(config))?);
     }
-    let searcher = ScrollProcessor::new(args.clone(), stopped.clone(), clients);
-    process(args, stopped, searcher).await
+    let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients);
+    process(args, stopped, scroller).await
 }
 
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {

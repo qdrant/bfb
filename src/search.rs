@@ -1,7 +1,6 @@
 use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
 use crate::processor::Processor;
 use crate::{random_dense_vector, random_filter, Args};
-use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::{
@@ -178,7 +177,7 @@ impl Processor for SearchProcessor {
         _req_id: usize,
         args: &Args,
         progress_bar: &ProgressBar,
-    ) -> Result<(), Error> {
+    ) -> Result<(), anyhow::Error> {
         self.search(_req_id, args, progress_bar).await
     }
 
