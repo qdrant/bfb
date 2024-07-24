@@ -1,7 +1,6 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Error;
 use indicatif::ProgressBar;
 use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::ScrollPoints;
@@ -119,7 +118,7 @@ impl Processor for ScrollProcessor {
         _req_id: usize,
         args: &Args,
         progress_bar: &ProgressBar,
-    ) -> Result<(), Error> {
+    ) -> Result<(), anyhow::Error> {
         self.scroll(_req_id, args, progress_bar).await
     }
 
