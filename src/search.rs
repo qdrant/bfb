@@ -1,4 +1,4 @@
-use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients2, Timing};
+use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
 use crate::processor::Processor;
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
@@ -128,7 +128,7 @@ impl SearchProcessor {
         }
 
         let mut search_params = SearchParamsBuilder::default()
-            .exact(self.args.search)
+            .exact(self.args.search_exact)
             .quantization(quantization_params_builder)
             .indexed_only(self.args.indexed_only.unwrap_or_default());
 
@@ -143,7 +143,7 @@ impl SearchProcessor {
         request_builder = request_builder.params(search_params);
 
         let request = request_builder.build();
-        let res = retry_with_clients2(&self.clients, args, |client| {
+        let res = retry_with_clients(&self.clients, args, |client| {
             client.search_points(request.clone())
         })
         .await?;

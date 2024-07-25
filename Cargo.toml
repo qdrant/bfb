@@ -13,7 +13,7 @@ ctrlc = "3.4.4"
 futures = "0.3.30"
 indicatif = "0.17.8"
 memmap2 = "0.9.4"
-qdrant-client = {path = "../rust-client/"}
+qdrant-client = { git = "https://github.com/qdrant/rust-client", branch = "dev" }
 rand = "0.8.5"
 serde = "1.0"
 serde_json = "1.0"

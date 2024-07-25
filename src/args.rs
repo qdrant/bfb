@@ -292,9 +292,6 @@ pub struct Args {
     /// Use custom sharding for collection and upsert points to the specified sharding key
     #[clap(long)]
     pub shard_key: Option<String>,
-
-    #[clap(long)]
-    pub tenants: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -392,12 +389,10 @@ impl str::FromStr for ReadConsistency {
 
 impl From<ReadConsistency> for qdrant::read_consistency::Value {
     fn from(consistency: ReadConsistency) -> Self {
-        let consistency = match consistency {
+        match consistency {
             ReadConsistency::Type(consistency) => consistency.into(),
             ReadConsistency::Factor(factor) => qdrant::read_consistency::Value::Factor(factor),
-        };
-
-        consistency
+        }
     }
 }
 

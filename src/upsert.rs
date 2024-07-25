@@ -17,12 +17,12 @@ use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::common::{random_sparse_vector, random_vector, retry_with_clients2, Timing};
+use crate::common::{random_sparse_vector, random_vector, retry_with_clients, Timing};
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
 use crate::{random_dense_vector, random_payload, Args};
 
-fn log_points2(points: Vec<PointStruct>) -> impl FnOnce(QdrantError) -> QdrantError {
+fn log_points(points: Vec<PointStruct>) -> impl FnOnce(QdrantError) -> QdrantError {
     move |e| {
         let mut point_ids = Vec::new();
 
@@ -175,10 +175,10 @@ impl UpsertProcessor {
         }
 
         let request = request.build();
-        let res = retry_with_clients2(&self.clients, args, |client| {
+        let res = retry_with_clients(&self.clients, args, |client| {
             client
                 .upsert_points(request.clone())
-                .map_err(log_points2(points.clone()))
+                .map_err(log_points(points.clone()))
         })
         .await?;
 
@@ -203,7 +203,7 @@ impl UpsertProcessor {
 
             let request = request_builder.build();
 
-            retry_with_clients2(&self.clients, args, |client| {
+            retry_with_clients(&self.clients, args, |client| {
                 client.set_payload(request.clone())
             })
             .await?;

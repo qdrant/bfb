@@ -9,7 +9,6 @@ use anyhow::Result;
 use clap::Parser;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use qdrant_client::client::{QdrantClient, QdrantClientConfig};
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
@@ -57,7 +56,7 @@ fn choose_owned<T>(mut items: Vec<T>) -> T {
     items.swap_remove(id)
 }
 
-fn get_config2(args: &Args) -> Vec<QdrantConfig> {
+fn get_config(args: &Args) -> Vec<QdrantConfig> {
     let mut configs = Vec::new();
 
     for _i in 0..args.connections {
@@ -79,30 +78,8 @@ fn get_config2(args: &Args) -> Vec<QdrantConfig> {
     configs
 }
 
-fn get_config(args: &Args) -> Vec<QdrantClientConfig> {
-    let mut configs = Vec::new();
-
-    for _i in 0..args.connections {
-        for uri in args.uri.iter() {
-            let mut config = QdrantClientConfig::from_url(uri);
-            let api_key = std::env::var("QDRANT_API_KEY").ok();
-
-            if let Some(timeout) = args.timeout {
-                config.set_timeout(Duration::from_secs(timeout as u64));
-                config.set_connect_timeout(Duration::from_secs(timeout as u64));
-            }
-
-            if let Some(api_key) = api_key {
-                config.set_api_key(&api_key);
-            }
-            configs.push(config);
-        }
-    }
-    configs
-}
-
 fn random_client(args: &Args) -> Result<Qdrant> {
-    Ok(Qdrant::new(choose_owned(get_config2(args)))?)
+    Ok(Qdrant::new(choose_owned(get_config(args)))?)
 }
 
 async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
@@ -152,7 +129,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         return Ok(());
     }
 
-    let _vector_param = VectorParams {
+    let vector_param = VectorParams {
         size: args.dim as u64,
         distance: match args.distance.as_str() {
             "Cosine" => Distance::Cosine.into(),
@@ -167,10 +144,10 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     };
 
     let dense_vector_params = if args.vectors_per_point == 1 {
-        Config::Params(_vector_param)
+        Config::Params(vector_param)
     } else {
         let params = (0..args.vectors_per_point)
-            .map(|idx| (idx.to_string(), _vector_param.clone()))
+            .map(|idx| (idx.to_string(), vector_param))
             .collect();
 
         Config::ParamsMap(VectorParamsMap { map: params })
@@ -223,7 +200,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         optimizers_config = optimizers_config.max_segment_size(max_segment_size as u64);
     }
 
-    let mut create_collection = CreateCollectionBuilder::new(args.collection_name.clone())
+    let mut create_collection_builder = CreateCollectionBuilder::new(args.collection_name.clone())
         .vectors_config(vectors_config)
         .hnsw_config(hnsw_config)
         .optimizers_config(optimizers_config)
@@ -232,20 +209,22 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         .write_consistency_factor(args.write_consistency_factor as u32);
 
     if let Some(shard_number) = args.shards {
-        create_collection = create_collection.shard_number(shard_number as u32);
+        create_collection_builder = create_collection_builder.shard_number(shard_number as u32);
     }
 
     if let Some(sparse_vector_config) = sparse_vectors_config {
-        create_collection = create_collection.sparse_vectors_config(sparse_vector_config);
+        create_collection_builder =
+            create_collection_builder.sparse_vectors_config(sparse_vector_config);
     }
 
     if args.shard_key.is_some() {
-        create_collection = create_collection.sharding_method(ShardingMethod::Custom.into());
+        create_collection_builder =
+            create_collection_builder.sharding_method(ShardingMethod::Custom.into());
     }
 
     if let Some(quantization) = args.quantization {
         if matches!(quantization, QuantizationArg::Scalar) {
-            create_collection = create_collection.quantization_config(
+            create_collection_builder = create_collection_builder.quantization_config(
                 ScalarQuantizationBuilder::default()
                     .r#type(QuantizationType::Int8.into())
                     .quantile(0.99)
@@ -262,14 +241,14 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 QuantizationArg::ProductX64 => CompressionRatio::X64,
                 QuantizationArg::Scalar | QuantizationArg::None => unreachable!(),
             };
-            create_collection = create_collection.quantization_config(
+            create_collection_builder = create_collection_builder.quantization_config(
                 ProductQuantizationBuilder::new(compression.into())
                     .always_ram(args.quantization_in_ram.unwrap_or_default()),
             )
         }
     }
 
-    client.create_collection(create_collection).await?;
+    client.create_collection(create_collection_builder).await?;
 
     if stopped.load(Ordering::Relaxed) {
         return Ok(());
@@ -280,44 +259,56 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     if !args.skip_field_indices {
         for (idx, _) in args.keywords.iter().enumerate() {
             client
-                .create_field_index(CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
-                    FieldType::Keyword,
-                ))
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
+                        FieldType::Keyword,
+                    )
+                    .wait(true),
+                )
                 .await
                 .unwrap();
         }
 
         for (idx, _) in args.float_payloads.iter().enumerate() {
             client
-                .create_field_index(CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
-                    FieldType::Float,
-                ))
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
+                        FieldType::Float,
+                    )
+                    .wait(true),
+                )
                 .await
                 .unwrap();
         }
 
         for (idx, _) in args.int_payloads.iter().enumerate() {
             client
-                .create_field_index(CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
-                    FieldType::Integer,
-                ))
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
+                        FieldType::Integer,
+                    )
+                    .wait(true),
+                )
                 .await
                 .unwrap();
         }
 
         if args.timestamp_payload {
             client
-                .create_field_index(CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    "timestamp",
-                    FieldType::Datetime,
-                ))
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        "timestamp",
+                        FieldType::Datetime,
+                    )
+                    .wait(true),
+                )
                 .await
                 .unwrap();
         }
@@ -331,9 +322,11 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             builder = builder.shards_number(shards as u32);
         }
 
-        client.create_shard_key(
-            CreateShardKeyRequestBuilder::new(args.collection_name.clone()).request(builder),
-        );
+        client
+            .create_shard_key(
+                CreateShardKeyRequestBuilder::new(args.collection_name.clone()).request(builder),
+            )
+            .await?;
     }
 
     Ok(())
@@ -341,7 +334,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
-    for config in get_config2(args) {
+    for config in get_config(args) {
         clients.push(Qdrant::new(config)?);
     }
 
@@ -536,7 +529,7 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
 
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
-    for config in get_config2(args) {
+    for config in get_config(args) {
         clients.push(Qdrant::new(config)?);
     }
     let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
@@ -546,7 +539,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
     for config in get_config(args) {
-        clients.push(QdrantClient::new(Some(config))?);
+        clients.push(Qdrant::new(config)?);
     }
     let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients);
     process(args, stopped, scroller).await
