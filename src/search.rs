@@ -1,18 +1,19 @@
-use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
+use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients2, Timing};
 use crate::processor::Processor;
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
-use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::{
-    QuantizationSearchParams, SearchParams, SearchPoints, SparseIndices, Vector,
+    QuantizationSearchParamsBuilder, SearchParamsBuilder, SearchPointsBuilder, SparseIndices,
+    Vector,
 };
+use qdrant_client::Qdrant;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 pub struct SearchProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
-    clients: Vec<QdrantClient>,
+    clients: Vec<Qdrant>,
     pub start_timestamp_millis: f64,
     start_time: std::time::Instant,
     pub server_timings: Mutex<Vec<Timing>>,
@@ -21,7 +22,7 @@ pub struct SearchProcessor {
 }
 
 impl SearchProcessor {
-    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<QdrantClient>) -> Self {
+    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<Qdrant>) -> Self {
         SearchProcessor {
             args,
             stopped,
@@ -100,34 +101,52 @@ impl SearchProcessor {
             self.args.match_any,
         );
 
-        let request = SearchPoints {
-            collection_name: self.args.collection_name.to_string(),
-            vector: query_vector,
-            filter: query_filter,
-            limit: self.args.search_limit as u64,
-            with_payload: Some(self.args.search_with_payload.into()),
-            params: Some(SearchParams {
-                hnsw_ef: self.args.search_hnsw_ef.map(|v| v as u64),
-                exact: Some(self.args.search_exact),
-                quantization: Some(QuantizationSearchParams {
-                    ignore: None,
-                    rescore: self.args.quantization_rescore,
-                    oversampling: self.args.quantization_oversampling,
-                }),
-                indexed_only: self.args.indexed_only,
-            }),
-            score_threshold: None,
-            offset: None,
-            vector_name,
-            with_vectors: None,
-            read_consistency: self.args.read_consistency.map(Into::into),
-            timeout: None,
-            shard_key_selector: None,
-            sparse_indices,
-        };
+        let mut request_builder = SearchPointsBuilder::new(
+            self.args.collection_name.clone(),
+            query_vector,
+            self.args.search_limit as u64,
+        )
+        .with_payload(self.args.search_with_payload);
 
-        let res = retry_with_clients(&self.clients, args, |client| client.search_points(&request))
-            .await?;
+        if let Some(vector_name) = vector_name {
+            request_builder = request_builder.vector_name(vector_name);
+        }
+
+        if let Some(filter) = query_filter {
+            request_builder = request_builder.filter(filter);
+        }
+
+        if let Some(sparse_indices) = sparse_indices {
+            request_builder = request_builder.sparse_indices(sparse_indices);
+        }
+
+        let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()
+            .rescore(self.args.quantization_rescore.unwrap_or_default());
+
+        if let Some(oversampling) = self.args.quantization_oversampling {
+            quantization_params_builder = quantization_params_builder.oversampling(oversampling);
+        }
+
+        let mut search_params = SearchParamsBuilder::default()
+            .exact(self.args.search)
+            .quantization(quantization_params_builder)
+            .indexed_only(self.args.indexed_only.unwrap_or_default());
+
+        if let Some(hnsw_ef) = self.args.hnsw_ef_construct {
+            search_params = search_params.hnsw_ef(hnsw_ef as u64);
+        }
+
+        if let Some(read_cosistency) = self.args.read_consistency {
+            request_builder = request_builder.read_consistency(read_cosistency);
+        }
+
+        request_builder = request_builder.params(search_params);
+
+        let request = request_builder.build();
+        let res = retry_with_clients2(&self.clients, args, |client| {
+            client.search_points(request.clone())
+        })
+        .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 

@@ -9,10 +9,13 @@ use anyhow::Result;
 use clap::Parser;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use qdrant_client::client::{QdrantClient, QdrantClientConfig};
 use qdrant_client::config::QdrantConfig;
+use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
-    CollectionStatus, CompressionRatio, CreateCollectionBuilder, Distance, FieldType,
+    CollectionStatus, CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
+    CreateShardKeyBuilder, CreateShardKeyRequestBuilder, Distance, FieldType,
     HnswConfigDiffBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
     QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
     SparseVectorConfig, SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
@@ -268,81 +271,6 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 
     client.create_collection(create_collection).await?;
 
-    /*
-    client
-        .create_collection(&CreateCollection {
-            collection_name: args.collection_name.clone(),
-            vectors_config,
-            hnsw_config: Some(HnswConfigDiff {
-                on_disk: args.on_disk_index,
-                m: args.hnsw_m.map(|x| x as u64),
-                ef_construct: args.hnsw_ef_construct.map(|x| x as u64),
-                ..Default::default()
-            }),
-            optimizers_config: Some(OptimizersConfigDiff {
-                default_segment_number: args.segments.map(|x| x as u64),
-                memmap_threshold: args.mmap_threshold.map(|x| x as u64),
-                indexing_threshold: args.indexing_threshold.map(|x| x as u64),
-                max_segment_size: args.max_segment_size.map(|x| x as u64),
-                ..Default::default()
-            }),
-            on_disk_payload: Some(args.on_disk_payload),
-            replication_factor: Some(args.replication_factor as u32),
-            write_consistency_factor: Some(args.write_consistency_factor as u32),
-            shard_number: args.shards.map(|x| x as u32),
-            quantization_config: match args.quantization {
-                Some(quantization) => match quantization {
-                    QuantizationArg::None => None,
-                    QuantizationArg::Scalar => Some(QuantizationConfig {
-                        quantization: Some(Quantization::Scalar(ScalarQuantization {
-                            r#type: i32::from(QuantizationType::Int8),
-                            quantile: Some(0.99),
-                            always_ram: args.quantization_in_ram,
-                        })),
-                    }),
-                    QuantizationArg::ProductX4 => Some(QuantizationConfig {
-                        quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: CompressionRatio::X4.into(),
-                            always_ram: args.quantization_in_ram,
-                        })),
-                    }),
-                    QuantizationArg::ProductX8 => Some(QuantizationConfig {
-                        quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: CompressionRatio::X8.into(),
-                            always_ram: args.quantization_in_ram,
-                        })),
-                    }),
-                    QuantizationArg::ProductX16 => Some(QuantizationConfig {
-                        quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: CompressionRatio::X16.into(),
-                            always_ram: args.quantization_in_ram,
-                        })),
-                    }),
-                    QuantizationArg::ProductX32 => Some(QuantizationConfig {
-                        quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: CompressionRatio::X32.into(),
-                            always_ram: args.quantization_in_ram,
-                        })),
-                    }),
-                    QuantizationArg::ProductX64 => Some(QuantizationConfig {
-                        quantization: Some(Quantization::Product(ProductQuantization {
-                            compression: CompressionRatio::X64.into(),
-                            always_ram: args.quantization_in_ram,
-                        })),
-                    }),
-                },
-                None => None,
-            },
-            sparse_vectors_config,
-            sharding_method: args
-                .shard_key
-                .as_ref()
-                .map(|_| ShardingMethod::Custom.into()),
-            ..Default::default()
-        })
-        .await?;
-        */
-
     if stopped.load(Ordering::Relaxed) {
         return Ok(());
     }
@@ -352,71 +280,61 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     if !args.skip_field_indices {
         for (idx, _) in args.keywords.iter().enumerate() {
             client
-                .create_field_index_blocking(
+                .create_field_index(CreateFieldIndexCollectionBuilder::new(
                     args.collection_name.clone(),
                     format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
                     FieldType::Keyword,
-                    None,
-                    None,
-                )
+                ))
                 .await
                 .unwrap();
         }
 
         for (idx, _) in args.float_payloads.iter().enumerate() {
             client
-                .create_field_index_blocking(
+                .create_field_index(CreateFieldIndexCollectionBuilder::new(
                     args.collection_name.clone(),
                     format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
                     FieldType::Float,
-                    None,
-                    None,
-                )
+                ))
                 .await
                 .unwrap();
         }
 
         for (idx, _) in args.int_payloads.iter().enumerate() {
             client
-                .create_field_index_blocking(
+                .create_field_index(CreateFieldIndexCollectionBuilder::new(
                     args.collection_name.clone(),
                     format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
                     FieldType::Integer,
-                    None,
-                    None,
-                )
+                ))
                 .await
                 .unwrap();
         }
 
         if args.timestamp_payload {
             client
-                .create_field_index_blocking(
+                .create_field_index(CreateFieldIndexCollectionBuilder::new(
                     args.collection_name.clone(),
                     "timestamp",
                     FieldType::Datetime,
-                    None,
-                    None,
-                )
+                ))
                 .await
                 .unwrap();
         }
     }
 
-    /*
     if let Some(shard_key) = &args.shard_key {
-        client
-            .create_shard_key(
-                args.collection_name.clone(),
-                &Key::Keyword(shard_key.clone()),
-                args.shards.map(|shards| shards as _),
-                Some(args.replication_factor as _),
-                &[],
-            )
-            .await
-            .unwrap();
+        let mut builder = CreateShardKeyBuilder::default()
+            .shard_key(Key::Keyword(shard_key.clone()))
+            .replication_factor(args.replication_factor as u32);
+        if let Some(shards) = args.shards {
+            builder = builder.shards_number(shards as u32);
+        }
+
+        client.create_shard_key(
+            CreateShardKeyRequestBuilder::new(args.collection_name.clone()).request(builder),
+        );
     }
-    */
 
     Ok(())
 }
@@ -618,8 +536,8 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
 
 async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
-    for config in get_config(args) {
-        clients.push(QdrantClient::new(Some(config))?);
+    for config in get_config2(args) {
+        clients.push(Qdrant::new(config)?);
     }
     let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
     process(args, stopped, searcher).await

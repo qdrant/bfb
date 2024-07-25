@@ -5,6 +5,7 @@ use futures::Stream;
 use qdrant_client::client::{Payload, QdrantClient};
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, RepeatedStrings, Vector};
+use qdrant_client::{Qdrant, QdrantError};
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use std::time::Duration;
@@ -183,6 +184,39 @@ pub fn random_dense_vector(dim: usize) -> Vec<f32> {
 pub fn random_vector_name(max: usize) -> String {
     let mut rng = rand::thread_rng();
     format!("{}", rng.gen_range(0..max))
+}
+
+pub async fn retry_with_clients2<'a, R, T: std::future::Future<Output = Result<R, QdrantError>>>(
+    clients: &'a [Qdrant],
+    args: &Args,
+    mut call: impl FnMut(&'a Qdrant) -> T,
+) -> anyhow::Result<R> {
+    let mut permutation = (0..clients.len()).collect::<Vec<_>>();
+    let mut res = Err(anyhow::anyhow!("No clients"));
+
+    for attempt in 0..=args.retries {
+        permutation.shuffle(&mut rand::thread_rng());
+        for client_id in &permutation {
+            let client = clients.get(*client_id).unwrap();
+
+            res = call(client).await.map_err(|i| i.into());
+
+            if res.is_ok() {
+                return res;
+            }
+        }
+
+        let is_last = attempt >= args.retries;
+        if !is_last {
+            if let Err(err) = &res {
+                warn!("Request failed at attempt {}: {err}", attempt + 1);
+            }
+
+            tokio::time::sleep(Duration::from_secs_f32(args.retry_interval.max(0.0))).await;
+        }
+    }
+
+    res
 }
 
 pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = anyhow::Result<R>>>(
