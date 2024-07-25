@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,16 +9,15 @@ use anyhow::Result;
 use clap::Parser;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use qdrant_client::client::{QdrantClient, QdrantClientConfig};
-use qdrant_client::qdrant::quantization_config::Quantization;
-use qdrant_client::qdrant::shard_key::Key;
+use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
-    CollectionStatus, CompressionRatio, CreateCollection, Distance, FieldType, HnswConfigDiff,
-    OptimizersConfigDiff, ProductQuantization, QuantizationConfig, QuantizationType,
-    ScalarQuantization, ShardingMethod, SparseIndexConfig, SparseVectorConfig, SparseVectorParams,
-    VectorParams, VectorParamsMap, VectorsConfig,
+    CollectionStatus, CompressionRatio, CreateCollectionBuilder, Distance, FieldType,
+    HnswConfigDiffBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
+    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
+    SparseVectorConfig, SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
+use qdrant_client::Qdrant;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
@@ -54,6 +54,28 @@ fn choose_owned<T>(mut items: Vec<T>) -> T {
     items.swap_remove(id)
 }
 
+fn get_config2(args: &Args) -> Vec<QdrantConfig> {
+    let mut configs = Vec::new();
+
+    for _i in 0..args.connections {
+        for uri in args.uri.iter() {
+            let mut config = QdrantConfig::from_url(uri);
+            let api_key = std::env::var("QDRANT_API_KEY").ok();
+
+            if let Some(timeout) = args.timeout {
+                config.set_timeout(Duration::from_secs(timeout as u64));
+                config.set_connect_timeout(Duration::from_secs(timeout as u64));
+            }
+
+            if let Some(api_key) = api_key {
+                config.set_api_key(&api_key);
+            }
+            configs.push(config);
+        }
+    }
+    configs
+}
+
 fn get_config(args: &Args) -> Vec<QdrantClientConfig> {
     let mut configs = Vec::new();
 
@@ -76,8 +98,12 @@ fn get_config(args: &Args) -> Vec<QdrantClientConfig> {
     configs
 }
 
+fn random_client(args: &Args) -> Result<Qdrant> {
+    Ok(Qdrant::new(choose_owned(get_config2(args)))?)
+}
+
 async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
-    let client = QdrantClient::new(Some(choose_owned(get_config(args))))?;
+    let client = random_client(args)?;
     let start = std::time::Instant::now();
     let mut seen = 0;
     loop {
@@ -99,7 +125,7 @@ async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
 }
 
 async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    let client = QdrantClient::new(Some(choose_owned(get_config(args))))?;
+    let client = random_client(args)?;
 
     if args.create_if_missing && client.collection_info(&args.collection_name).await.is_ok() {
         println!("Collection already exists");
@@ -147,30 +173,102 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         Config::ParamsMap(VectorParamsMap { map: params })
     };
 
-    let vectors_config = Some(VectorsConfig {
-        config: Some(dense_vector_params),
-    });
+    let vectors_config: VectorsConfig = dense_vector_params.clone().into();
 
     let sparse_vectors_config = if args.sparse_vectors.is_some() {
-        let params = (0..args.sparse_vectors_per_point)
+        let params: HashMap<_, _> = (0..args.sparse_vectors_per_point)
             .map(|idx| {
-                (
-                    format!("{idx}_sparse").to_string(),
-                    SparseVectorParams {
-                        index: Some(SparseIndexConfig {
-                            full_scan_threshold: None,
-                            on_disk: args.on_disk_index,
-                        }),
-                    },
-                )
+                let key = format!("{idx}_sparse");
+
+                let config = SparseVectorParamsBuilder::default()
+                    .index(
+                        SparseIndexConfigBuilder::default()
+                            .on_disk(args.on_disk_index.unwrap_or_default()),
+                    )
+                    .build();
+
+                (key, config)
             })
             .collect();
 
-        Some(SparseVectorConfig { map: params })
+        Some(SparseVectorConfig::from(params))
     } else {
         None
     };
 
+    // Hnsw config
+    let mut hnsw_config =
+        HnswConfigDiffBuilder::default().on_disk(args.on_disk_index.unwrap_or_default());
+    if let Some(m) = args.hnsw_m {
+        hnsw_config = hnsw_config.m(m as u64);
+    }
+    if let Some(ef_construct) = args.hnsw_ef_construct {
+        hnsw_config = hnsw_config.ef_construct(ef_construct as u64);
+    }
+
+    let mut optimizers_config = OptimizersConfigDiffBuilder::default();
+    if let Some(default_segment_number) = args.segments {
+        optimizers_config = optimizers_config.default_segment_number(default_segment_number as u64);
+    }
+    if let Some(mmap_threshold) = args.mmap_threshold {
+        optimizers_config = optimizers_config.memmap_threshold(mmap_threshold as u64);
+    }
+    if let Some(indexing_threshold) = args.indexing_threshold {
+        optimizers_config = optimizers_config.indexing_threshold(indexing_threshold as u64);
+    }
+    if let Some(max_segment_size) = args.max_segment_size {
+        optimizers_config = optimizers_config.max_segment_size(max_segment_size as u64);
+    }
+
+    let mut create_collection = CreateCollectionBuilder::new(args.collection_name.clone())
+        .vectors_config(vectors_config)
+        .hnsw_config(hnsw_config)
+        .optimizers_config(optimizers_config)
+        .on_disk_payload(args.on_disk_payload)
+        .replication_factor(args.replication_factor as u32)
+        .write_consistency_factor(args.write_consistency_factor as u32);
+
+    if let Some(shard_number) = args.shards {
+        create_collection = create_collection.shard_number(shard_number as u32);
+    }
+
+    if let Some(sparse_vector_config) = sparse_vectors_config {
+        create_collection = create_collection.sparse_vectors_config(sparse_vector_config);
+    }
+
+    if args.shard_key.is_some() {
+        create_collection = create_collection.sharding_method(ShardingMethod::Custom.into());
+    }
+
+    if let Some(quantization) = args.quantization {
+        if matches!(quantization, QuantizationArg::Scalar) {
+            create_collection = create_collection.quantization_config(
+                ScalarQuantizationBuilder::default()
+                    .r#type(QuantizationType::Int8.into())
+                    .quantile(0.99)
+                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
+            );
+        }
+
+        if !matches!(quantization, QuantizationArg::None) {
+            let compression = match quantization {
+                QuantizationArg::ProductX4 => CompressionRatio::X4,
+                QuantizationArg::ProductX8 => CompressionRatio::X8,
+                QuantizationArg::ProductX16 => CompressionRatio::X16,
+                QuantizationArg::ProductX32 => CompressionRatio::X32,
+                QuantizationArg::ProductX64 => CompressionRatio::X64,
+                QuantizationArg::Scalar | QuantizationArg::None => unreachable!(),
+            };
+            create_collection = create_collection.quantization_config(
+                ProductQuantizationBuilder::new(compression.into())
+                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
+            )
+        }
+    }
+
+    client.create_collection(create_collection).await?;
+
+    /*
     client
         .create_collection(&CreateCollection {
             collection_name: args.collection_name.clone(),
@@ -243,6 +341,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             ..Default::default()
         })
         .await?;
+        */
 
     if stopped.load(Ordering::Relaxed) {
         return Ok(());
@@ -304,6 +403,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         }
     }
 
+    /*
     if let Some(shard_key) = &args.shard_key {
         client
             .create_shard_key(
@@ -316,6 +416,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             .await
             .unwrap();
     }
+    */
 
     Ok(())
 }
