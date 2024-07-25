@@ -341,8 +341,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 
 async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let mut clients = Vec::new();
-    for config in get_config(args) {
-        clients.push(QdrantClient::new(Some(config))?);
+    for config in get_config2(args) {
+        clients.push(Qdrant::new(config)?);
     }
 
     let logger = env_logger::Builder::from_default_env().build();
