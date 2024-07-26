@@ -2,8 +2,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use indicatif::ProgressBar;
-use qdrant_client::client::QdrantClient;
-use qdrant_client::qdrant::ScrollPoints;
+use qdrant_client::qdrant::ScrollPointsBuilder;
+use qdrant_client::Qdrant;
 
 use crate::common::{retry_with_clients, Timing};
 use crate::processor::Processor;
@@ -12,7 +12,7 @@ use crate::{random_filter, Args};
 pub struct ScrollProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
-    clients: Vec<QdrantClient>,
+    clients: Vec<Qdrant>,
     pub start_timestamp_millis: f64,
     start_time: std::time::Instant,
     pub server_timings: Mutex<Vec<Timing>>,
@@ -21,7 +21,7 @@ pub struct ScrollProcessor {
 }
 
 impl ScrollProcessor {
-    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<QdrantClient>) -> Self {
+    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<Qdrant>) -> Self {
         ScrollProcessor {
             args,
             stopped,
@@ -56,19 +56,21 @@ impl ScrollProcessor {
             self.args.match_any,
         );
 
-        let request = ScrollPoints {
-            collection_name: self.args.collection_name.to_string(),
-            filter: query_filter,
-            limit: Some(self.args.search_limit as u32),
-            with_payload: Some(self.args.search_with_payload.into()),
-            offset: None,
-            with_vectors: None,
-            read_consistency: self.args.read_consistency.map(Into::into),
-            shard_key_selector: None,
-            order_by: None,
-        };
+        let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())
+            .limit(self.args.search_limit as u32)
+            .with_payload(self.args.search_with_payload);
 
-        let res = retry_with_clients(&self.clients, args, |client| client.scroll(&request)).await?;
+        if let Some(filter) = query_filter {
+            request_builder = request_builder.filter(filter);
+        }
+
+        if let Some(read_consistency) = self.args.read_consistency {
+            request_builder = request_builder.read_consistency(read_consistency);
+        }
+
+        let request = request_builder.build();
+        let res = retry_with_clients(&self.clients, args, |client| client.scroll(request.clone()))
+            .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 

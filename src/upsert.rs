@@ -6,11 +6,13 @@ use std::sync::Arc;
 use anyhow::Error;
 use futures::TryFutureExt;
 use indicatif::ProgressBar;
-use qdrant_client::client::QdrantClient;
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors::VectorsOptions;
-use qdrant_client::qdrant::{PointId, PointStruct, PointsSelector, Vector, Vectors};
+use qdrant_client::qdrant::{
+    PointId, PointStruct, SetPayloadPointsBuilder, UpsertPointsBuilder, Vector, Vectors,
+};
+use qdrant_client::{Qdrant, QdrantError};
 use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -20,7 +22,7 @@ use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
 use crate::{random_dense_vector, random_payload, Args};
 
-fn log_points(points: Vec<PointStruct>) -> impl FnOnce(Error) -> Error {
+fn log_points(points: Vec<PointStruct>) -> impl FnOnce(QdrantError) -> QdrantError {
     move |e| {
         let mut point_ids = Vec::new();
 
@@ -43,7 +45,7 @@ fn log_points(points: Vec<PointStruct>) -> impl FnOnce(Error) -> Error {
 pub struct UpsertProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
-    clients: Vec<QdrantClient>,
+    clients: Vec<Qdrant>,
     progress_bar: Arc<ProgressBar>,
     reader: Option<FBinReader>,
     start_timestamp_millis: f64,
@@ -55,7 +57,7 @@ impl UpsertProcessor {
     pub fn new(
         args: Args,
         stopped: Arc<AtomicBool>,
-        clients: Vec<QdrantClient>,
+        clients: Vec<Qdrant>,
         progress_bar: Arc<ProgressBar>,
         reader: Option<FBinReader>,
     ) -> Self {
@@ -161,38 +163,24 @@ impl UpsertProcessor {
             return Ok(());
         }
 
-        let ordering = self.args.write_ordering.map(Into::into);
+        let mut request =
+            UpsertPointsBuilder::new(self.args.collection_name.clone(), points.clone())
+                .wait(self.args.wait_on_upsert);
 
-        let shard_key = args
-            .shard_key
-            .clone()
-            .map(|shard_key| vec![Key::Keyword(shard_key)]);
+        if let Some(ordering) = self.args.write_ordering {
+            request = request.ordering(ordering);
+        }
+        if let Some(shard_key) = &args.shard_key {
+            request = request.shard_key_selector(vec![Key::Keyword(shard_key.to_string())]);
+        }
 
-        let res = if self.args.wait_on_upsert {
-            retry_with_clients(&self.clients, args, |client| {
-                client
-                    .upsert_points_blocking(
-                        &self.args.collection_name,
-                        shard_key.clone(),
-                        points.clone(),
-                        ordering.clone(),
-                    )
-                    .map_err(log_points(points.clone()))
-            })
-            .await?
-        } else {
-            retry_with_clients(&self.clients, args, |client| {
-                client
-                    .upsert_points(
-                        &self.args.collection_name,
-                        shard_key.clone(),
-                        points.clone(),
-                        ordering.clone(),
-                    )
-                    .map_err(log_points(points.clone()))
-            })
-            .await?
-        };
+        let request = request.build();
+        let res = retry_with_clients(&self.clients, args, |client| {
+            client
+                .upsert_points(request.clone())
+                .map_err(log_points(points.clone()))
+        })
+        .await?;
 
         let latency = res.time;
 
@@ -202,32 +190,23 @@ impl UpsertProcessor {
         });
 
         if self.args.set_payload {
-            let points: PointsSelector = batch_ids.into();
-            if self.args.wait_on_upsert {
-                retry_with_clients(&self.clients, args, |client| {
-                    client.set_payload_blocking(
-                        &self.args.collection_name,
-                        None,
-                        &points,
-                        random_payload(&self.args),
-                        None,
-                        ordering.clone(),
-                    )
-                })
-                .await?;
-            } else {
-                retry_with_clients(&self.clients, args, |client| {
-                    client.set_payload(
-                        &self.args.collection_name,
-                        None,
-                        &points,
-                        random_payload(&self.args),
-                        None,
-                        ordering.clone(),
-                    )
-                })
-                .await?;
+            let mut request_builder = SetPayloadPointsBuilder::new(
+                self.args.collection_name.clone(),
+                random_payload(&self.args),
+            )
+            .points_selector(batch_ids)
+            .wait(self.args.wait_on_upsert);
+
+            if let Some(ordering) = self.args.write_ordering {
+                request_builder = request_builder.ordering(ordering);
             }
+
+            let request = request_builder.build();
+
+            retry_with_clients(&self.clients, args, |client| {
+                client.set_payload(request.clone())
+            })
+            .await?;
         }
 
         if res.time > self.args.timing_threshold {
@@ -239,7 +218,7 @@ impl UpsertProcessor {
             sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
         }
 
-        Ok::<(), Error>(())
+        Ok(())
     }
 
     pub async fn save_data(&self) {

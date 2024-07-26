@@ -387,6 +387,15 @@ impl str::FromStr for ReadConsistency {
     }
 }
 
+impl From<ReadConsistency> for qdrant::read_consistency::Value {
+    fn from(consistency: ReadConsistency) -> Self {
+        match consistency {
+            ReadConsistency::Type(consistency) => consistency.into(),
+            ReadConsistency::Factor(factor) => qdrant::read_consistency::Value::Factor(factor),
+        }
+    }
+}
+
 impl From<ReadConsistency> for qdrant::ReadConsistency {
     fn from(consistency: ReadConsistency) -> Self {
         let consistency = match consistency {
