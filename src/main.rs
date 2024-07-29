@@ -15,9 +15,10 @@ use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
     CollectionStatus, CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     CreateShardKeyBuilder, CreateShardKeyRequestBuilder, Distance, FieldType,
-    HnswConfigDiffBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
-    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
-    SparseVectorConfig, SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
+    HnswConfigDiffBuilder, IntegerIndexParamsBuilder, KeywordIndexParamsBuilder,
+    OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
+    ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder, SparseVectorConfig,
+    SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -265,6 +266,10 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
                         FieldType::Keyword,
                     )
+                    .field_index_params(
+                        KeywordIndexParamsBuilder::default()
+                            .is_tenant(args.tenants.unwrap_or_default()),
+                    )
                     .wait(true),
                 )
                 .await
@@ -292,6 +297,10 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         args.collection_name.clone(),
                         format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
                         FieldType::Integer,
+                    )
+                    .field_index_params(
+                        IntegerIndexParamsBuilder::new(true, false)
+                            .is_tenant(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
                 )

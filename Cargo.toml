@@ -7,13 +7,16 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.80"
-chrono = { version = "0.4.38", default-features = false, features = ["now", "std"] }
+chrono = { version = "0.4.38", default-features = false, features = [
+    "now",
+    "std",
+] }
 clap = { version = "4.5.9", features = ["derive"] }
 ctrlc = "3.4.4"
 futures = "0.3.30"
 indicatif = "0.17.8"
 memmap2 = "0.9.4"
-qdrant-client = { git = "https://github.com/qdrant/rust-client", branch = "dev" }
+qdrant-client = { git = "https://github.com/qdrant/rust-client", branch = "index_params_improvement" }
 rand = "0.8.5"
 serde = "1.0"
 serde_json = "1.0"

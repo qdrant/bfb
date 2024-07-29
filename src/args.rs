@@ -292,6 +292,10 @@ pub struct Args {
     /// Use custom sharding for collection and upsert points to the specified sharding key
     #[clap(long)]
     pub shard_key: Option<String>,
+
+    /// Use tenant optimization for field index.
+    #[clap(long)]
+    pub tenants: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]
