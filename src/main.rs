@@ -14,11 +14,11 @@ use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
     CollectionStatus, CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
-    CreateShardKeyBuilder, CreateShardKeyRequestBuilder, Distance, FieldType,
-    HnswConfigDiffBuilder, IntegerIndexParamsBuilder, KeywordIndexParamsBuilder,
-    OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
-    ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder, SparseVectorConfig,
-    SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
+    CreateShardKeyBuilder, CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance,
+    FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
+    KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
+    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
+    SparseVectorConfig, SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -284,6 +284,10 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
                         FieldType::Float,
                     )
+                    .field_index_params(
+                        FloatIndexParamsBuilder::default()
+                            .is_tenant(args.tenants.unwrap_or_default()),
+                    )
                     .wait(true),
                 )
                 .await
@@ -315,6 +319,10 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         args.collection_name.clone(),
                         "timestamp",
                         FieldType::Datetime,
+                    )
+                    .field_index_params(
+                        DatetimeIndexParamsBuilder::default()
+                            .is_tenant(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
                 )
