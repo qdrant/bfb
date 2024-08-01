@@ -17,7 +17,9 @@ use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::common::{random_sparse_vector, random_vector, retry_with_clients, Timing};
+use crate::common::{
+    random_sparse_vector, random_vector, retry_with_clients, Timing, UUID_NEEDLE, UUID_PAYLOAD_KEY,
+};
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
 use crate::{random_dense_vector, random_payload, Args};
@@ -89,7 +91,8 @@ impl UpsertProcessor {
 
         let mut batch_ids = Vec::new();
 
-        for i in 0..min(self.args.batch_size, points_left) {
+        let end = min(self.args.batch_size, points_left);
+        for i in 0..end {
             let idx = if let Some(max_id) = self.args.max_id {
                 rng.gen_range(self.args.offset..max_id) as u64
             } else {
@@ -152,11 +155,13 @@ impl UpsertProcessor {
                 vectors
             };
 
-            points.push(PointStruct::new(
-                point_id,
-                vectors,
-                random_payload(&self.args),
-            ));
+            let mut payload = random_payload(&self.args);
+
+            if points_left - i == 1 && !args.uuid_payloads.is_empty() {
+                payload.insert(UUID_PAYLOAD_KEY, UUID_NEEDLE.to_string());
+            }
+
+            points.push(PointStruct::new(point_id, vectors, payload));
         }
 
         if self.stopped.load(Ordering::Relaxed) {

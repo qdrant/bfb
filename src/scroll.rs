@@ -5,7 +5,7 @@ use indicatif::ProgressBar;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 use qdrant_client::Qdrant;
 
-use crate::common::{retry_with_clients, Timing};
+use crate::common::{retry_with_clients, Timing, UUID_NEEDLE};
 use crate::processor::Processor;
 use crate::{random_filter, Args};
 
@@ -53,6 +53,10 @@ impl ScrollProcessor {
             self.args.keywords.first().cloned(),
             self.args.float_payloads.first().cloned().unwrap_or(false),
             self.args.int_payloads.first().cloned(),
+            self.args
+                .uuid_payloads
+                .first()
+                .map(|_| self.args.uuid_query.as_deref().unwrap_or(UUID_NEEDLE)),
             self.args.match_any,
         );
 

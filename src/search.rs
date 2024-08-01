@@ -1,4 +1,6 @@
-use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
+use crate::common::{
+    random_sparse_vector, random_vector_name, retry_with_clients, Timing, UUID_NEEDLE,
+};
 use crate::processor::Processor;
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
@@ -98,6 +100,10 @@ impl SearchProcessor {
             self.args.keywords.first().cloned(),
             self.args.float_payloads.first().cloned().unwrap_or(false),
             self.args.int_payloads.first().cloned(),
+            self.args
+                .uuid_payloads
+                .first()
+                .map(|_| self.args.uuid_query.as_deref().unwrap_or(UUID_NEEDLE)),
             self.args.match_any,
         );
 
@@ -161,13 +167,14 @@ impl SearchProcessor {
             progress_bar.println(format!("Slow search: {:?}", res.time));
         }
 
+        /*
         if res.result.len() < self.args.search_limit {
             progress_bar.println(format!(
                 "Search result is too small: {} of {}",
                 res.result.len(),
                 self.args.search_limit
             ));
-        }
+            } */
 
         let server_timing = Timing {
             delay_millis: self.start_time.elapsed().as_millis() as f64,

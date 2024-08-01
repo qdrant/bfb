@@ -7,9 +7,11 @@ use std::time::Duration;
 
 use anyhow::Result;
 use clap::Parser;
+use common::UUID_PAYLOAD_KEY;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::config::QdrantConfig;
+use qdrant_client::qdrant::payload_index_params::IndexParams;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
@@ -18,7 +20,8 @@ use qdrant_client::qdrant::{
     FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
     KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
     QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
-    SparseVectorConfig, SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
+    SparseVectorConfig, SparseVectorParamsBuilder, UuidIndexParams, VectorParams, VectorParamsMap,
+    VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -324,6 +327,25 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         DatetimeIndexParamsBuilder::default()
                             .is_tenant(args.tenants.unwrap_or_default()),
                     )
+                    .wait(true),
+                )
+                .await
+                .unwrap();
+        }
+
+        for (idx, _) in args.uuid_payloads.iter().enumerate() {
+            println!("creating uuid index");
+            client
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        format!("{}{}", payload_prefixes(idx), UUID_PAYLOAD_KEY),
+                        FieldType::Uuid,
+                    )
+                    .field_index_params(IndexParams::UuidIndexParams(UuidIndexParams {
+                        is_tenant: args.tenants,
+                        on_disk: args.on_disk_payload_index,
+                    }))
                     .wait(true),
                 )
                 .await

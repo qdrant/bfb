@@ -13,11 +13,15 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::StreamExt;
 use tracing::warn;
+use uuid::Uuid;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
 
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
+pub const UUID_PAYLOAD_KEY: &str = "d";
+
+pub const UUID_NEEDLE: &str = "5e1679e7-c3b7-4aa0-b41e-3fd3bd682994";
 
 #[derive(Debug, Clone)]
 pub struct Timing {
@@ -56,6 +60,12 @@ pub fn random_payload(args: &Args) -> Payload {
         payload.insert(format!("{}{}", prefix, INTEGERS_PAYLOAD_KEY), value as i64);
     }
 
+    for (idx, _) in args.uuid_payloads.iter().enumerate() {
+        let prefix = payload_prefixes(idx);
+        let value = Uuid::new_v4();
+        payload.insert(format!("{}{}", prefix, UUID_PAYLOAD_KEY), value.to_string());
+    }
+
     if args.timestamp_payload {
         payload.insert("timestamp", chrono::Utc::now().to_rfc3339());
     }
@@ -67,6 +77,7 @@ pub fn random_filter(
     keywords: Option<usize>,
     float_payloads: bool,
     integer_payload: Option<usize>,
+    uuid_key: Option<&str>,
     match_any: Option<usize>,
 ) -> Option<Filter> {
     let mut filter = Filter {
@@ -139,6 +150,25 @@ pub fn random_filter(
                     lt: None,
                     lte: None,
                 }),
+                geo_bounding_box: None,
+                geo_radius: None,
+                geo_polygon: None,
+                values_count: None,
+                datetime_range: None,
+            }
+            .into(),
+        )
+    }
+
+    if let Some(uuid_key) = uuid_key {
+        have_any = true;
+        filter.must.push(
+            FieldCondition {
+                key: UUID_PAYLOAD_KEY.to_string(),
+                r#match: Some(Match {
+                    match_value: Some(MatchValue::Keyword(uuid_key.to_string())),
+                }),
+                range: None,
                 geo_bounding_box: None,
                 geo_radius: None,
                 geo_polygon: None,

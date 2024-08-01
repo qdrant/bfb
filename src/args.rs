@@ -134,6 +134,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub on_disk_payload: bool,
 
+    /// On disk payload
+    #[clap(long)]
+    pub on_disk_payload_index: Option<bool>,
+
     /// On disk index
     #[clap(long)]
     pub on_disk_index: Option<bool>,
@@ -169,6 +173,9 @@ pub struct Args {
     /// Use integer payloads
     #[clap(long)]
     pub int_payloads: Vec<usize>,
+
+    #[clap(long)]
+    pub uuid_payloads: Vec<usize>,
 
     /// Add payload with the current timestamp to all points
     #[clap(long)]
@@ -296,6 +303,10 @@ pub struct Args {
     /// Use tenant optimization for field index.
     #[clap(long)]
     pub tenants: Option<bool>,
+
+    /// Use a custom UUID as filter when searching.
+    #[clap(long)]
+    pub uuid_query: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug)]
