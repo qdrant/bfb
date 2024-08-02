@@ -1,6 +1,4 @@
-use crate::common::{
-    random_sparse_vector, random_vector_name, retry_with_clients, Timing, UUID_NEEDLE,
-};
+use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
 use crate::processor::Processor;
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
@@ -21,10 +19,16 @@ pub struct SearchProcessor {
     pub server_timings: Mutex<Vec<Timing>>,
     pub rps: Mutex<Vec<Timing>>,
     pub full_timings: Mutex<Vec<Timing>>,
+    pub uuids: Vec<String>,
 }
 
 impl SearchProcessor {
-    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<Qdrant>) -> Self {
+    pub fn new(
+        args: Args,
+        stopped: Arc<AtomicBool>,
+        clients: Vec<Qdrant>,
+        uuids: Vec<String>,
+    ) -> Self {
         SearchProcessor {
             args,
             stopped,
@@ -37,6 +41,7 @@ impl SearchProcessor {
             server_timings: Mutex::new(Vec::new()),
             rps: Mutex::new(Vec::new()),
             full_timings: Mutex::new(Vec::new()),
+            uuids,
         }
     }
 
@@ -100,10 +105,7 @@ impl SearchProcessor {
             self.args.keywords.first().cloned(),
             self.args.float_payloads.first().cloned().unwrap_or(false),
             self.args.int_payloads.first().cloned(),
-            self.args
-                .uuid_payloads
-                .first()
-                .map(|_| self.args.uuid_query.as_deref().unwrap_or(UUID_NEEDLE)),
+            &self.uuids,
             self.args.match_any,
         );
 

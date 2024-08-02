@@ -7,7 +7,7 @@ use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, RepeatedStrings, Vector};
 use qdrant_client::{Qdrant, QdrantError};
 use rand::prelude::SliceRandom;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use std::time::Duration;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -77,7 +77,7 @@ pub fn random_filter(
     keywords: Option<usize>,
     float_payloads: bool,
     integer_payload: Option<usize>,
-    uuid_key: Option<&str>,
+    uuids: &[String],
     match_any: Option<usize>,
 ) -> Option<Filter> {
     let mut filter = Filter {
@@ -160,13 +160,15 @@ pub fn random_filter(
         )
     }
 
-    if let Some(uuid_key) = uuid_key {
+    if !uuids.is_empty() {
         have_any = true;
+        let mut rng = thread_rng();
+        let random = uuids.choose(&mut rng).unwrap();
         filter.must.push(
             FieldCondition {
                 key: UUID_PAYLOAD_KEY.to_string(),
                 r#match: Some(Match {
-                    match_value: Some(MatchValue::Keyword(uuid_key.to_string())),
+                    match_value: Some(MatchValue::Keyword(random.to_string())),
                 }),
                 range: None,
                 geo_bounding_box: None,

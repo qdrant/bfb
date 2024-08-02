@@ -19,9 +19,9 @@ use qdrant_client::qdrant::{
     CreateShardKeyBuilder, CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance,
     FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
     KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
-    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
-    SparseVectorConfig, SparseVectorParamsBuilder, UuidIndexParams, VectorParams, VectorParamsMap,
-    VectorsConfig,
+    QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod,
+    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder, UuidIndexParams,
+    VectorParams, VectorParamsMap, VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -571,8 +571,38 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     for config in get_config(args) {
         clients.push(Qdrant::new(config)?);
     }
-    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
+
+    let mut uuids = vec![];
+    if !args.uuid_payloads.is_empty() {
+        uuids = get_used_uuids(args, &clients[0]).await?;
+    }
+
+    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients, uuids);
     process(args, stopped, searcher).await
+}
+
+async fn get_used_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
+    if !args.uuid_payloads.is_empty() {
+        let res = client
+            .scroll(
+                ScrollPointsBuilder::new(&args.collection_name)
+                    .with_payload(true)
+                    .limit(args.num_vectors as u32),
+            )
+            .await?;
+        let uuids = res
+            .result
+            .iter()
+            .filter_map(|i| {
+                i.payload
+                    .get(UUID_PAYLOAD_KEY)
+                    .and_then(|j| j.as_str().map(|i| i.to_string()))
+            })
+            .collect();
+        Ok(uuids)
+    } else {
+        Ok(vec![])
+    }
 }
 
 async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
@@ -580,7 +610,11 @@ async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     for config in get_config(args) {
         clients.push(Qdrant::new(config)?);
     }
-    let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients);
+    let mut uuids = vec![];
+    if !args.uuid_payloads.is_empty() {
+        uuids = get_used_uuids(args, &clients[0]).await?;
+    }
+    let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients, uuids);
     process(args, stopped, scroller).await
 }
 

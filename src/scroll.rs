@@ -5,7 +5,7 @@ use indicatif::ProgressBar;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 use qdrant_client::Qdrant;
 
-use crate::common::{retry_with_clients, Timing, UUID_NEEDLE};
+use crate::common::{retry_with_clients, Timing};
 use crate::processor::Processor;
 use crate::{random_filter, Args};
 
@@ -18,10 +18,16 @@ pub struct ScrollProcessor {
     pub server_timings: Mutex<Vec<Timing>>,
     pub rps: Mutex<Vec<Timing>>,
     pub full_timings: Mutex<Vec<Timing>>,
+    pub uuids: Vec<String>,
 }
 
 impl ScrollProcessor {
-    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<Qdrant>) -> Self {
+    pub fn new(
+        args: Args,
+        stopped: Arc<AtomicBool>,
+        clients: Vec<Qdrant>,
+        uuids: Vec<String>,
+    ) -> Self {
         ScrollProcessor {
             args,
             stopped,
@@ -34,6 +40,7 @@ impl ScrollProcessor {
             server_timings: Mutex::new(Vec::new()),
             rps: Mutex::new(Vec::new()),
             full_timings: Mutex::new(Vec::new()),
+            uuids,
         }
     }
 
@@ -53,10 +60,7 @@ impl ScrollProcessor {
             self.args.keywords.first().cloned(),
             self.args.float_payloads.first().cloned().unwrap_or(false),
             self.args.int_payloads.first().cloned(),
-            self.args
-                .uuid_payloads
-                .first()
-                .map(|_| self.args.uuid_query.as_deref().unwrap_or(UUID_NEEDLE)),
+            &self.uuids,
             self.args.match_any,
         );
 
