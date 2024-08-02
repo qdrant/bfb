@@ -116,7 +116,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     match client.delete_collection(&args.collection_name).await {
         Ok(_) => {}
         Err(e) => {
-            println!("Failed to delete collection: {}", e);
+            println!("Failed to delete collection: {:?}", e);
         }
     }
 
