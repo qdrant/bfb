@@ -571,16 +571,21 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         clients.push(Qdrant::new(config)?);
     }
 
-    let mut uuids = vec![];
-    if !args.uuid_payloads.is_empty() {
-        uuids = get_used_uuids(args, &clients[0]).await?;
-    }
+    let uuids = get_uuids(args, &clients[0]).await?;
 
     let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients, uuids);
     process(args, stopped, searcher).await
 }
 
-async fn get_used_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
+/// If we want to retrieve points by UUIDs, we need to know about the existing UUIDs.
+/// Here we decide which UUIDs we want to use for searching, based on the users preference.
+async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
+    // Only use the UUID the user specified
+    if let Some(uuid_query) = &args.uuid_query {
+        return Ok(vec![uuid_query.to_string()]);
+    }
+
+    // Retrieve existing UUIDs
     if !args.uuid_payloads.is_empty() {
         let res = client
             .scroll(
@@ -604,7 +609,7 @@ async fn get_used_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
             println!("Set of uuids not unique!");
         }
 
-        // Make order random
+        // Make order random to not request the first point by its UUID.
         Ok(unique.into_iter().collect())
     } else {
         Ok(vec![])
@@ -616,10 +621,9 @@ async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     for config in get_config(args) {
         clients.push(Qdrant::new(config)?);
     }
-    let mut uuids = vec![];
-    if !args.uuid_payloads.is_empty() {
-        uuids = get_used_uuids(args, &clients[0]).await?;
-    }
+
+    let uuids = get_uuids(args, &clients[0]).await?;
+
     let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients, uuids);
     process(args, stopped, scroller).await
 }
