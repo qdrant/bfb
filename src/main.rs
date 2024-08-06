@@ -599,11 +599,14 @@ async fn get_used_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
                     .and_then(|j| j.as_str().map(|i| i.to_string()))
             })
             .collect();
-        let unique: HashSet<_> = uuids.iter().collect();
-        if unique.len() != uuids.len() {
+        let uuids_count = uuids.len();
+        let unique: HashSet<_> = uuids.into_iter().collect();
+        if unique.len() != uuids_count {
             println!("Set of uuids not unique!");
         }
-        Ok(uuids)
+
+        // Make order random
+        Ok(unique.into_iter().collect())
     } else {
         Ok(vec![])
     }
