@@ -89,8 +89,7 @@ impl UpsertProcessor {
 
         let mut batch_ids = Vec::new();
 
-        let end = min(self.args.batch_size, points_left);
-        for i in 0..end {
+        for i in 0..min(self.args.batch_size, points_left) {
             let idx = if let Some(max_id) = self.args.max_id {
                 rng.gen_range(self.args.offset..max_id) as u64
             } else {
@@ -153,8 +152,11 @@ impl UpsertProcessor {
                 vectors
             };
 
-            let payload = random_payload(&self.args);
-            points.push(PointStruct::new(point_id, vectors, payload));
+            points.push(PointStruct::new(
+                point_id,
+                vectors,
+                random_payload(&self.args),
+            ));
         }
 
         if self.stopped.load(Ordering::Relaxed) {
