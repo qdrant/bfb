@@ -334,7 +334,6 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         }
 
         for (idx, _) in args.uuid_payloads.iter().enumerate() {
-            println!("creating uuid index");
             client
                 .create_field_index(
                     CreateFieldIndexCollectionBuilder::new(

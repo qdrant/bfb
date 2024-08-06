@@ -21,8 +21,6 @@ pub const FLOAT_PAYLOAD_KEY: &str = "b";
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
 pub const UUID_PAYLOAD_KEY: &str = "d";
 
-pub const UUID_NEEDLE: &str = "5e1679e7-c3b7-4aa0-b41e-3fd3bd682994";
-
 #[derive(Debug, Clone)]
 pub struct Timing {
     pub delay_millis: f64, // milliseconds

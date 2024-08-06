@@ -169,14 +169,13 @@ impl SearchProcessor {
             progress_bar.println(format!("Slow search: {:?}", res.time));
         }
 
-        /*
-        if res.result.len() < self.args.search_limit {
+        if res.result.len() < self.args.search_limit && self.args.uuid_payloads.is_empty() {
             progress_bar.println(format!(
                 "Search result is too small: {} of {}",
                 res.result.len(),
                 self.args.search_limit
             ));
-            } */
+        }
 
         let server_timing = Timing {
             delay_millis: self.start_time.elapsed().as_millis() as f64,
