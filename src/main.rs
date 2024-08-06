@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -590,7 +590,7 @@ async fn get_used_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
                     .limit(args.num_vectors as u32),
             )
             .await?;
-        let uuids = res
+        let uuids: Vec<_> = res
             .result
             .iter()
             .filter_map(|i| {
@@ -599,6 +599,10 @@ async fn get_used_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
                     .and_then(|j| j.as_str().map(|i| i.to_string()))
             })
             .collect();
+        let unique: HashSet<_> = uuids.iter().collect();
+        if unique.len() != uuids.len() {
+            println!("Set of uuids not unique!");
+        }
         Ok(uuids)
     } else {
         Ok(vec![])
