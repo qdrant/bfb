@@ -271,6 +271,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         KeywordIndexParamsBuilder::default()
+                            .on_disk(args.on_disk_payload_index.unwrap_or_default())
                             .is_tenant(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
@@ -287,11 +288,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
                         FieldType::Float,
                     )
-                    .field_index_params(
-                        FloatIndexParamsBuilder::default()
-                            .is_tenant(args.tenants.unwrap_or_default()),
-                    )
-                    .wait(true),
+                        .field_index_params(
+                            FloatIndexParamsBuilder::default()
+                                .on_disk(args.on_disk_payload_index.unwrap_or_default())
+                                .is_tenant(args.tenants.unwrap_or_default()),
+                        )
+                        .wait(true),
                 )
                 .await
                 .unwrap();
@@ -305,11 +307,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
                         FieldType::Integer,
                     )
-                    .field_index_params(
-                        IntegerIndexParamsBuilder::new(true, false)
-                            .is_tenant(args.tenants.unwrap_or_default()),
-                    )
-                    .wait(true),
+                        .field_index_params(
+                            IntegerIndexParamsBuilder::new(true, false)
+                                .on_disk(args.on_disk_payload_index.unwrap_or_default())
+                                .is_tenant(args.tenants.unwrap_or_default()),
+                        )
+                        .wait(true),
                 )
                 .await
                 .unwrap();
