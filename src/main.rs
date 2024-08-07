@@ -11,7 +11,6 @@ use common::UUID_PAYLOAD_KEY;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::config::QdrantConfig;
-use qdrant_client::qdrant::payload_index_params::IndexParams;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
@@ -20,8 +19,8 @@ use qdrant_client::qdrant::{
     FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
     KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
     QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod,
-    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder, UuidIndexParams,
-    VectorParams, VectorParamsMap, VectorsConfig,
+    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder,
+    UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -288,12 +287,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
                         FieldType::Float,
                     )
-                        .field_index_params(
-                            FloatIndexParamsBuilder::default()
-                                .on_disk(args.on_disk_payload_index.unwrap_or_default())
-                                .is_tenant(args.tenants.unwrap_or_default()),
-                        )
-                        .wait(true),
+                    .field_index_params(
+                        FloatIndexParamsBuilder::default()
+                            .on_disk(args.on_disk_payload_index.unwrap_or_default())
+                            .is_principal(args.tenants.unwrap_or_default()),
+                    )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -307,12 +306,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
                         FieldType::Integer,
                     )
-                        .field_index_params(
-                            IntegerIndexParamsBuilder::new(true, false)
-                                .on_disk(args.on_disk_payload_index.unwrap_or_default())
-                                .is_tenant(args.tenants.unwrap_or_default()),
-                        )
-                        .wait(true),
+                    .field_index_params(
+                        IntegerIndexParamsBuilder::new(true, false)
+                            .on_disk(args.on_disk_payload_index.unwrap_or_default())
+                            .is_principal(args.tenants.unwrap_or_default()),
+                    )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -328,7 +327,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         DatetimeIndexParamsBuilder::default()
-                            .is_tenant(args.tenants.unwrap_or_default()),
+                            .is_principal(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
                 )
@@ -344,10 +343,11 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), UUID_PAYLOAD_KEY),
                         FieldType::Uuid,
                     )
-                    .field_index_params(IndexParams::UuidIndexParams(UuidIndexParams {
-                        is_tenant: args.tenants,
-                        on_disk: args.on_disk_payload_index,
-                    }))
+                    .field_index_params(
+                        UuidIndexParamsBuilder::default()
+                            .is_tenant(args.tenants.unwrap_or_default())
+                            .on_disk(args.on_disk_payload_index.unwrap_or_default()),
+                    )
                     .wait(true),
                 )
                 .await
