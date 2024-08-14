@@ -270,7 +270,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         KeywordIndexParamsBuilder::default()
-                            .on_disk(args.on_disk_payload_index.unwrap_or_default())
+                            .on_disk(args.on_disk_payload_index)
                             .is_tenant(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
@@ -289,7 +289,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         FloatIndexParamsBuilder::default()
-                            .on_disk(args.on_disk_payload_index.unwrap_or_default())
+                            .on_disk(args.on_disk_payload_index)
                             .is_principal(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
@@ -308,7 +308,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         IntegerIndexParamsBuilder::new(true, false)
-                            .on_disk(args.on_disk_payload_index.unwrap_or_default())
+                            .on_disk(args.on_disk_payload_index)
                             .is_principal(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
@@ -346,7 +346,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     .field_index_params(
                         UuidIndexParamsBuilder::default()
                             .is_tenant(args.tenants.unwrap_or_default())
-                            .on_disk(args.on_disk_payload_index.unwrap_or_default()),
+                            .on_disk(args.on_disk_payload_index),
                     )
                     .wait(true),
                 )

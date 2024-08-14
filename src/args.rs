@@ -135,8 +135,8 @@ pub struct Args {
     pub on_disk_payload: bool,
 
     /// On disk payload
-    #[clap(long)]
-    pub on_disk_payload_index: Option<bool>,
+    #[clap(long, default_value_t = false)]
+    pub on_disk_payload_index: bool,
 
     /// On disk index
     #[clap(long)]
