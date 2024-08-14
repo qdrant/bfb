@@ -588,35 +588,35 @@ async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
         return Ok(vec![uuid_query.to_string()]);
     }
 
-    // Retrieve existing UUIDs
-    if args.uuid_payloads {
-        let res = client
-            .scroll(
-                ScrollPointsBuilder::new(&args.collection_name)
-                    .with_payload(true)
-                    .limit(args.num_vectors as u32),
-            )
-            .await?;
-        let uuids: Vec<_> = res
-            .result
-            .iter()
-            .filter_map(|i| {
-                i.payload
-                    .get(UUID_PAYLOAD_KEY)
-                    .and_then(|j| j.as_str().map(|i| i.to_string()))
-            })
-            .collect();
-        let uuids_count = uuids.len();
-        let unique: HashSet<_> = uuids.into_iter().collect();
-        if unique.len() != uuids_count {
-            println!("Set of uuids not unique!");
-        }
-
-        // Make order random to not request the first point by its UUID.
-        Ok(unique.into_iter().collect())
-    } else {
-        Ok(vec![])
+    if !args.uuid_payloads {
+        return Ok(vec![]);
     }
+    
+    // Retrieve existing UUIDs
+    let res = client
+        .scroll(
+            ScrollPointsBuilder::new(&args.collection_name)
+                .with_payload(true)
+                .limit(args.num_vectors as u32),
+        )
+        .await?;
+    let uuids: Vec<_> = res
+        .result
+        .iter()
+        .filter_map(|i| {
+            i.payload
+                .get(UUID_PAYLOAD_KEY)
+                .and_then(|j| j.as_str().map(|i| i.to_string()))
+        })
+        .collect();
+    let uuids_count = uuids.len();
+    let unique: HashSet<_> = uuids.into_iter().collect();
+    if unique.len() != uuids_count {
+        println!("Set of uuids not unique!");
+    }
+
+    // Make order random to not request the first point by its UUID.
+    Ok(unique.into_iter().collect())
 }
 
 async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
