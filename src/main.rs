@@ -224,29 +224,29 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     }
 
     if let Some(quantization) = args.quantization {
-        if matches!(quantization, QuantizationArg::Scalar) {
-            create_collection_builder = create_collection_builder.quantization_config(
+        create_collection_builder = match quantization {
+            QuantizationArg::Scalar => create_collection_builder.quantization_config(
                 ScalarQuantizationBuilder::default()
                     .r#type(QuantizationType::Int8.into())
                     .quantile(0.99)
                     .always_ram(args.quantization_in_ram.unwrap_or_default()),
-            );
-        }
-
-        if !matches!(quantization, QuantizationArg::None) {
-            let compression = match quantization {
-                QuantizationArg::ProductX4 => CompressionRatio::X4,
-                QuantizationArg::ProductX8 => CompressionRatio::X8,
-                QuantizationArg::ProductX16 => CompressionRatio::X16,
-                QuantizationArg::ProductX32 => CompressionRatio::X32,
-                QuantizationArg::ProductX64 => CompressionRatio::X64,
-                QuantizationArg::Scalar | QuantizationArg::None => unreachable!(),
-            };
-            create_collection_builder = create_collection_builder.quantization_config(
-                ProductQuantizationBuilder::new(compression.into())
-                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
-            )
-        }
+            ),
+            QuantizationArg::None => create_collection_builder,
+            quantization => {
+                let compression = match quantization {
+                    QuantizationArg::ProductX4 => CompressionRatio::X4,
+                    QuantizationArg::ProductX8 => CompressionRatio::X8,
+                    QuantizationArg::ProductX16 => CompressionRatio::X16,
+                    QuantizationArg::ProductX32 => CompressionRatio::X32,
+                    QuantizationArg::ProductX64 => CompressionRatio::X64,
+                    QuantizationArg::Scalar | QuantizationArg::None => unreachable!(),
+                };
+                create_collection_builder.quantization_config(
+                    ProductQuantizationBuilder::new(compression.into())
+                        .always_ram(args.quantization_in_ram.unwrap_or_default()),
+                )
+            }
+        };
     }
 
     client.create_collection(create_collection_builder).await?;
