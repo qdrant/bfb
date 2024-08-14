@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use clap::Parser;
+use common::UUID_PAYLOAD_KEY;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::config::QdrantConfig;
@@ -17,8 +18,9 @@ use qdrant_client::qdrant::{
     CreateShardKeyBuilder, CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance,
     FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
     KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
-    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
-    SparseVectorConfig, SparseVectorParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
+    QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod,
+    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder,
+    UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -268,6 +270,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         KeywordIndexParamsBuilder::default()
+                            .on_disk(args.on_disk_payload_index)
                             .is_tenant(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
@@ -286,7 +289,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         FloatIndexParamsBuilder::default()
-                            .is_tenant(args.tenants.unwrap_or_default()),
+                            .on_disk(args.on_disk_payload_index)
+                            .is_principal(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
                 )
@@ -304,7 +308,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         IntegerIndexParamsBuilder::new(true, false)
-                            .is_tenant(args.tenants.unwrap_or_default()),
+                            .on_disk(args.on_disk_payload_index)
+                            .is_principal(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
                 )
@@ -322,7 +327,26 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         DatetimeIndexParamsBuilder::default()
-                            .is_tenant(args.tenants.unwrap_or_default()),
+                            .is_principal(args.tenants.unwrap_or_default()),
+                    )
+                    .wait(true),
+                )
+                .await
+                .unwrap();
+        }
+
+        if args.uuid_payloads {
+            client
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        UUID_PAYLOAD_KEY,
+                        FieldType::Uuid,
+                    )
+                    .field_index_params(
+                        UuidIndexParamsBuilder::default()
+                            .is_tenant(args.tenants.unwrap_or_default())
+                            .on_disk(args.on_disk_payload_index),
                     )
                     .wait(true),
                 )
@@ -549,8 +573,50 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     for config in get_config(args) {
         clients.push(Qdrant::new(config)?);
     }
-    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients);
+
+    let uuids = get_uuids(args, &clients[0]).await?;
+
+    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients, uuids);
     process(args, stopped, searcher).await
+}
+
+/// If we want to retrieve points by UUIDs, we need to know about the existing UUIDs.
+/// Here we decide which UUIDs we want to use for searching, based on the users preference.
+async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
+    // Only use the UUID the user specified
+    if let Some(uuid_query) = &args.uuid_query {
+        return Ok(vec![uuid_query.to_string()]);
+    }
+
+    if !args.uuid_payloads {
+        return Ok(vec![]);
+    }
+    
+    // Retrieve existing UUIDs
+    let res = client
+        .scroll(
+            ScrollPointsBuilder::new(&args.collection_name)
+                .with_payload(true)
+                .limit(args.num_vectors as u32),
+        )
+        .await?;
+    let uuids: Vec<_> = res
+        .result
+        .iter()
+        .filter_map(|i| {
+            i.payload
+                .get(UUID_PAYLOAD_KEY)
+                .and_then(|j| j.as_str().map(|i| i.to_string()))
+        })
+        .collect();
+    let uuids_count = uuids.len();
+    let unique: HashSet<_> = uuids.into_iter().collect();
+    if unique.len() != uuids_count {
+        println!("Set of uuids not unique!");
+    }
+
+    // Make order random to not request the first point by its UUID.
+    Ok(unique.into_iter().collect())
 }
 
 async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
@@ -558,7 +624,10 @@ async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     for config in get_config(args) {
         clients.push(Qdrant::new(config)?);
     }
-    let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients);
+
+    let uuids = get_uuids(args, &clients[0]).await?;
+
+    let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients, uuids);
     process(args, stopped, scroller).await
 }
 

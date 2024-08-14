@@ -19,10 +19,16 @@ pub struct SearchProcessor {
     pub server_timings: Mutex<Vec<Timing>>,
     pub rps: Mutex<Vec<Timing>>,
     pub full_timings: Mutex<Vec<Timing>>,
+    pub uuids: Vec<String>,
 }
 
 impl SearchProcessor {
-    pub fn new(args: Args, stopped: Arc<AtomicBool>, clients: Vec<Qdrant>) -> Self {
+    pub fn new(
+        args: Args,
+        stopped: Arc<AtomicBool>,
+        clients: Vec<Qdrant>,
+        uuids: Vec<String>,
+    ) -> Self {
         SearchProcessor {
             args,
             stopped,
@@ -35,6 +41,7 @@ impl SearchProcessor {
             server_timings: Mutex::new(Vec::new()),
             rps: Mutex::new(Vec::new()),
             full_timings: Mutex::new(Vec::new()),
+            uuids,
         }
     }
 
@@ -98,6 +105,7 @@ impl SearchProcessor {
             self.args.keywords.first().cloned(),
             self.args.float_payloads.first().cloned().unwrap_or(false),
             self.args.int_payloads.first().cloned(),
+            &self.uuids,
             self.args.match_any,
         );
 
@@ -161,7 +169,7 @@ impl SearchProcessor {
             progress_bar.println(format!("Slow search: {:?}", res.time));
         }
 
-        if res.result.len() < self.args.search_limit {
+        if res.result.len() < self.args.search_limit && !self.args.uuid_payloads {
             progress_bar.println(format!(
                 "Search result is too small: {} of {}",
                 res.result.len(),
