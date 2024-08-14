@@ -335,12 +335,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 .unwrap();
         }
 
-        for (idx, _) in args.uuid_payloads.iter().enumerate() {
+        if args.uuid_payloads {
             client
                 .create_field_index(
                     CreateFieldIndexCollectionBuilder::new(
                         args.collection_name.clone(),
-                        format!("{}{}", payload_prefixes(idx), UUID_PAYLOAD_KEY),
+                        UUID_PAYLOAD_KEY,
                         FieldType::Uuid,
                     )
                     .field_index_params(
@@ -589,7 +589,7 @@ async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
     }
 
     // Retrieve existing UUIDs
-    if !args.uuid_payloads.is_empty() {
+    if args.uuid_payloads {
         let res = client
             .scroll(
                 ScrollPointsBuilder::new(&args.collection_name)

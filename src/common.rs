@@ -58,10 +58,9 @@ pub fn random_payload(args: &Args) -> Payload {
         payload.insert(format!("{}{}", prefix, INTEGERS_PAYLOAD_KEY), value as i64);
     }
 
-    for (idx, _) in args.uuid_payloads.iter().enumerate() {
-        let prefix = payload_prefixes(idx);
+    if args.uuid_payloads {
         let value = Uuid::new_v4();
-        payload.insert(format!("{}{}", prefix, UUID_PAYLOAD_KEY), value.to_string());
+        payload.insert(UUID_PAYLOAD_KEY, value.to_string());
     }
 
     if args.timestamp_payload {

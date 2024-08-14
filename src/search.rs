@@ -169,7 +169,7 @@ impl SearchProcessor {
             progress_bar.println(format!("Slow search: {:?}", res.time));
         }
 
-        if res.result.len() < self.args.search_limit && self.args.uuid_payloads.is_empty() {
+        if res.result.len() < self.args.search_limit && !self.args.uuid_payloads {
             progress_bar.println(format!(
                 "Search result is too small: {} of {}",
                 res.result.len(),

@@ -174,8 +174,8 @@ pub struct Args {
     #[clap(long)]
     pub int_payloads: Vec<usize>,
 
-    #[clap(long)]
-    pub uuid_payloads: Vec<usize>,
+    #[clap(long, default_value_t = false)]
+    pub uuid_payloads: bool,
 
     /// Add payload with the current timestamp to all points
     #[clap(long)]
