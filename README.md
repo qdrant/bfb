@@ -131,7 +131,7 @@ export QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA'
 or
 
 ```bash
-docker run -it --rm -e QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA' ./bfb .....
+docker run -it --rm -e QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA' qdrant/bfb:dev ./bfb .....
 ```
 
 ### Export results in json/csv:
