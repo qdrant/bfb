@@ -4,10 +4,13 @@ use core::option::Option::{None, Some};
 use futures::Stream;
 use qdrant_client::client::Payload;
 use qdrant_client::qdrant::r#match::MatchValue;
-use qdrant_client::qdrant::{FieldCondition, Filter, Match, Range, RepeatedStrings, Vector};
+use qdrant_client::qdrant::{
+    FieldCondition, Filter, GeoPoint, GeoRadius, Match, Range, RepeatedStrings, Vector,
+};
 use qdrant_client::{Qdrant, QdrantError};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
+use serde_json::json;
 use std::time::Duration;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -21,6 +24,17 @@ pub const FLOAT_PAYLOAD_KEY: &str = "b";
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
 pub const UUID_PAYLOAD_KEY: &str = "d";
 
+pub const GEO_PAYLOAD_KEY: &str = "g";
+
+const BERLIN: GeoPoint = GeoPoint {
+    lat: 52.52437,
+    lon: 13.41053,
+};
+const GEO_RADIUS_DEG: f64 = 1.0;
+
+const GEO_RADIUS_METERS_MIN: f64 = 1000.0;
+const GEO_RADIUS_METERS_MAX: f64 = 50000.0;
+
 #[derive(Debug, Clone)]
 pub struct Timing {
     pub delay_millis: f64, // milliseconds
@@ -31,6 +45,14 @@ pub fn random_keyword(num_variants: usize) -> String {
     let mut rng = rand::thread_rng();
     let variant = rng.gen_range(0..num_variants);
     format!("keyword_{}", variant)
+}
+
+fn random_geo_point() -> GeoPoint {
+    let mut rng = rand::thread_rng();
+    GeoPoint {
+        lat: BERLIN.lat + rng.gen_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
+        lon: BERLIN.lon + rng.gen_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
+    }
 }
 
 pub fn random_payload(args: &Args) -> Payload {
@@ -67,6 +89,19 @@ pub fn random_payload(args: &Args) -> Payload {
         payload.insert("timestamp", chrono::Utc::now().to_rfc3339());
     }
 
+    if args.geo_payloads {
+        let point = random_geo_point();
+
+        payload.insert(
+            GEO_PAYLOAD_KEY,
+            json!(
+            {
+                "lon": point.lon,
+                "lat": point.lat
+            }),
+        );
+    }
+
     payload
 }
 
@@ -76,6 +111,7 @@ pub fn random_filter(
     integer_payload: Option<usize>,
     uuids: &[String],
     match_any: Option<usize>,
+    geo_payloads: bool,
 ) -> Option<Filter> {
     let mut filter = Filter {
         should: vec![],
@@ -172,6 +208,28 @@ pub fn random_filter(
                 geo_radius: None,
                 geo_polygon: None,
                 values_count: None,
+                datetime_range: None,
+            }
+            .into(),
+        )
+    }
+
+    if geo_payloads {
+        have_any = true;
+        let radius = rand::thread_rng().gen_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
+        filter.must.push(
+            FieldCondition {
+                key: GEO_PAYLOAD_KEY.to_string(),
+                r#match: None,
+                range: None,
+                geo_bounding_box: None,
+                geo_radius: Some(GeoRadius {
+                    center: Some(random_geo_point()),
+                    radius: radius as f32,
+                }),
+
+                values_count: None,
+                geo_polygon: None,
                 datetime_range: None,
             }
             .into(),

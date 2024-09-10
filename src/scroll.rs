@@ -62,6 +62,7 @@ impl ScrollProcessor {
             self.args.int_payloads.first().cloned(),
             &self.uuids,
             self.args.match_any,
+            self.args.geo_payloads,
         );
 
         let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())
