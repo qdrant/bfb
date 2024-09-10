@@ -177,6 +177,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub uuid_payloads: bool,
 
+    /// Use geo payloads
+    #[clap(long, default_value_t = false)]
+    pub geo_payloads: bool,
+
     /// Add payload with the current timestamp to all points
     #[clap(long)]
     pub timestamp_payload: bool,

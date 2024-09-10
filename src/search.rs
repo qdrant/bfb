@@ -107,6 +107,7 @@ impl SearchProcessor {
             self.args.int_payloads.first().cloned(),
             &self.uuids,
             self.args.match_any,
+            self.args.geo_payloads,
         );
 
         let mut request_builder = SearchPointsBuilder::new(

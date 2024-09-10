@@ -33,7 +33,7 @@ use args::Args;
 use crate::args::QuantizationArg;
 use crate::common::{
     payload_prefixes, random_dense_vector, random_filter, random_payload, throttler, Timing,
-    FLOAT_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+    FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
 use crate::processor::Processor;
@@ -353,6 +353,23 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 .await
                 .unwrap();
         }
+
+        if args.geo_payloads {
+            client
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        GEO_PAYLOAD_KEY,
+                        FieldType::Geo,
+                    )
+                    .wait(true), // .field_index_params(
+                                 //     GeoIndexParamsBuilder::default()
+                                 //         .on_disk(args.on_disk_payload_index)
+                                 // )
+                )
+                .await
+                .unwrap();
+        }
     }
 
     if let Some(shard_key) = &args.shard_key {
@@ -591,7 +608,7 @@ async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
     if !args.uuid_payloads {
         return Ok(vec![]);
     }
-    
+
     // Retrieve existing UUIDs
     let res = client
         .scroll(
