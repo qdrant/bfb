@@ -108,6 +108,11 @@ impl SearchProcessor {
             &self.uuids,
             self.args.match_any,
             self.args.geo_payloads,
+            self.args.text_payloads.then(|| {
+                self.args
+                    .text_payload_vocabulary
+                    .unwrap_or(crate::common::DEFAULT_VOCAB_SIZE)
+            }),
         );
 
         let mut request_builder = SearchPointsBuilder::new(
@@ -115,7 +120,7 @@ impl SearchProcessor {
             query_vector,
             self.args.search_limit as u64,
         )
-        .with_payload(self.args.search_with_payload);
+            .with_payload(self.args.search_with_payload);
 
         if let Some(vector_name) = vector_name {
             request_builder = request_builder.vector_name(vector_name);
@@ -155,7 +160,7 @@ impl SearchProcessor {
         let res = retry_with_clients(&self.clients, args, |client| {
             client.search_points(request.clone())
         })
-        .await?;
+            .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 

@@ -5,7 +5,7 @@ use indicatif::ProgressBar;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 use qdrant_client::Qdrant;
 
-use crate::common::{retry_with_clients, Timing};
+use crate::common::{DEFAULT_VOCAB_SIZE, retry_with_clients, Timing};
 use crate::processor::Processor;
 use crate::{random_filter, Args};
 
@@ -63,6 +63,7 @@ impl ScrollProcessor {
             &self.uuids,
             self.args.match_any,
             self.args.geo_payloads,
+            self.args.text_payloads.then(|| self.args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE)),
         );
 
         let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())
