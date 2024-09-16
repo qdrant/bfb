@@ -181,6 +181,18 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub geo_payloads: bool,
 
+    /// generate text-like payloads
+    #[clap(long, default_value_t = false)]
+    pub text_payloads: bool,
+
+    /// Length of the text-like payloads
+    #[clap(long)]
+    pub text_payload_length: Option<usize>,
+
+    /// Vocabulary size for text-like payloads
+    #[clap(long)]
+    pub text_payload_vocabulary: Option<usize>,
+
     /// Add payload with the current timestamp to all points
     #[clap(long)]
     pub timestamp_payload: bool,

@@ -215,6 +215,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "uuid",
+ "zipf",
 ]
 
 [[package]]
@@ -2099,3 +2100,12 @@ name = "zeroize"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
+
+[[package]]
+name = "zipf"
+version = "7.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "390e51da0ed8cc3ade001d15fa5ba6f966b99c858fb466ec6b06d1682f1f94dd"
+dependencies = [
+ "rand",
+]
