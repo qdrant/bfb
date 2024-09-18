@@ -7,8 +7,8 @@ use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{
     FieldCondition, Filter, GeoPoint, GeoRadius, Match, Range, RepeatedStrings, Vector,
 };
-use rand::distributions::Distribution;
 use qdrant_client::{Qdrant, QdrantError};
+use rand::distributions::Distribution;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use serde_json::json;
@@ -46,18 +46,13 @@ pub struct Timing {
     pub value: f64,
 }
 
-
-pub fn random_text(
-    num_words: usize,
-    vocab_size: usize,
-) -> String {
+pub fn random_text(num_words: usize, vocab_size: usize) -> String {
     let mut rng = rand::thread_rng();
 
     let zipf = zipf::ZipfDistribution::new(vocab_size, 1.03).unwrap();
 
-    let zipf_distributed_words: Vec<usize> = (0..num_words)
-        .map(|_| zipf.sample(&mut rng))
-        .collect();
+    let zipf_distributed_words: Vec<usize> =
+        (0..num_words).map(|_| zipf.sample(&mut rng)).collect();
 
     let words: Vec<_> = zipf_distributed_words
         .iter()
@@ -66,7 +61,6 @@ pub fn random_text(
 
     words.join(" ")
 }
-
 
 pub fn random_keyword(num_variants: usize) -> String {
     let mut rng = rand::thread_rng();
@@ -182,7 +176,7 @@ pub fn random_filter(
                 values_count: None,
                 datetime_range: None,
             }
-                .into(),
+            .into(),
         )
     }
 
@@ -204,7 +198,7 @@ pub fn random_filter(
                 values_count: None,
                 datetime_range: None,
             }
-                .into(),
+            .into(),
         )
     }
     if let Some(integer_range) = integer_payload {
@@ -226,7 +220,7 @@ pub fn random_filter(
                 values_count: None,
                 datetime_range: None,
             }
-                .into(),
+            .into(),
         )
     }
 
@@ -247,7 +241,7 @@ pub fn random_filter(
                 values_count: None,
                 datetime_range: None,
             }
-                .into(),
+            .into(),
         )
     }
 
@@ -269,7 +263,7 @@ pub fn random_filter(
                 geo_polygon: None,
                 datetime_range: None,
             }
-                .into(),
+            .into(),
         )
     }
 
@@ -288,7 +282,7 @@ pub fn random_filter(
                 geo_polygon: None,
                 datetime_range: None,
             }
-                .into(),
+            .into(),
         )
     }
 
@@ -329,7 +323,7 @@ pub fn random_vector_name(max: usize) -> String {
     format!("{}", rng.gen_range(0..max))
 }
 
-pub async fn retry_with_clients<'a, R, T: std::future::Future<Output=Result<R, QdrantError>>>(
+pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R, QdrantError>>>(
     clients: &'a [Qdrant],
     args: &Args,
     mut call: impl FnMut(&'a Qdrant) -> T,
@@ -365,7 +359,7 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output=Result<R, Q
 /// Build a stream that will emit a unit value at the given frequency
 ///
 /// If `None` - the stream will emit a unit value every time it is polled.
-pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item=()> + Unpin> {
+pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item = ()> + Unpin> {
     match hz
         // Do not support zero or infinite
         .filter(|throttle| *throttle != 0.0 && !throttle.is_nan() && !throttle.is_infinite())
