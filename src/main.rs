@@ -187,6 +187,9 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     if let Some(m) = args.hnsw_m {
         hnsw_config = hnsw_config.m(m as u64);
     }
+    if let Some(payload_m) = args.hnsw_payload_m {
+        hnsw_config = hnsw_config.payload_m(payload_m as u64);
+    }
     if let Some(ef_construct) = args.hnsw_ef_construct {
         hnsw_config = hnsw_config.ef_construct(ef_construct as u64);
     }
