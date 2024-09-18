@@ -120,7 +120,7 @@ impl SearchProcessor {
             query_vector,
             self.args.search_limit as u64,
         )
-            .with_payload(self.args.search_with_payload);
+        .with_payload(self.args.search_with_payload);
 
         if let Some(vector_name) = vector_name {
             request_builder = request_builder.vector_name(vector_name);
@@ -160,7 +160,7 @@ impl SearchProcessor {
         let res = retry_with_clients(&self.clients, args, |client| {
             client.search_points(request.clone())
         })
-            .await?;
+        .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 
