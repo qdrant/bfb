@@ -112,13 +112,15 @@ async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
 async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let client = random_client(args)?;
 
-    if args.create_if_missing && client.collection_info(&args.collection_name).await.is_ok() {
-        println!("Collection already exists");
+    if args.create_if_missing && client.collection_exists(&args.collection_name).await? {
+        println!("Collection {} already exists", args.collection_name);
         return Ok(());
     }
 
     match client.delete_collection(&args.collection_name).await {
-        Ok(_) => {}
+        Ok(_) => {
+            println!("Deleted collection: {}", args.collection_name);
+        }
         Err(e) => {
             println!("Failed to delete collection: {:?}", e);
         }
@@ -257,6 +259,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     }
 
     client.create_collection(create_collection_builder).await?;
+    println!("Created collection: {}", args.collection_name);
+
 
     if stopped.load(Ordering::Relaxed) {
         return Ok(());
