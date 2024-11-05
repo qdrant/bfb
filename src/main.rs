@@ -261,7 +261,6 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     client.create_collection(create_collection_builder).await?;
     println!("Created collection: {}", args.collection_name);
 
-
     if stopped.load(Ordering::Relaxed) {
         return Ok(());
     }
