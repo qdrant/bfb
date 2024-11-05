@@ -450,7 +450,7 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         reader,
     );
 
-    let num_batches = args.num_vectors / args.batch_size;
+    let num_batches = args.num_vectors.div_ceil(args.batch_size);
 
     let query_stream = (0..num_batches)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
