@@ -7,6 +7,7 @@ use qdrant_client::qdrant;
 pub enum QuantizationArg {
     #[default]
     None,
+    Binary,
     Scalar,
     ProductX4,
     ProductX8,
