@@ -10,15 +10,20 @@ use qdrant_client::Qdrant;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug, Default)]
+struct SearchStats {
+    server_timings: Vec<Timing>,
+    rps: Vec<Timing>,
+    full_timings: Vec<Timing>,
+}
+
 pub struct SearchProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     clients: Vec<Qdrant>,
     pub start_timestamp_millis: f64,
     start_time: std::time::Instant,
-    pub server_timings: Mutex<Vec<Timing>>,
-    pub rps: Mutex<Vec<Timing>>,
-    pub full_timings: Mutex<Vec<Timing>>,
+    stats: Mutex<SearchStats>,
     pub uuids: Vec<String>,
 }
 
@@ -38,9 +43,7 @@ impl SearchProcessor {
                 .unwrap()
                 .as_millis() as f64,
             start_time: std::time::Instant::now(),
-            server_timings: Mutex::new(Vec::new()),
-            rps: Mutex::new(Vec::new()),
-            full_timings: Mutex::new(Vec::new()),
+            stats: Mutex::new(SearchStats::default()),
             uuids,
         }
     }
@@ -169,8 +172,6 @@ impl SearchProcessor {
             value: elapsed,
         };
 
-        self.full_timings.lock().unwrap().push(full_timing);
-
         if res.time > self.args.timing_threshold {
             progress_bar.println(format!("Slow search: {:?}", res.time));
         }
@@ -193,8 +194,13 @@ impl SearchProcessor {
             value: progress_bar.per_sec(),
         };
 
-        self.server_timings.lock().unwrap().push(server_timing);
-        self.rps.lock().unwrap().push(rps_timing);
+        // Update stats all at once
+        {
+            let mut stats_guard = self.stats.lock().unwrap();
+            stats_guard.server_timings.push(server_timing);
+            stats_guard.rps.push(rps_timing);
+            stats_guard.full_timings.push(full_timing);
+        }
 
         if let Some(delay_millis) = self.args.delay {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
@@ -219,14 +225,14 @@ impl Processor for SearchProcessor {
     }
 
     fn server_timings(&self) -> Vec<Timing> {
-        self.server_timings.lock().unwrap().clone()
+        self.stats.lock().unwrap().server_timings.clone()
     }
 
     fn rps(&self) -> Vec<Timing> {
-        self.rps.lock().unwrap().clone()
+        self.stats.lock().unwrap().rps.clone()
     }
 
     fn full_timings(&self) -> Vec<Timing> {
-        self.full_timings.lock().unwrap().clone()
+        self.stats.lock().unwrap().full_timings.clone()
     }
 }
