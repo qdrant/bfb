@@ -178,6 +178,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub uuid_payloads: bool,
 
+    /// Generate true/false payloads
+    #[clap(long, default_value_t = false)]
+    pub bool_payloads: bool,
+
     /// Use geo payloads
     #[clap(long, default_value_t = false)]
     pub geo_payloads: bool,
