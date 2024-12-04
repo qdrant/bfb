@@ -24,6 +24,7 @@ pub const FLOAT_PAYLOAD_KEY: &str = "b";
 
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
 pub const UUID_PAYLOAD_KEY: &str = "d";
+pub const BOOL_PAYLOAD_KEY: &str = "e";
 
 pub const GEO_PAYLOAD_KEY: &str = "g";
 
@@ -39,6 +40,8 @@ const GEO_RADIUS_DEG: f64 = 1.0;
 
 const GEO_RADIUS_METERS_MIN: f64 = 1000.0;
 const GEO_RADIUS_METERS_MAX: f64 = 50000.0;
+
+const BOOL_TRUE_RATIO: f64 = 0.7;
 
 #[derive(Debug, Clone)]
 pub struct Timing {
@@ -123,6 +126,13 @@ pub fn random_payload(args: &Args) -> Payload {
         );
     }
 
+    if args.bool_payloads {
+        payload.insert(
+            BOOL_PAYLOAD_KEY,
+            rand::thread_rng().gen_bool(BOOL_TRUE_RATIO),
+        );
+    }
+
     if args.text_payloads {
         let text = random_text(
             args.text_payload_length.unwrap_or(16),
@@ -135,6 +145,7 @@ pub fn random_payload(args: &Args) -> Payload {
     payload
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn random_filter(
     keywords: Option<usize>,
     float_payloads: bool,
@@ -142,6 +153,7 @@ pub fn random_filter(
     uuids: &[String],
     match_any: Option<usize>,
     geo_payloads: bool,
+    bool_payloads: bool,
     text_payloads_vocab: Option<usize>,
 ) -> Option<Filter> {
     let mut filter = Filter {
@@ -259,6 +271,27 @@ pub fn random_filter(
                     radius: radius as f32,
                 }),
 
+                values_count: None,
+                geo_polygon: None,
+                datetime_range: None,
+            }
+            .into(),
+        )
+    }
+
+    if bool_payloads {
+        have_any = true;
+        filter.must.push(
+            FieldCondition {
+                key: BOOL_PAYLOAD_KEY.to_string(),
+                r#match: Some(Match {
+                    match_value: Some(MatchValue::Boolean(
+                        rand::thread_rng().gen_bool(BOOL_TRUE_RATIO),
+                    )),
+                }),
+                range: None,
+                geo_bounding_box: None,
+                geo_radius: None,
                 values_count: None,
                 geo_polygon: None,
                 datetime_range: None,

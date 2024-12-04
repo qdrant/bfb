@@ -12,7 +12,16 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
-use qdrant_client::qdrant::{BinaryQuantizationBuilder, CollectionStatus, CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder, CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance, FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder, KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod, SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig};
+use qdrant_client::qdrant::{
+    BinaryQuantizationBuilder, CollectionStatus, CompressionRatio, CreateCollectionBuilder,
+    CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder, CreateShardKeyRequestBuilder,
+    DatetimeIndexParamsBuilder, Distance, FieldType, FloatIndexParamsBuilder,
+    HnswConfigDiffBuilder, IntegerIndexParamsBuilder, KeywordIndexParamsBuilder,
+    OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
+    ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod, SparseIndexConfigBuilder,
+    SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
+    UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
+};
 use qdrant_client::Qdrant;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -20,7 +29,7 @@ use tokio::time::sleep;
 use tokio::{join, runtime};
 
 use args::Args;
-use common::UUID_PAYLOAD_KEY;
+use common::{BOOL_PAYLOAD_KEY, UUID_PAYLOAD_KEY};
 
 use crate::args::QuantizationArg;
 use crate::common::{
@@ -272,12 +281,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
                         FieldType::Keyword,
                     )
-                        .field_index_params(
-                            KeywordIndexParamsBuilder::default()
-                                .on_disk(args.on_disk_payload_index)
-                                .is_tenant(args.tenants.unwrap_or_default()),
-                        )
-                        .wait(true),
+                    .field_index_params(
+                        KeywordIndexParamsBuilder::default()
+                            .on_disk(args.on_disk_payload_index)
+                            .is_tenant(args.tenants.unwrap_or_default()),
+                    )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -291,12 +300,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
                         FieldType::Float,
                     )
-                        .field_index_params(
-                            FloatIndexParamsBuilder::default()
-                                .on_disk(args.on_disk_payload_index)
-                                .is_principal(args.tenants.unwrap_or_default()),
-                        )
-                        .wait(true),
+                    .field_index_params(
+                        FloatIndexParamsBuilder::default()
+                            .on_disk(args.on_disk_payload_index)
+                            .is_principal(args.tenants.unwrap_or_default()),
+                    )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -310,12 +319,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
                         FieldType::Integer,
                     )
-                        .field_index_params(
-                            IntegerIndexParamsBuilder::new(true, false)
-                                .on_disk(args.on_disk_payload_index)
-                                .is_principal(args.tenants.unwrap_or_default()),
-                        )
-                        .wait(true),
+                    .field_index_params(
+                        IntegerIndexParamsBuilder::new(true, false)
+                            .on_disk(args.on_disk_payload_index)
+                            .is_principal(args.tenants.unwrap_or_default()),
+                    )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -329,11 +338,11 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         "timestamp",
                         FieldType::Datetime,
                     )
-                        .field_index_params(
-                            DatetimeIndexParamsBuilder::default()
-                                .is_principal(args.tenants.unwrap_or_default()),
-                        )
-                        .wait(true),
+                    .field_index_params(
+                        DatetimeIndexParamsBuilder::default()
+                            .is_principal(args.tenants.unwrap_or_default()),
+                    )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -347,12 +356,12 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         UUID_PAYLOAD_KEY,
                         FieldType::Uuid,
                     )
-                        .field_index_params(
-                            UuidIndexParamsBuilder::default()
-                                .is_tenant(args.tenants.unwrap_or_default())
-                                .on_disk(args.on_disk_payload_index),
-                        )
-                        .wait(true),
+                    .field_index_params(
+                        UuidIndexParamsBuilder::default()
+                            .is_tenant(args.tenants.unwrap_or_default())
+                            .on_disk(args.on_disk_payload_index),
+                    )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -366,10 +375,28 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         GEO_PAYLOAD_KEY,
                         FieldType::Geo,
                     )
-                        .wait(true), // .field_index_params(
-                    //     GeoIndexParamsBuilder::default()
+                    .wait(true), // .field_index_params(
+                                 //     GeoIndexParamsBuilder::default()
+                                 //         .on_disk(args.on_disk_payload_index)
+                                 // )
+                )
+                .await
+                .unwrap();
+        }
+
+        if args.bool_payloads {
+            client
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        BOOL_PAYLOAD_KEY,
+                        FieldType::Bool,
+                    )
+                    // .field_index_params(
+                    //     BoolIndexParamsBuilder::default()
                     //         .on_disk(args.on_disk_payload_index)
                     // )
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -383,8 +410,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         TEXT_PAYLOAD_KEY,
                         FieldType::Text,
                     )
-                        .field_index_params(TextIndexParamsBuilder::new(TokenizerType::Word))
-                        .wait(true),
+                    .field_index_params(TextIndexParamsBuilder::new(TokenizerType::Word))
+                    .wait(true),
                 )
                 .await
                 .unwrap();
@@ -702,7 +729,7 @@ fn main() {
     ctrlc::set_handler(move || {
         r.store(true, Ordering::SeqCst);
     })
-        .expect("Error setting Ctrl-C handler");
+    .expect("Error setting Ctrl-C handler");
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)

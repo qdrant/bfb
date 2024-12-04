@@ -63,6 +63,7 @@ impl ScrollProcessor {
             &self.uuids,
             self.args.match_any,
             self.args.geo_payloads,
+            self.args.bool_payloads,
             self.args.text_payloads.then(|| {
                 self.args
                     .text_payload_vocabulary
