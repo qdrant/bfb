@@ -13,14 +13,15 @@ use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
-    BinaryQuantizationBuilder, CollectionStatus, CompressionRatio, CreateCollectionBuilder,
-    CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder, CreateShardKeyRequestBuilder,
-    DatetimeIndexParamsBuilder, Distance, FieldType, FloatIndexParamsBuilder,
-    HnswConfigDiffBuilder, IntegerIndexParamsBuilder, KeywordIndexParamsBuilder,
-    OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
-    ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod, SparseIndexConfigBuilder,
-    SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
-    UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
+    BinaryQuantizationBuilder, BoolIndexParamsBuilder, CollectionStatus, CompressionRatio,
+    CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder,
+    CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance, FieldType,
+    FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
+    KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
+    QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod,
+    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder,
+    TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder, VectorParams, VectorParamsMap,
+    VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -392,10 +393,9 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         BOOL_PAYLOAD_KEY,
                         FieldType::Bool,
                     )
-                    // .field_index_params(
-                    //     BoolIndexParamsBuilder::default()
-                    //         .on_disk(args.on_disk_payload_index)
-                    // )
+                    .field_index_params(
+                        BoolIndexParamsBuilder::default().on_disk(args.on_disk_payload_index),
+                    )
                     .wait(true),
                 )
                 .await
