@@ -55,9 +55,9 @@ mod search;
 mod upsert;
 
 fn choose_owned<T>(mut items: Vec<T>) -> T {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     // Get random id
-    let id = rng.gen_range(0..items.len());
+    let id = rng.random_range(0..items.len());
     // Remove item from vector
     items.swap_remove(id)
 }

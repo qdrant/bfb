@@ -8,9 +8,10 @@ use qdrant_client::qdrant::{
     FieldCondition, Filter, GeoPoint, GeoRadius, Match, Range, RepeatedStrings, Vector,
 };
 use qdrant_client::{Qdrant, QdrantError};
-use rand::distributions::Distribution;
+use rand::distr::Distribution;
 use rand::prelude::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::seq::IndexedRandom;
+use rand::{rng, Rng};
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::interval;
@@ -50,12 +51,12 @@ pub struct Timing {
 }
 
 pub fn random_text(num_words: usize, vocab_size: usize) -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    let zipf = zipf::ZipfDistribution::new(vocab_size, 1.03).unwrap();
+    let zipf = rand_distr::Zipf::new(f64::from(vocab_size as u32), 1.03).unwrap();
 
     let zipf_distributed_words: Vec<usize> =
-        (0..num_words).map(|_| zipf.sample(&mut rng)).collect();
+        (0..num_words).map(|_| zipf.sample(&mut rng) as usize).collect();
 
     let words: Vec<_> = zipf_distributed_words
         .iter()
@@ -66,16 +67,16 @@ pub fn random_text(num_words: usize, vocab_size: usize) -> String {
 }
 
 pub fn random_keyword(num_variants: usize) -> String {
-    let mut rng = rand::thread_rng();
-    let variant = rng.gen_range(0..num_variants);
+    let mut rng = rand::rng();
+    let variant = rng.random_range(0..num_variants);
     format!("keyword_{}", variant)
 }
 
 fn random_geo_point() -> GeoPoint {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     GeoPoint {
-        lat: BERLIN.lat + rng.gen_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
-        lon: BERLIN.lon + rng.gen_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
+        lat: BERLIN.lat + rng.random_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
+        lon: BERLIN.lon + rng.random_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
     }
 }
 
@@ -94,13 +95,13 @@ pub fn random_payload(args: &Args) -> Payload {
         let prefix = payload_prefixes(idx);
         payload.insert(
             format!("{}{}", prefix, FLOAT_PAYLOAD_KEY),
-            rand::thread_rng().gen_range(-1.0..1.0),
+            rand::rng().random_range(-1.0..1.0),
         );
     }
 
     for (idx, integer_range) in args.int_payloads.iter().enumerate() {
         let prefix = payload_prefixes(idx);
-        let value = rand::thread_rng().gen_range(0..*integer_range);
+        let value = rand::rng().random_range(0..*integer_range);
         payload.insert(format!("{}{}", prefix, INTEGERS_PAYLOAD_KEY), value as i64);
     }
 
@@ -129,7 +130,7 @@ pub fn random_payload(args: &Args) -> Payload {
     if args.bool_payloads {
         payload.insert(
             BOOL_PAYLOAD_KEY,
-            rand::thread_rng().gen_bool(BOOL_TRUE_RATIO),
+            rand::rng().random_bool(BOOL_TRUE_RATIO),
         );
     }
 
@@ -215,7 +216,7 @@ pub fn random_filter(
     }
     if let Some(integer_range) = integer_payload {
         have_any = true;
-        let rand_int = rand::thread_rng().gen_range(0..integer_range);
+        let rand_int = rand::rng().random_range(0..integer_range);
         filter.must.push(
             FieldCondition {
                 key: INTEGERS_PAYLOAD_KEY.to_string(),
@@ -238,7 +239,7 @@ pub fn random_filter(
 
     if !uuids.is_empty() {
         have_any = true;
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let random = uuids.choose(&mut rng).unwrap();
         filter.must.push(
             FieldCondition {
@@ -259,7 +260,7 @@ pub fn random_filter(
 
     if geo_payloads {
         have_any = true;
-        let radius = rand::thread_rng().gen_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
+        let radius = rand::rng().random_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
         filter.must.push(
             FieldCondition {
                 key: GEO_PAYLOAD_KEY.to_string(),
@@ -286,7 +287,7 @@ pub fn random_filter(
                 key: BOOL_PAYLOAD_KEY.to_string(),
                 r#match: Some(Match {
                     match_value: Some(MatchValue::Boolean(
-                        rand::thread_rng().gen_bool(BOOL_TRUE_RATIO),
+                        rand::rng().random_bool(BOOL_TRUE_RATIO),
                     )),
                 }),
                 range: None,
@@ -330,30 +331,30 @@ pub fn random_vector(args: &Args) -> Vector {
 /// - `max_size` - maximum size of vector
 /// - `sparsity` - how many non-zero values should be in vector
 pub fn random_sparse_vector(max_size: usize, sparsity: f64) -> Vec<(u32, f32)> {
-    let mut rng = rand::thread_rng();
-    let size = rng.gen_range(1..max_size);
+    let mut rng = rand::rng();
+    let size = rng.random_range(1..max_size);
     // (index, value)
     let mut pairs = Vec::with_capacity(size);
     for i in 1..=size {
         // probability of skipping a dimension to make the vectors sparse
-        let skip = !rng.gen_bool(sparsity);
+        let skip = !rng.random_bool(sparsity);
         if skip {
             continue;
         }
         // Only positive values are generated to make sure to hit the pruning path.
-        pairs.push((i as u32, rng.gen_range(0.0..10.0) as f32));
+        pairs.push((i as u32, rng.random_range(0.0..10.0) as f32));
     }
     pairs
 }
 
 pub fn random_dense_vector(dim: usize) -> Vec<f32> {
-    let mut rng = rand::thread_rng();
-    (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect()
+    let mut rng = rand::rng();
+    (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect()
 }
 
 pub fn random_vector_name(max: usize) -> String {
-    let mut rng = rand::thread_rng();
-    format!("{}", rng.gen_range(0..max))
+    let mut rng = rand::rng();
+    format!("{}", rng.random_range(0..max))
 }
 
 pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R, QdrantError>>>(
@@ -365,7 +366,7 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R,
     let mut res = Err(anyhow::anyhow!("No clients"));
 
     for attempt in 0..=args.retries {
-        permutation.shuffle(&mut rand::thread_rng());
+        permutation.shuffle(&mut rand::rng());
         for client_id in &permutation {
             let client = clients.get(*client_id).unwrap();
 
