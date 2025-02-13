@@ -22,11 +22,11 @@ use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
 use crate::{random_dense_vector, random_payload, Args};
 
-fn log_points(points: Vec<PointStruct>) -> impl FnOnce(QdrantError) -> QdrantError {
+fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError + use<'_> {
     move |e| {
-        let mut point_ids = Vec::new();
+        let mut point_ids = Vec::with_capacity(points.len());
 
-        for p in &points {
+        for p in points {
             if let Some(point_id_option) = p.id.clone().unwrap().point_id_options {
                 match point_id_option {
                     PointIdOptions::Num(num) => point_ids.push(num.to_string()),
@@ -163,9 +163,8 @@ impl UpsertProcessor {
             return Ok(());
         }
 
-        let mut request =
-            UpsertPointsBuilder::new(self.args.collection_name.clone(), points.clone())
-                .wait(self.args.wait_on_upsert);
+        let mut request = UpsertPointsBuilder::new(self.args.collection_name.clone(), points)
+            .wait(self.args.wait_on_upsert);
 
         if let Some(ordering) = self.args.write_ordering {
             request = request.ordering(ordering);
@@ -178,7 +177,7 @@ impl UpsertProcessor {
         let res = retry_with_clients(&self.clients, args, |client| {
             client
                 .upsert_points(request.clone())
-                .map_err(log_points(points.clone()))
+                .map_err(log_points(&request.points))
         })
         .await?;
 
