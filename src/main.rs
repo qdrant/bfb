@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::Parser;
 use futures::stream::StreamExt;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
@@ -456,6 +456,9 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
         .expect("Failed to create progress style");
     sent_bar.set_style(progress_style);
+    // Refresh bar 2 times per seconds
+    let draw_target = ProgressDrawTarget::stdout_with_hz(2);
+    sent_bar.set_draw_target(draw_target);
 
     let sent_bar_arc = Arc::new(sent_bar);
 
@@ -555,6 +558,9 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
         .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
         .expect("Failed to create progress style");
     progress_bar.set_style(progress_style);
+    // Refresh bar 2 times per seconds
+    let draw_target = ProgressDrawTarget::stdout_with_hz(2);
+    progress_bar.set_draw_target(draw_target);
 
     let query_stream = (0..args.num_vectors)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
