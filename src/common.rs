@@ -2,12 +2,11 @@ use crate::args::Args;
 use core::option::Option;
 use core::option::Option::{None, Some};
 use futures::Stream;
-use qdrant_client::client::Payload;
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{
     FieldCondition, Filter, GeoPoint, GeoRadius, Match, Range, RepeatedStrings, Vector,
 };
-use qdrant_client::{Qdrant, QdrantError};
+use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::distr::Distribution;
 use rand::prelude::SliceRandom;
 use rand::seq::IndexedRandom;

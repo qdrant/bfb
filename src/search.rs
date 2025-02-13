@@ -154,8 +154,8 @@ impl SearchProcessor {
             search_params = search_params.hnsw_ef(hnsw_ef as u64);
         }
 
-        if let Some(read_cosistency) = self.args.read_consistency {
-            request_builder = request_builder.read_consistency(read_cosistency);
+        if let Some(read_consistency) = self.args.read_consistency {
+            request_builder = request_builder.read_consistency(read_consistency);
         }
 
         request_builder = request_builder.params(search_params);
