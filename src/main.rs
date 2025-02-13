@@ -644,7 +644,7 @@ async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 }
 
 /// If we want to retrieve points by UUIDs, we need to know about the existing UUIDs.
-/// Here we decide which UUIDs we want to use for searching, based on the users preference.
+/// Here we decide which UUIDs we want to use for searching, based on the user's preference.
 async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
     // Only use the UUID the user specified
     if let Some(uuid_query) = &args.uuid_query {
