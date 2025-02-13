@@ -1,4 +1,5 @@
 use crate::args::Args;
+use anyhow::Error;
 use core::option::Option;
 use core::option::Option::{None, Some};
 use futures::Stream;
@@ -362,23 +363,28 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R,
     mut call: impl FnMut(&'a Qdrant) -> T,
 ) -> anyhow::Result<R> {
     let mut permutation = (0..clients.len()).collect::<Vec<_>>();
-    let mut res = Err(anyhow::anyhow!("No clients"));
+    let mut previous_err: Option<Error> = None;
 
     for attempt in 0..=args.retries {
         permutation.shuffle(&mut rand::rng());
         for client_id in &permutation {
             let client = clients.get(*client_id).unwrap();
 
-            res = call(client).await.map_err(|i| i.into());
+            let resp = call(client).await.map_err(|i| i.into());
 
-            if res.is_ok() {
-                return res;
+            match resp {
+                Ok(_) => {
+                    return resp;
+                }
+                Err(err) => {
+                    previous_err = Some(err);
+                }
             }
         }
 
         let is_last = attempt >= args.retries;
         if !is_last {
-            if let Err(err) = &res {
+            if let Some(err) = &previous_err {
                 warn!("Request failed at attempt {}: {err}", attempt + 1);
             }
 
@@ -386,7 +392,7 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R,
         }
     }
 
-    res
+    Err(previous_err.unwrap_or(anyhow::anyhow!("No clients")))
 }
 
 /// Build a stream that will emit a unit value at the given frequency
