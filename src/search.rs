@@ -51,7 +51,7 @@ impl SearchProcessor {
         if let Some(sparsity) = self.args.sparse_vectors {
             let sparse_vector_tuples =
                 random_sparse_vector(self.args.sparse_dim.unwrap_or(self.args.dim), sparsity);
-            let (indices, values): (Vec<_>, Vec<_>) = sparse_vector_tuples.iter().cloned().unzip();
+            let (indices, values): (Vec<_>, Vec<_>) = sparse_vector_tuples.into_iter().unzip();
             let sparse_indices = SparseIndices { data: indices };
             let name = format!(
                 "{}_sparse",
@@ -65,12 +65,11 @@ impl SearchProcessor {
 
     fn get_dense_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
         let query_vector = random_dense_vector(self.args.dim);
-        let sparse_indices = None;
         if self.args.vectors_per_point > 1 {
             let name = random_vector_name(self.args.vectors_per_point);
-            (query_vector, sparse_indices, Some(name))
+            (query_vector, None, Some(name))
         } else {
-            (query_vector, sparse_indices, None)
+            (query_vector, None, None)
         }
     }
 
