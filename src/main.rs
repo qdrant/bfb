@@ -143,6 +143,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             "Cosine" => Distance::Cosine.into(),
             "Dot" => Distance::Dot.into(),
             "Euclid" => Distance::Euclid.into(),
+            "Manhattan" => Distance::Manhattan.into(),
             _ => {
                 panic!("Unknown distance {}", args.distance)
             }
