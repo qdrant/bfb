@@ -5,7 +5,7 @@ use core::option::Option::{None, Some};
 use futures::Stream;
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{
-    FieldCondition, Filter, GeoPoint, GeoRadius, Match, Range, RepeatedStrings, Vector,
+    Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, Vector,
 };
 use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::distr::Distribution;
@@ -55,8 +55,9 @@ pub fn random_text(num_words: usize, vocab_size: usize) -> String {
 
     let zipf = rand_distr::Zipf::new(f64::from(vocab_size as u32), 1.03).unwrap();
 
-    let zipf_distributed_words: Vec<usize> =
-        (0..num_words).map(|_| zipf.sample(&mut rng) as usize).collect();
+    let zipf_distributed_words: Vec<usize> = (0..num_words)
+        .map(|_| zipf.sample(&mut rng) as usize)
+        .collect();
 
     let words: Vec<_> = zipf_distributed_words
         .iter()
@@ -128,10 +129,7 @@ pub fn random_payload(args: &Args) -> Payload {
     }
 
     if args.bool_payloads {
-        payload.insert(
-            BOOL_PAYLOAD_KEY,
-            rand::rng().random_bool(BOOL_TRUE_RATIO),
-        );
+        payload.insert(BOOL_PAYLOAD_KEY, rand::rng().random_bool(BOOL_TRUE_RATIO));
     }
 
     if args.text_payloads {
@@ -166,158 +164,81 @@ pub fn random_filter(
     let mut have_any = false;
     if let Some(keyword_variants) = keywords {
         let condition = if let Some(match_any) = match_any {
-            MatchValue::Keywords(RepeatedStrings {
-                strings: (0..match_any)
-                    .map(|_| random_keyword(keyword_variants))
-                    .collect(),
-            })
+            let strings = (0..match_any)
+                .map(|_| random_keyword(keyword_variants))
+                .collect();
+            MatchValue::Keywords(RepeatedStrings { strings })
         } else {
             MatchValue::Keyword(random_keyword(keyword_variants))
         };
 
         have_any = true;
-        filter.must.push(
-            FieldCondition {
-                key: KEYWORD_PAYLOAD_KEY.to_string(),
-                r#match: Some(Match {
-                    match_value: Some(condition),
-                }),
-                range: None,
-                geo_bounding_box: None,
-                geo_radius: None,
-                geo_polygon: None,
-                values_count: None,
-                datetime_range: None,
-            }
-            .into(),
-        )
+        filter
+            .must
+            .push(Condition::matches(KEYWORD_PAYLOAD_KEY, condition));
     }
 
     if float_payloads {
         have_any = true;
-        filter.must.push(
-            FieldCondition {
-                key: FLOAT_PAYLOAD_KEY.to_string(),
-                r#match: None,
-                range: Some(Range {
-                    gt: Some(0.0),
-                    gte: None,
-                    lt: None,
-                    lte: None,
-                }),
-                geo_bounding_box: None,
-                geo_radius: None,
-                geo_polygon: None,
-                values_count: None,
-                datetime_range: None,
-            }
-            .into(),
-        )
+        filter.must.push(Condition::range(
+            FLOAT_PAYLOAD_KEY,
+            Range {
+                gt: Some(0.0),
+                gte: None,
+                lt: None,
+                lte: None,
+            },
+        ))
     }
     if let Some(integer_range) = integer_payload {
         have_any = true;
         let rand_int = rand::rng().random_range(0..integer_range);
-        filter.must.push(
-            FieldCondition {
-                key: INTEGERS_PAYLOAD_KEY.to_string(),
-                r#match: None,
-                range: Some(Range {
-                    gt: Some(rand_int as f64),
-                    gte: None,
-                    lt: None,
-                    lte: None,
-                }),
-                geo_bounding_box: None,
-                geo_radius: None,
-                geo_polygon: None,
-                values_count: None,
-                datetime_range: None,
-            }
-            .into(),
-        )
+        filter.must.push(Condition::range(
+            INTEGERS_PAYLOAD_KEY,
+            Range {
+                gt: Some(rand_int as f64),
+                gte: None,
+                lt: None,
+                lte: None,
+            },
+        ))
     }
 
     if !uuids.is_empty() {
         have_any = true;
         let mut rng = rng();
         let random = uuids.choose(&mut rng).unwrap();
-        filter.must.push(
-            FieldCondition {
-                key: UUID_PAYLOAD_KEY.to_string(),
-                r#match: Some(Match {
-                    match_value: Some(MatchValue::Keyword(random.to_string())),
-                }),
-                range: None,
-                geo_bounding_box: None,
-                geo_radius: None,
-                geo_polygon: None,
-                values_count: None,
-                datetime_range: None,
-            }
-            .into(),
-        )
+        filter
+            .must
+            .push(Condition::matches(UUID_PAYLOAD_KEY, random.to_string()))
     }
 
     if geo_payloads {
         have_any = true;
         let radius = rand::rng().random_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
-        filter.must.push(
-            FieldCondition {
-                key: GEO_PAYLOAD_KEY.to_string(),
-                r#match: None,
-                range: None,
-                geo_bounding_box: None,
-                geo_radius: Some(GeoRadius {
-                    center: Some(random_geo_point()),
-                    radius: radius as f32,
-                }),
-
-                values_count: None,
-                geo_polygon: None,
-                datetime_range: None,
-            }
-            .into(),
-        )
+        filter.must.push(Condition::geo_radius(
+            GEO_PAYLOAD_KEY,
+            GeoRadius {
+                center: Some(random_geo_point()),
+                radius: radius as f32,
+            },
+        ))
     }
 
     if bool_payloads {
         have_any = true;
-        filter.must.push(
-            FieldCondition {
-                key: BOOL_PAYLOAD_KEY.to_string(),
-                r#match: Some(Match {
-                    match_value: Some(MatchValue::Boolean(
-                        rand::rng().random_bool(BOOL_TRUE_RATIO),
-                    )),
-                }),
-                range: None,
-                geo_bounding_box: None,
-                geo_radius: None,
-                values_count: None,
-                geo_polygon: None,
-                datetime_range: None,
-            }
-            .into(),
-        )
+        filter.must.push(Condition::matches(
+            BOOL_PAYLOAD_KEY,
+            rand::rng().random_bool(BOOL_TRUE_RATIO),
+        ))
     }
 
     if let Some(vocab_size) = text_payloads_vocab {
         have_any = true;
-        filter.must.push(
-            FieldCondition {
-                key: TEXT_PAYLOAD_KEY.to_string(),
-                r#match: Some(Match {
-                    match_value: Some(MatchValue::Text(random_text(2, vocab_size))),
-                }),
-                range: None,
-                geo_bounding_box: None,
-                geo_radius: None,
-                values_count: None,
-                geo_polygon: None,
-                datetime_range: None,
-            }
-            .into(),
-        )
+        filter.must.push(Condition::matches_text(
+            TEXT_PAYLOAD_KEY,
+            random_text(2, vocab_size),
+        ))
     }
 
     have_any.then_some(filter)
