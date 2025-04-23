@@ -149,6 +149,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             }
         },
         on_disk: args.on_disk_vectors,
+        datatype: args.vec_datatype,
         ..Default::default()
     };
 
@@ -342,7 +343,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     )
                     .field_index_params(
                         DatetimeIndexParamsBuilder::default()
-                            .is_principal(args.tenants.unwrap_or_default()),
+                            .on_disk(args.on_disk_payload_index)
+                            .is_principal(args.principal.unwrap_or_default()),
                     )
                     .wait(true),
                 )

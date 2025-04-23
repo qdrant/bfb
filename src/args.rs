@@ -329,9 +329,23 @@ pub struct Args {
     #[clap(long)]
     pub tenants: Option<bool>,
 
+    /// Use tenant optimization for non-keyword field index.
+    #[clap(long )]
+    pub principal: Option<bool>,
+
     /// Use a custom UUID as filter when searching.
     #[clap(long)]
     pub uuid_query: Option<String>,
+
+    /// Use specified vector datatype.
+    /// pub enum Datatype {
+    //     Default = 0,
+    //     Float32 = 1,
+    //     Uint8 = 2,
+    //     Float16 = 3,
+    // }
+    #[clap(long)]
+    pub vec_datatype: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug)]
