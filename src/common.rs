@@ -91,6 +91,14 @@ pub fn random_payload(args: &Args) -> Payload {
         );
     }
 
+    for (idx, variants) in args.keywords.iter().enumerate() {
+        let prefix = payload_prefixes(idx);
+        payload.insert(
+            format!("{}{}", prefix, "file_id"),
+            random_keyword(*variants),
+        );
+    }
+
     for (idx, _) in args.float_payloads.iter().enumerate() {
         let prefix = payload_prefixes(idx);
         payload.insert(

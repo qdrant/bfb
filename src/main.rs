@@ -35,7 +35,8 @@ use common::{BOOL_PAYLOAD_KEY, UUID_PAYLOAD_KEY};
 use crate::args::QuantizationArg;
 use crate::common::{
     payload_prefixes, random_dense_vector, random_filter, random_payload, throttler, Timing,
-    FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+    // FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
+    FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, 
     TEXT_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
@@ -281,7 +282,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 .create_field_index(
                     CreateFieldIndexCollectionBuilder::new(
                         args.collection_name.clone(),
-                        format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
+                        format!("{}{}", payload_prefixes(idx), "user_id"),
                         FieldType::Keyword,
                     )
                     .field_index_params(
@@ -290,24 +291,6 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                             .is_tenant(args.tenants.unwrap_or_default()),
                     )
                     .wait(true),
-                )
-                .await
-                .unwrap();
-        }
-
-        for (idx, _) in args.keywords.iter().enumerate() {
-            client
-                .create_field_index(
-                    CreateFieldIndexCollectionBuilder::new(
-                        args.collection_name.clone(),
-                        format!("{}{}", payload_prefixes(idx), "collection_ids"),
-                        FieldType::Keyword,
-                    )
-                        .field_index_params(
-                            KeywordIndexParamsBuilder::default()
-                                .on_disk(args.on_disk_payload_index)
-                        )
-                        .wait(true),
                 )
                 .await
                 .unwrap();
@@ -374,13 +357,13 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 .create_field_index(
                     CreateFieldIndexCollectionBuilder::new(
                         args.collection_name.clone(),
-                        "timestamp",
+                        "publication_date",
                         FieldType::Datetime,
                     )
                     .field_index_params(
                         DatetimeIndexParamsBuilder::default()
-                            .on_disk(args.on_disk_payload_index)
-                            .is_principal(args.principal.unwrap_or_default()),
+                            .on_disk(args.on_disk_payload_index),
+                            // .is_principal(args.principal.unwrap_or_default()),
                     )
                     .wait(true),
                 )
