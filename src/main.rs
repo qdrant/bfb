@@ -295,6 +295,42 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 .unwrap();
         }
 
+        for (idx, _) in args.keywords.iter().enumerate() {
+            client
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        format!("{}{}", payload_prefixes(idx), "collection_ids"),
+                        FieldType::Keyword,
+                    )
+                        .field_index_params(
+                            KeywordIndexParamsBuilder::default()
+                                .on_disk(args.on_disk_payload_index)
+                        )
+                        .wait(true),
+                )
+                .await
+                .unwrap();
+        }
+
+        for (idx, _) in args.keywords.iter().enumerate() {
+            client
+                .create_field_index(
+                    CreateFieldIndexCollectionBuilder::new(
+                        args.collection_name.clone(),
+                        format!("{}{}", payload_prefixes(idx), "file_id"),
+                        FieldType::Keyword,
+                    )
+                        .field_index_params(
+                            KeywordIndexParamsBuilder::default()
+                                .on_disk(args.on_disk_payload_index)
+                        )
+                        .wait(true),
+                )
+                .await
+                .unwrap();
+        }
+
         for (idx, _) in args.float_payloads.iter().enumerate() {
             client
                 .create_field_index(
