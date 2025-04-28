@@ -20,7 +20,7 @@ use tokio_stream::StreamExt;
 use tracing::warn;
 use uuid::Uuid;
 
-pub const KEYWORD_PAYLOAD_KEY: &str = "a";
+pub const KEYWORD_PAYLOAD_KEY: &str = "user_id";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
 
 pub const INTEGERS_PAYLOAD_KEY: &str = "c";
@@ -119,7 +119,7 @@ pub fn random_payload(args: &Args) -> Payload {
     }
 
     if args.timestamp_payload {
-        payload.insert("timestamp", chrono::Utc::now().to_rfc3339());
+        payload.insert("publication_date", chrono::Utc::now().to_rfc3339());
     }
 
     if args.geo_payloads {

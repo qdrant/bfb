@@ -35,8 +35,7 @@ use common::{BOOL_PAYLOAD_KEY, UUID_PAYLOAD_KEY};
 use crate::args::QuantizationArg;
 use crate::common::{
     payload_prefixes, random_dense_vector, random_filter, random_payload, throttler, Timing,
-    // FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
-    FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, 
+    FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
     TEXT_PAYLOAD_KEY,
 };
 use crate::fbin_reader::FBinReader;
@@ -282,7 +281,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 .create_field_index(
                     CreateFieldIndexCollectionBuilder::new(
                         args.collection_name.clone(),
-                        format!("{}{}", payload_prefixes(idx), "user_id"),
+                        format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
                         FieldType::Keyword,
                     )
                     .field_index_params(
