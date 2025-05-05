@@ -91,6 +91,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub search_exact: bool,
 
+    /// Prefetch search
+    #[clap(long)]
+    pub prefetch: Option<usize>,
+
     /// Perform scroll
     #[clap(long, default_value_t = false)]
     pub scroll: bool,

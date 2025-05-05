@@ -3,7 +3,8 @@ use crate::processor::Processor;
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
 use qdrant_client::qdrant::{
-    QuantizationSearchParamsBuilder, SearchParamsBuilder, SearchPointsBuilder, SparseIndices,
+    PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryPointsBuilder,
+    SearchParamsBuilder, SparseIndices, VectorInput,
 };
 use qdrant_client::Qdrant;
 use std::sync::atomic::AtomicBool;
@@ -116,24 +117,46 @@ impl SearchProcessor {
             }),
         );
 
-        let mut request_builder = SearchPointsBuilder::new(
+        let mut request_builder = QueryPointsBuilder::new(
             self.args.collection_name.clone(),
-            query_vector,
-            self.args.search_limit as u64,
+            // query_vector,
         )
-        .with_payload(self.args.search_with_payload);
+        .with_payload(self.args.search_with_payload)
+        .limit(self.args.search_limit as u64);
 
         if let Some(vector_name) = vector_name {
-            request_builder = request_builder.vector_name(vector_name);
+            request_builder = request_builder.using(vector_name);
         }
 
         if let Some(filter) = query_filter {
             request_builder = request_builder.filter(filter);
         }
 
-        if let Some(sparse_indices) = sparse_indices {
-            request_builder = request_builder.sparse_indices(sparse_indices);
+        let vector = if let Some(sparse_indices) = sparse_indices {
+            VectorInput::new_sparse(sparse_indices.data, query_vector)
+        } else {
+            VectorInput::new_dense(query_vector)
+        };
+
+        let query = Query::new_nearest(vector);
+
+        if let Some(prefetch_limit) = self.args.prefetch {
+            let prefetch_query = PrefetchQueryBuilder::default();
+
+            prefetch_query.query(query.clone());
+
+            let mut params = SearchParamsBuilder::default()
+                .quantization(QuantizationSearchParamsBuilder::default().rescore(false));
+
+            if let Some(hnsw_ef) = self.args.hnsw_ef_construct {
+                params = params.hnsw_ef(hnsw_ef as u64);
+            }
+
+            request_builder = request_builder.params(params);
+            request_builder = request_builder.limit(prefetch_limit as u64);
         }
+
+        request_builder = request_builder.query(query);
 
         let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()
             .rescore(self.args.quantization_rescore.unwrap_or_default());
@@ -158,10 +181,8 @@ impl SearchProcessor {
         request_builder = request_builder.params(search_params);
 
         let request = request_builder.build();
-        let res = retry_with_clients(&self.clients, args, |client| {
-            client.search_points(request.clone())
-        })
-        .await?;
+        let res =
+            retry_with_clients(&self.clients, args, |client| client.query(request.clone())).await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 
