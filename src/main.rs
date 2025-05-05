@@ -230,7 +230,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             create_collection_builder.sparse_vectors_config(sparse_vector_config);
     }
 
-    if args.shard_key.is_some() {
+    if !args.shard_key.is_empty() {
         create_collection_builder =
             create_collection_builder.sharding_method(ShardingMethod::Custom.into());
     }
@@ -275,9 +275,24 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
 
     sleep(Duration::from_secs(1)).await;
 
-    if let Some(shard_key) = &args.shard_key {
+    // if let Some(shard_key) = &args.shard_key {
+    //     let mut builder = CreateShardKeyBuilder::default()
+    //         .shard_key(Key::Keyword(shard_key.clone()))
+    //         .replication_factor(args.replication_factor as u32);
+    //     if let Some(shards) = args.shards {
+    //         builder = builder.shards_number(shards as u32);
+    //     }
+    // 
+    //     client
+    //         .create_shard_key(
+    //             CreateShardKeyRequestBuilder::new(args.collection_name.clone()).request(builder),
+    //         )
+    //         .await?;
+    // }
+
+    for item in args.shard_key.iter() {
         let mut builder = CreateShardKeyBuilder::default()
-            .shard_key(Key::Keyword(shard_key.clone()))
+            .shard_key(Key::Keyword(item.clone()))
             .replication_factor(args.replication_factor as u32);
         if let Some(shards) = args.shards {
             builder = builder.shards_number(shards as u32);
@@ -288,8 +303,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                 CreateShardKeyRequestBuilder::new(args.collection_name.clone()).request(builder),
             )
             .await?;
-    }    
-
+    }
+    
     if !args.skip_field_indices {
         for (idx, _) in args.keywords.iter().enumerate() {
             client

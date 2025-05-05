@@ -169,9 +169,16 @@ impl UpsertProcessor {
         if let Some(ordering) = self.args.write_ordering {
             request = request.ordering(ordering);
         }
-        if let Some(shard_key) = &args.shard_key {
-            request = request.shard_key_selector(vec![Key::Keyword(shard_key.to_string())]);
-        }
+        // if let Some(shard_key) = &args.shard_key {
+        //     request = request.shard_key_selector(vec![Key::Keyword(shard_key.to_string())]);
+        // }
+        if !args.shard_key.is_empty() {
+            let mut rng = rand::rng();
+            let index = rng.random_range(0..args.shard_key.len());
+            let random_key = &args.shard_key[index];
+
+            request = request.shard_key_selector(vec![Key::Keyword(random_key.clone())]);
+        }        
 
         let request = request.build();
         let res = retry_with_clients(&self.clients, args, |client| {
