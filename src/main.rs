@@ -12,17 +12,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
-use qdrant_client::qdrant::{
-    BinaryQuantizationBuilder, BoolIndexParamsBuilder, CollectionStatus, CompressionRatio,
-    CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder,
-    CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance, FieldType,
-    FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
-    KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
-    QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod,
-    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder,
-    TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder, VectorParams, VectorParamsMap,
-    VectorsConfig,
-};
+use qdrant_client::qdrant::{BinaryQuantizationBuilder, BoolIndexParamsBuilder, CollectionStatus, CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder, CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance, FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder, KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod, SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder, StrictModeConfigBuilder, TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig};
 use qdrant_client::Qdrant;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -213,12 +203,18 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         optimizers_config = optimizers_config.max_segment_size(max_segment_size as u64);
     }
 
+    let mut strict_mode_config = StrictModeConfigBuilder::default();
+    if let Some(enable_strict) = args.strict {
+        strict_mode_config = strict_mode_config.enabled(enable_strict);
+    }
+    
     let mut create_collection_builder = CreateCollectionBuilder::new(args.collection_name.clone())
         .vectors_config(vectors_config)
         .hnsw_config(hnsw_config)
         .optimizers_config(optimizers_config)
         .on_disk_payload(args.on_disk_payload)
         .replication_factor(args.replication_factor as u32)
+        .strict_mode_config(strict_mode_config)
         .write_consistency_factor(args.write_consistency_factor as u32);
 
     if let Some(shard_number) = args.shards {
@@ -265,7 +261,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             }
         };
     }
-
+    
     client.create_collection(create_collection_builder).await?;
     println!("Created collection: {}", args.collection_name);
 

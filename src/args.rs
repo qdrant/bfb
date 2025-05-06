@@ -346,6 +346,10 @@ pub struct Args {
     // }
     #[clap(long)]
     pub vec_datatype: Option<i32>,
+
+    /// Enable strict mode
+    #[clap(long)]
+    pub strict: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]
