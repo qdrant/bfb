@@ -19,6 +19,11 @@ pub enum QuantizationArg {
 /// Big F*cking Benchmark tool for stress-testing Qdrant
 #[derive(Parser, Debug, Clone)]
 #[clap(version, about)]
+#[clap(after_help = "\
+   Integers can be suffixed with k/M/G/T/ki/Mi/Gi/Ti, \
+   and underscores can be inserted to make them more readable, \
+   e.g., `--num-vectors 100k --offset 1_000_000`.\
+")]
 pub struct Args {
     /// Qdrant service URI
     #[clap(long, default_value = "http://localhost:6334")]
@@ -29,38 +34,38 @@ pub struct Args {
     pub fbin: Option<String>,
 
     /// Number of points to upload
-    #[clap(short, long, default_value_t = 100_000)]
+    #[clap(short, long, default_value = "100_000", value_parser = parse_number)]
     pub num_vectors: usize,
 
     /// Number of named dense vectors per point
-    #[clap(long, default_value_t = 1)]
+    #[clap(long, default_value_t = 1, value_parser = parse_number)]
     pub vectors_per_point: usize,
 
-    #[clap(short, long, default_value_t = 0)]
+    #[clap(short, long, default_value_t = 0, value_parser = parse_number)]
     pub offset: usize,
 
     /// If set, will randomly upsert/override vector ids within range [offset, max_id)
-    #[clap(short, long)]
+    #[clap(short, long, value_parser = parse_number)]
     pub max_id: Option<usize>,
 
     /// Number of dimensions in each dense vector or max dimension for sparse vectors
-    #[clap(short, long, default_value_t = 128)]
+    #[clap(short, long, default_value_t = 128, value_parser = parse_number)]
     pub dim: usize,
 
     /// Number of worker threads to use
-    #[clap(short, long, default_value_t = 2)]
+    #[clap(short, long, default_value_t = 2, value_parser = parse_number)]
     pub threads: usize,
 
     /// Number of parallel requests to send
-    #[clap(short, long, default_value_t = 2)]
+    #[clap(short, long, default_value_t = 2, value_parser = parse_number)]
     pub parallel: usize,
 
     /// Number of connections to open from the client to the server
-    #[clap(short, long, default_value_t = 1)]
+    #[clap(short, long, default_value_t = 1, value_parser = parse_number)]
     pub connections: usize,
 
     /// Batch size for updates, in number of points. [default=100]
-    #[clap(short, long, value_name = "POINTS", default_value_t = 100)]
+    #[clap(short, long, value_name = "POINTS", default_value_t = 100, value_parser = parse_number)]
     pub batch_size: usize,
 
     /// Throttle updates and searches, in batches/searches per second. [default=no throttling]
@@ -92,7 +97,7 @@ pub struct Args {
     pub search_exact: bool,
 
     /// Prefetch search
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub prefetch: Option<usize>,
 
     /// Perform scroll
@@ -100,7 +105,7 @@ pub struct Args {
     pub scroll: bool,
 
     /// Search limit
-    #[clap(long, default_value_t = 10)]
+    #[clap(long, default_value_t = 10, value_parser = parse_number)]
     pub search_limit: usize,
 
     /// Store results to csv
@@ -108,7 +113,7 @@ pub struct Args {
     pub json: Option<String>,
 
     /// Number of 9 digits to show in p99* results
-    #[clap(long, long, default_value_t = 2)]
+    #[clap(long, long, default_value_t = 2, value_parser = parse_number)]
     pub p9: usize,
 
     /// Name of the collection to use
@@ -120,19 +125,19 @@ pub struct Args {
     pub distance: String,
 
     /// Store vectors on disk
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub mmap_threshold: Option<usize>,
 
     /// Index vectors on disk
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub indexing_threshold: Option<usize>,
 
     /// Number of segments
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub segments: Option<usize>,
 
     /// Do not create segments larger this size (in kilobytes).
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub max_segment_size: Option<usize>,
 
     /// On disk payload
@@ -164,7 +169,7 @@ pub struct Args {
     pub skip_field_indices: bool,
 
     /// Use keyword payloads. Defines how many different keywords there are in the payload
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub keywords: Vec<usize>,
 
     /// Use float payloads
@@ -172,11 +177,11 @@ pub struct Args {
     pub float_payloads: Vec<bool>,
 
     /// Match any count
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub match_any: Option<usize>,
 
     /// Use integer payloads
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub int_payloads: Vec<usize>,
 
     #[clap(long, default_value_t = false)]
@@ -195,11 +200,11 @@ pub struct Args {
     pub text_payloads: bool,
 
     /// Length of the text-like payloads
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub text_payload_length: Option<usize>,
 
     /// Vocabulary size for text-like payloads
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub text_payload_vocabulary: Option<usize>,
 
     /// Add payload with the current timestamp to all points
@@ -211,19 +216,19 @@ pub struct Args {
     pub set_payload: bool,
 
     /// `hnsw_ef_construct` parameter used during index
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub hnsw_ef_construct: Option<usize>,
 
     /// `hnsw_m` parameter used during index
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub hnsw_m: Option<usize>,
 
     /// `hnsw_payload_m` parameter used during index
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub hnsw_payload_m: Option<usize>,
 
     /// `hnsw_ef` parameter used during search
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub search_hnsw_ef: Option<usize>,
 
     /// Whether to request payload in search results
@@ -235,15 +240,15 @@ pub struct Args {
     pub wait_on_upsert: bool,
 
     /// Replication factor
-    #[clap(long, default_value_t = 1)]
+    #[clap(long, default_value_t = 1, value_parser = parse_number)]
     pub replication_factor: usize,
 
     /// Number of shards in the collection
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub shards: Option<usize>,
 
     /// Write consistency factor to use for collection creation
-    #[clap(long, default_value_t = 1)]
+    #[clap(long, default_value_t = 1, value_parser = parse_number)]
     pub write_consistency_factor: usize,
 
     /// Write ordering parameter to use for all write requests
@@ -255,11 +260,11 @@ pub struct Args {
     pub read_consistency: Option<ReadConsistency>,
 
     /// Timeout for requests in seconds
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub timeout: Option<usize>,
 
     /// Number of retries for each URI on error, 0 for no retries
-    #[clap(long = "retry", default_value_t = 0)]
+    #[clap(long = "retry", default_value_t = 0, value_parser = parse_number)]
     pub retries: usize,
 
     /// Number of seconds between each retry.
@@ -286,7 +291,7 @@ pub struct Args {
     pub quantization_oversampling: Option<f64>,
 
     /// Delay between requests in milliseconds
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub delay: Option<usize>,
 
     /// Skip un-indexed segments during search
@@ -302,7 +307,7 @@ pub struct Args {
     pub sparse_vectors_per_point: usize,
 
     /// Max dimension for sparse vectors (overrides --dim)
-    #[clap(long)]
+    #[clap(long, value_parser = parse_number)]
     pub sparse_dim: Option<usize>,
 
     /// Path to the jsonl file to save update timings
@@ -507,5 +512,76 @@ impl From<ReadConsistencyType> for qdrant::ReadConsistencyType {
             ReadConsistencyType::Majority => qdrant::ReadConsistencyType::Majority,
             ReadConsistencyType::Quorum => qdrant::ReadConsistencyType::Quorum,
         }
+    }
+}
+
+fn parse_number(n: &str) -> Result<usize, String> {
+    parse_number_impl(n)
+        .and_then(|v| v.try_into().ok())
+        .ok_or_else(|| format!("Invalid number: {n}"))
+}
+
+fn parse_number_impl(n: &str) -> Option<u64> {
+    let mut chars = n.chars();
+    let mut result = chars.next()?.to_digit(10)? as u64;
+
+    while let Some(c) = chars.next() {
+        if let Some(v) = c.to_digit(10) {
+            result = result.checked_mul(10)?.checked_add(v as u64)?;
+        } else if c != '_' {
+            let power = "kMGT".find(c)? as u32 + 1;
+            let multiplier = match chars.next() {
+                Some('i') => 1024u64.pow(power),
+                Some(_) => return None,
+                None => 1000u64.pow(power),
+            };
+            return result.checked_mul(multiplier);
+        }
+    }
+
+    Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_number() {
+        // Basic numbers
+        assert_eq!(parse_number_impl("0"), Some(0));
+        assert_eq!(parse_number_impl("42"), Some(42));
+        assert_eq!(parse_number_impl("123_456"), Some(123_456));
+
+        // Decimal prefixes
+        assert_eq!(parse_number_impl("42k"), Some(42_000));
+        assert_eq!(parse_number_impl("42M"), Some(42_000_000));
+        assert_eq!(parse_number_impl("42G"), Some(42_000_000_000));
+        assert_eq!(parse_number_impl("42T"), Some(42_000_000_000_000));
+
+        // Binary prefixes
+        assert_eq!(parse_number_impl("42ki"), Some(42 << 10));
+        assert_eq!(parse_number_impl("42Mi"), Some(42 << 20));
+        assert_eq!(parse_number_impl("42Gi"), Some(42 << 30));
+        assert_eq!(parse_number_impl("42Ti"), Some(42 << 40));
+
+        // Invalid inputs
+        assert_eq!(parse_number_impl(""), None);
+        assert_eq!(parse_number_impl("abc"), None);
+        assert_eq!(parse_number_impl("12a"), None);
+        assert_eq!(parse_number_impl("12.3"), None);
+        assert_eq!(parse_number_impl("k"), None);
+        assert_eq!(parse_number_impl("_k"), None);
+        assert_eq!(parse_number_impl("123k_"), None);
+        assert_eq!(parse_number_impl("123kk"), None);
+        assert_eq!(parse_number_impl("123k_i"), None);
+        assert_eq!(parse_number_impl("123ka"), None);
+
+        // Overflows
+        assert_eq!(parse_number_impl("18446744073709551615"), Some(u64::MAX));
+        assert_eq!(parse_number_impl("18446744073709551616"), None);
+        assert_eq!(parse_number_impl("18446744073709551620"), None);
+        assert_eq!(parse_number_impl("16777215Ti"), Some(16777215 << 40));
+        assert_eq!(parse_number_impl("16777216Ti"), None);
     }
 }
