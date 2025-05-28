@@ -2,11 +2,14 @@ use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients
 use crate::processor::Processor;
 use crate::{random_dense_vector, random_filter, Args};
 use indicatif::ProgressBar;
+use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::{
-    PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryPointsBuilder,
+    PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryPointsBuilder, ScoredPoint,
     SearchParamsBuilder, SparseIndices, VectorInput,
 };
 use qdrant_client::Qdrant;
+
+use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +18,7 @@ struct SearchStats {
     server_timings: Vec<Timing>,
     rps: Vec<Timing>,
     full_timings: Vec<Timing>,
+    precisions: Vec<f32>,
 }
 
 pub struct SearchProcessor {
@@ -103,7 +107,7 @@ impl SearchProcessor {
         };
 
         let query_filter = random_filter(
-            self.args.keywords.first().cloned(),
+            &self.args.keywords,
             self.args.float_payloads.first().cloned().unwrap_or(false),
             self.args.int_payloads.first().cloned(),
             &self.uuids,
@@ -166,7 +170,8 @@ impl SearchProcessor {
         }
 
         let mut search_params = SearchParamsBuilder::default()
-            .exact(self.args.search_exact)
+            // Never do exact search here when measuring search_quality.
+            .exact(self.args.search_exact && !self.args.search_quality)
             .quantization(quantization_params_builder)
             .indexed_only(self.args.indexed_only.unwrap_or_default());
 
@@ -178,9 +183,9 @@ impl SearchProcessor {
             request_builder = request_builder.read_consistency(read_consistency);
         }
 
-        request_builder = request_builder.params(search_params);
+        request_builder = request_builder.params(search_params.clone());
 
-        let request = request_builder.build();
+        let request = request_builder.clone().build();
         let res =
             retry_with_clients(&self.clients, args, |client| client.query(request.clone())).await?;
 
@@ -195,7 +200,10 @@ impl SearchProcessor {
             progress_bar.println(format!("Slow search: {:?}", res.time));
         }
 
-        if res.result.len() < self.args.search_limit && !self.args.uuid_payloads {
+        if res.result.len() < self.args.search_limit
+            && !self.args.uuid_payloads
+            && !self.args.search_quality
+        {
             progress_bar.println(format!(
                 "Search result is too small: {} of {}",
                 res.result.len(),
@@ -225,7 +233,66 @@ impl SearchProcessor {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
         }
 
+        if !self.args.search_quality {
+            return Ok(());
+        }
+
+        // Search quality bench
+
+        let exact_search = search_params.clone().exact(true);
+        let exact_request_builder = request_builder.clone().params(exact_search);
+        let request = exact_request_builder.build();
+
+        let exact_res =
+            retry_with_clients(&self.clients, args, |client| client.query(request.clone())).await?;
+
+        let precision = compare_search_results(&res.result, &exact_res.result);
+
+        {
+            let mut stats_guard = self.stats.lock().unwrap();
+            stats_guard.precisions.push(precision);
+        }
+
         Ok(())
+    }
+}
+
+fn compare_search_results(exact_search: &[ScoredPoint], normal_search: &[ScoredPoint]) -> f32 {
+    if normal_search.is_empty() {
+        return 0.0;
+    }
+
+    let exact_ids: HashSet<_> = exact_search
+        .into_iter()
+        .map(|i| PointId::from(i.id.as_ref().unwrap().point_id_options.clone().unwrap()))
+        .take(10)
+        .collect();
+
+    let normal_ids: HashSet<_> = normal_search
+        .into_iter()
+        .map(|i| PointId::from(i.id.as_ref().unwrap().point_id_options.clone().unwrap()))
+        .take(10)
+        .collect();
+
+    let true_positive: usize = normal_ids.iter().filter(|i| exact_ids.contains(i)).count();
+    let false_positive: usize = normal_ids.iter().filter(|i| !exact_ids.contains(i)).count();
+
+    true_positive as f32 / (true_positive as f32 + false_positive as f32)
+}
+
+// Copy of `qdrant_client::qdrant::PointId` that implements `Eq` and `Hash`.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum PointId {
+    Num(u64),
+    Uuid(String),
+}
+
+impl From<PointIdOptions> for PointId {
+    fn from(value: PointIdOptions) -> Self {
+        match value {
+            PointIdOptions::Num(i) => PointId::Num(i),
+            PointIdOptions::Uuid(i) => PointId::Uuid(i),
+        }
     }
 }
 
@@ -253,5 +320,9 @@ impl Processor for SearchProcessor {
 
     fn full_timings(&self) -> Vec<Timing> {
         self.stats.lock().unwrap().full_timings.clone()
+    }
+
+    fn precisions(&self) -> Vec<f32> {
+        self.stats.lock().unwrap().precisions.clone()
     }
 }
