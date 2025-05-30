@@ -97,12 +97,12 @@ pub fn random_payload(args: &Args) -> Payload {
     }
 
     for (idx, integer_range) in args.int_payloads.iter().enumerate() {
-        if args.max_int_payloads.get() == 1 {
+        if args.max_int_payloads == 1 {
             let prefix = payload_prefixes(idx);
             let value = rand::rng().random_range(0..*integer_range);
             payload.insert(format!("{}{}", prefix, INTEGERS_PAYLOAD_KEY), value as i64);
         } else {
-            let count = rand::rng().random_range(1..=args.max_int_payloads.get());
+            let count = rand::rng().random_range(1..=args.max_int_payloads);
             let prefix = payload_prefixes(idx);
             let values = (0..count)
                 .map(|_| rand::rng().random_range(0..*integer_range) as i64)
