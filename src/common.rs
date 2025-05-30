@@ -85,11 +85,7 @@ pub fn random_payload(args: &Args) -> Payload {
     let mut payload = Payload::new();
 
     for (idx, variants) in args.keywords.iter().enumerate() {
-        let prefix = payload_prefixes(idx);
-        payload.insert(
-            format!("{}{}", prefix, KEYWORD_PAYLOAD_KEY),
-            random_keyword(*variants),
-        );
+        payload.insert(keyword_payload_name(idx), random_keyword(*variants));
     }
 
     for (idx, _) in args.float_payloads.iter().enumerate() {
@@ -146,7 +142,7 @@ pub fn random_payload(args: &Args) -> Payload {
 
 #[allow(clippy::too_many_arguments)]
 pub fn random_filter(
-    keywords: Option<usize>,
+    keywords: &[usize],
     float_payloads: bool,
     integer_payload: Option<usize>,
     uuids: &[String],
@@ -162,7 +158,11 @@ pub fn random_filter(
         min_should: None,
     };
     let mut have_any = false;
-    if let Some(keyword_variants) = keywords {
+    if !keywords.is_empty() {
+        // Pick a random keyword payload filter.
+        let keyword_index_pos = rand::rng().random_range(0..keywords.len());
+        let keyword_variants = keywords[keyword_index_pos];
+
         let condition = if let Some(match_any) = match_any {
             let strings = (0..match_any)
                 .map(|_| random_keyword(keyword_variants))
@@ -173,9 +173,10 @@ pub fn random_filter(
         };
 
         have_any = true;
-        filter
-            .must
-            .push(Condition::matches(KEYWORD_PAYLOAD_KEY, condition));
+        filter.must.push(Condition::matches(
+            keyword_payload_name(keyword_index_pos),
+            condition,
+        ));
     }
 
     if float_payloads {
@@ -341,4 +342,8 @@ pub fn payload_prefixes(id: usize) -> String {
     } else {
         format!("payload_{}_", id)
     }
+}
+
+pub fn keyword_payload_name(id: usize) -> String {
+    format!("{}{}", payload_prefixes(id), KEYWORD_PAYLOAD_KEY)
 }

@@ -197,6 +197,9 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
     if let Some(ef_construct) = args.hnsw_ef_construct {
         hnsw_config = hnsw_config.ef_construct(ef_construct as u64);
     }
+    if let Some(fs_th) = args.full_scan_threshold {
+        hnsw_config = hnsw_config.full_scan_threshold(fs_th as u64);
+    }
 
     let mut optimizers_config = OptimizersConfigDiffBuilder::default();
     if let Some(default_segment_number) = args.segments {
@@ -602,6 +605,17 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     let mut rps = processor.rps();
     println!("--- RPS ---");
     print_stats(args, &mut rps, "rps", false);
+    let precisions = processor.precisions();
+    if !precisions.is_empty() {
+        println!("--- Precision ---");
+        let avg_precision = precisions.iter().sum::<f32>() / precisions.len() as f32;
+        println!("Avg precision@10: {avg_precision}");
+
+        let mut sorted_precisions = precisions.clone();
+        sorted_precisions.sort_unstable_by(|a, b| a.partial_cmp(&b).unwrap());
+        let p50_time = sorted_precisions[(sorted_precisions.len() as f32 * 0.50) as usize];
+        println!("Median precision@10: {p50_time}");
+    }
 
     if args.json.is_some() {
         println!("--- Writing results to json file ---");
@@ -702,6 +716,10 @@ async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 }
 
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    if args.search_quality && args.search_exact {
+        println!("Ignoring `exact` flag because `search_quality` is also enabled!");
+    }
+
     if !args.skip_create {
         recreate_collection(&args, stopped.clone()).await?;
     }
@@ -716,7 +734,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         println!("Index ready in {} seconds", wait_time);
     }
 
-    if args.search {
+    if args.search || args.search_quality {
         search(&args, stopped.clone()).await?;
     }
 

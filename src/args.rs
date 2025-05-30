@@ -169,7 +169,7 @@ pub struct Args {
     pub skip_field_indices: bool,
 
     /// Use keyword payloads. Defines how many different keywords there are in the payload
-    #[clap(long, value_parser = parse_number)]
+    #[clap(long, short = 'k', value_parser = parse_number)]
     pub keywords: Vec<usize>,
 
     /// Use float payloads
@@ -341,6 +341,14 @@ pub struct Args {
     /// Use a custom UUID as filter when searching.
     #[clap(long)]
     pub uuid_query: Option<String>,
+
+    /// Bench for search quality / accurracy too.
+    #[clap(long)]
+    pub search_quality: bool,
+
+    /// Set a custom full-scan threshold.
+    #[clap(long)]
+    pub full_scan_threshold: Option<usize>,
 }
 
 #[derive(Copy, Clone, Debug)]
