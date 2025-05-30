@@ -17,4 +17,8 @@ pub trait Processor {
     fn rps(&self) -> Vec<Timing>;
 
     fn full_timings(&self) -> Vec<Timing>;
+
+    fn precisions(&self) -> Vec<f32> {
+        vec![]
+    }
 }
