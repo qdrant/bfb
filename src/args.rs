@@ -1,4 +1,4 @@
-use std::{fmt, str};
+use std::{fmt, num::NonZeroUsize, str};
 
 use clap::Parser;
 use qdrant_client::qdrant;
@@ -187,6 +187,10 @@ pub struct Args {
     /// Whether to enable the range index for the integer payloads
     #[clap(long, default_value_t = false)]
     pub int_payloads_range: bool,
+
+    /// Maximum number of integer payloads per point
+    #[clap(long, value_parser = parse_number, default_value_t = NonZeroUsize::new(1).unwrap())]
+    pub max_int_payloads: NonZeroUsize,
 
     #[clap(long, default_value_t = false)]
     pub uuid_payloads: bool,
