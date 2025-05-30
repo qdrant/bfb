@@ -325,7 +325,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                         FieldType::Integer,
                     )
                     .field_index_params(
-                        IntegerIndexParamsBuilder::new(true, false)
+                        IntegerIndexParamsBuilder::new(true, args.int_payloads_range)
                             .on_disk(args.on_disk_payload_index)
                             .is_principal(args.tenants.unwrap_or_default()),
                     )

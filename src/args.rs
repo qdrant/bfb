@@ -184,6 +184,10 @@ pub struct Args {
     #[clap(long, value_parser = parse_number)]
     pub int_payloads: Vec<usize>,
 
+    /// Whether to enable the range index for the integer payloads
+    #[clap(long, default_value_t = false)]
+    pub int_payloads_range: bool,
+
     #[clap(long, default_value_t = false)]
     pub uuid_payloads: bool,
 
