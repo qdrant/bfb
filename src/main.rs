@@ -612,7 +612,7 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
         println!("Avg precision@10: {avg_precision}");
 
         let mut sorted_precisions = precisions.clone();
-        sorted_precisions.sort_unstable_by(|a, b| a.partial_cmp(&b).unwrap());
+        sorted_precisions.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
         let p50_time = sorted_precisions[(sorted_precisions.len() as f32 * 0.50) as usize];
         println!("Median precision@10: {p50_time}");
     }

@@ -263,12 +263,12 @@ fn compare_search_results(exact_search: &[ScoredPoint], normal_search: &[ScoredP
     }
 
     let exact_ids: HashSet<_> = exact_search
-        .into_iter()
+        .iter()
         .map(|i| PointId::from(i.id.as_ref().unwrap().point_id_options.clone().unwrap()))
         .collect();
 
     let normal_ids: HashSet<_> = normal_search
-        .into_iter()
+        .iter()
         .map(|i| PointId::from(i.id.as_ref().unwrap().point_id_options.clone().unwrap()))
         .collect();
 
