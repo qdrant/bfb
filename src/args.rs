@@ -188,6 +188,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub int_payloads_range: bool,
 
+    /// Maximum number of integer payloads per point
+    #[clap(long, value_parser = parse_number, default_value_t = 1)]
+    pub max_int_payloads: usize,
+
     #[clap(long, default_value_t = false)]
     pub uuid_payloads: bool,
 
