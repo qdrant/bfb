@@ -69,7 +69,7 @@ impl SearchProcessor {
     }
 
     fn get_dense_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
-        let query_vector = random_dense_vector(self.args.dim);
+        let query_vector = random_dense_vector(self.args.dim, false);
         if self.args.vectors_per_point > 1 {
             let name = random_vector_name(self.args.vectors_per_point);
             (query_vector, None, Some(name))

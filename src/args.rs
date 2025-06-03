@@ -124,6 +124,10 @@ pub struct Args {
     #[clap(long, default_value = "Cosine")]
     pub distance: String,
 
+    /// Vector datatypes (Uint8, Float16, Float32)
+    #[clap(long)]
+    pub datatype: Option<String>,
+
     /// Store vectors on disk
     #[clap(long, value_parser = parse_number)]
     pub mmap_threshold: Option<usize>,
@@ -313,6 +317,10 @@ pub struct Args {
     /// Number of named sparse vectors per point
     #[clap(long, default_value_t = 1)]
     pub sparse_vectors_per_point: usize,
+
+    /// Whether to set dense vectors as multivectors
+    #[clap(long, value_name = "SPARSITY")]
+    pub multivector_size: Option<usize>,
 
     /// Max dimension for sparse vectors (overrides --dim)
     #[clap(long, value_parser = parse_number)]

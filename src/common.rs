@@ -5,7 +5,7 @@ use core::option::Option::{None, Some};
 use futures::Stream;
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{
-    Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, Vector,
+    Condition, Datatype, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, Vector,
 };
 use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::distr::Distribution;
@@ -254,7 +254,19 @@ pub fn random_filter(
 }
 
 pub fn random_vector(args: &Args) -> Vector {
-    random_dense_vector(args.dim).into()
+    let is_uint = args
+        .datatype
+        .as_ref()
+        .map(|x| x == Datatype::Uint8.as_str_name())
+        .unwrap_or(false);
+    if let Some(count) = args.multivector_size {
+        let multivector: Vec<_> = (0..count)
+            .map(|_| random_dense_vector(args.dim, is_uint))
+            .collect();
+        Vector::new_multi(multivector)
+    } else {
+        random_dense_vector(args.dim, is_uint).into()
+    }
 }
 
 /// Generate random sparse vector with random size and random values.
@@ -277,9 +289,13 @@ pub fn random_sparse_vector(max_size: usize, sparsity: f64) -> Vec<(u32, f32)> {
     pairs
 }
 
-pub fn random_dense_vector(dim: usize) -> Vec<f32> {
+pub fn random_dense_vector(dim: usize, is_uint: bool) -> Vec<f32> {
     let mut rng = rand::rng();
-    (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect()
+    if is_uint {
+        (0..dim).map(|_| rng.random_range(0..255) as f32).collect()
+    } else {
+        (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect()
+    }
 }
 
 pub fn random_vector_name(max: usize) -> String {

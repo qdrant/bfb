@@ -20,7 +20,7 @@ use tokio::time::sleep;
 use crate::common::{random_sparse_vector, random_vector, retry_with_clients, Timing};
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
-use crate::{random_dense_vector, random_payload, Args};
+use crate::{random_payload, Args};
 
 fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError + use<'_> {
     move |e| {
@@ -119,7 +119,7 @@ impl UpsertProcessor {
                     .collect();
                 vectors_map.into()
             } else {
-                random_dense_vector(self.args.dim).into()
+                random_vector(&self.args).into()
             };
 
             let vectors: Vectors = if let Some(sparsity) = self.args.sparse_vectors {
