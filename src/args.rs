@@ -319,7 +319,7 @@ pub struct Args {
     pub sparse_vectors_per_point: usize,
 
     /// Whether to set dense vectors as multivectors
-    #[clap(long, value_name = "SPARSITY")]
+    #[clap(long)]
     pub multivector_size: Option<usize>,
 
     /// Max dimension for sparse vectors (overrides --dim)

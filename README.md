@@ -154,7 +154,7 @@ Options:
           Whether to use sparse vectors and with how much sparsity
       --sparse-vectors-per-point <SPARSE_VECTORS_PER_POINT>
           Number of named sparse vectors per point [default: 1]
-      --multivector-size <SPARSITY>
+      --multivector-size <MULTIVECTOR_SIZE>
           Whether to set dense vectors as multivectors
       --sparse-dim <SPARSE_DIM>
           Max dimension for sparse vectors (overrides --dim)
