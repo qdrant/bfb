@@ -108,8 +108,8 @@ impl SearchProcessor {
 
         let query_filter = random_filter(
             &self.args.keywords,
-            self.args.float_payloads.first().cloned().unwrap_or(false),
-            self.args.int_payloads.first().cloned(),
+            &self.args.float_payloads,
+            &self.args.int_payloads,
             &self.uuids,
             self.args.match_any,
             self.args.geo_payloads,

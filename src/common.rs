@@ -89,24 +89,22 @@ pub fn random_payload(args: &Args) -> Payload {
     }
 
     for (idx, _) in args.float_payloads.iter().enumerate() {
-        let prefix = payload_prefixes(idx);
-        payload.insert(
-            format!("{}{}", prefix, FLOAT_PAYLOAD_KEY),
-            rand::rng().random_range(-1.0..1.0),
-        );
+        let value = rand::rng().random_range(-1.0..1.0);
+        payload.insert(float_payload_name(idx), value as i64);
     }
 
     for (idx, integer_range) in args.int_payloads.iter().enumerate() {
-        let prefix = payload_prefixes(idx);
+        let payload_name = int_payload_name(idx);
+
         if args.max_int_payloads == 1 {
             let value = rand::rng().random_range(0..*integer_range);
-            payload.insert(format!("{}{}", prefix, INTEGERS_PAYLOAD_KEY), value as i64);
+            payload.insert(payload_name, value as i64);
         } else {
             let count = rand::rng().random_range(1..=args.max_int_payloads);
             let values = (0..count)
                 .map(|_| rand::rng().random_range(0..*integer_range) as i64)
                 .collect::<Vec<_>>();
-            payload.insert(format!("{}{}", prefix, INTEGERS_PAYLOAD_KEY), values);
+            payload.insert(payload_name, values);
         }
     }
 
@@ -151,8 +149,8 @@ pub fn random_payload(args: &Args) -> Payload {
 #[allow(clippy::too_many_arguments)]
 pub fn random_filter(
     keywords: &[usize],
-    float_payloads: bool,
-    integer_payload: Option<usize>,
+    float_payloads: &[bool],
+    integer_payload: &[usize],
     uuids: &[String],
     match_any: Option<usize>,
     geo_payloads: bool,
@@ -166,6 +164,7 @@ pub fn random_filter(
         min_should: None,
     };
     let mut have_any = false;
+
     if !keywords.is_empty() {
         // Pick a random keyword payload filter.
         let keyword_index_pos = rand::rng().random_range(0..keywords.len());
@@ -187,10 +186,12 @@ pub fn random_filter(
         ));
     }
 
-    if float_payloads {
+    if !float_payloads.is_empty() {
         have_any = true;
+
+        let integer_index_pos = rand::rng().random_range(0..float_payloads.len());
         filter.must.push(Condition::range(
-            FLOAT_PAYLOAD_KEY,
+            float_payload_name(integer_index_pos),
             Range {
                 gt: Some(0.0),
                 gte: None,
@@ -199,11 +200,16 @@ pub fn random_filter(
             },
         ))
     }
-    if let Some(integer_range) = integer_payload {
+
+    if !integer_payload.is_empty() {
         have_any = true;
-        let rand_int = rand::rng().random_range(0..integer_range);
+
+        let integer_index_pos = rand::rng().random_range(0..integer_payload.len());
+        let int_range = integer_payload[integer_index_pos];
+
+        let rand_int = rand::rng().random_range(0..int_range);
         filter.must.push(Condition::range(
-            INTEGERS_PAYLOAD_KEY,
+            int_payload_name(integer_index_pos),
             Range {
                 gt: Some(rand_int as f64),
                 gte: None,
@@ -354,4 +360,12 @@ pub fn payload_prefixes(id: usize) -> String {
 
 pub fn keyword_payload_name(id: usize) -> String {
     format!("{}{}", payload_prefixes(id), KEYWORD_PAYLOAD_KEY)
+}
+
+pub fn int_payload_name(id: usize) -> String {
+    format!("{}{}", payload_prefixes(id), INTEGERS_PAYLOAD_KEY)
+}
+
+pub fn float_payload_name(id: usize) -> String {
+    format!("{}{}", payload_prefixes(id), FLOAT_PAYLOAD_KEY)
 }
