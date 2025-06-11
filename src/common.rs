@@ -193,8 +193,8 @@ pub fn random_filter(
         filter.must.push(Condition::range(
             float_payload_name(integer_index_pos),
             Range {
-                gt: Some(0.0),
-                gte: None,
+                gt: None,
+                gte: Some(0.0),
                 lt: None,
                 lte: None,
             },
@@ -211,8 +211,8 @@ pub fn random_filter(
         filter.must.push(Condition::range(
             int_payload_name(integer_index_pos),
             Range {
-                gt: Some(rand_int as f64),
-                gte: None,
+                gt: None,
+                gte: Some(rand_int as f64),
                 lt: None,
                 lte: None,
             },
