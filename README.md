@@ -11,17 +11,21 @@ Options:
       --fbin <FBIN>
           Source of data to upload - fbin file. Random if not specified
   -n, --num-vectors <NUM_VECTORS>
-          Number of points to upload [default: 100000]
+          Number of points to upload [default: 100_000]
       --vectors-per-point <VECTORS_PER_POINT>
-          Number of named vectors per point [default: 1]
+          Number of named dense vectors per point [default: 1]
+  -o, --offset <OFFSET>
+          [default: 0]
   -m, --max-id <MAX_ID>
-          If set, will use vector ids within range [0, max_id) To simulate overwriting existing vectors
+          If set, will randomly upsert/override vector ids within range [offset, max_id)
   -d, --dim <DIM>
           Number of dimensions in each dense vector or max dimension for sparse vectors [default: 128]
   -t, --threads <THREADS>
           Number of worker threads to use [default: 2]
   -p, --parallel <PARALLEL>
           Number of parallel requests to send [default: 2]
+  -c, --connections <CONNECTIONS>
+          Number of connections to open from the client to the server [default: 1]
   -b, --batch-size <POINTS>
           Batch size for updates, in number of points. [default=100] [default: 100]
   -T, --throttle <RPS>
@@ -37,7 +41,11 @@ Options:
       --search
           Perform search
       --search-exact
-          Search without approximation
+          Perform search without approximation
+      --prefetch <PREFETCH>
+          Prefetch search
+      --scroll
+          Perform scroll
       --search-limit <SEARCH_LIMIT>
           Search limit [default: 10]
       --json <JSON>
@@ -48,6 +56,8 @@ Options:
           Name of the collection to use [default: benchmark]
       --distance <DISTANCE>
           Distance function used for comparing vectors [default: Cosine]
+      --datatype <DATATYPE>
+          Vector datatypes (Uint8, Float16, Float32)
       --mmap-threshold <MMAP_THRESHOLD>
           Store vectors on disk
       --indexing-threshold <INDEXING_THRESHOLD>
@@ -57,6 +67,8 @@ Options:
       --max-segment-size <MAX_SEGMENT_SIZE>
           Do not create segments larger this size (in kilobytes)
       --on-disk-payload
+          On disk payload
+      --on-disk-payload-index
           On disk payload
       --on-disk-index <ON_DISK_INDEX>
           On disk index [possible values: true, false]
@@ -68,18 +80,40 @@ Options:
           Use UUIDs instead of sequential ids
       --skip-field-indices
           Skip field indices creation if payloads are not empty
-      --keywords <KEYWORDS>
+  -k, --keywords <KEYWORDS>
           Use keyword payloads. Defines how many different keywords there are in the payload
-      --float-payloads
-          Use float payloads
+      --float-payloads <FLOAT_PAYLOADS>
+          Use float payloads [possible values: true, false]
+      --match-any <MATCH_ANY>
+          Match any count
       --int-payloads <INT_PAYLOADS>
           Use integer payloads
+      --int-payloads-range
+          Whether to enable the range index for the integer payloads
+      --max-int-payloads <MAX_INT_PAYLOADS>
+          Maximum number of integer payloads per point [default: 1]
+      --uuid-payloads
+
+      --bool-payloads
+          Generate true/false payloads
+      --geo-payloads
+          Use geo payloads
+      --text-payloads
+          generate text-like payloads
+      --text-payload-length <TEXT_PAYLOAD_LENGTH>
+          Length of the text-like payloads
+      --text-payload-vocabulary <TEXT_PAYLOAD_VOCABULARY>
+          Vocabulary size for text-like payloads
+      --timestamp-payload
+          Add payload with the current timestamp to all points
       --set-payload
           Use separate request to set payload on just upserted points
       --hnsw-ef-construct <HNSW_EF_CONSTRUCT>
           `hnsw_ef_construct` parameter used during index
       --hnsw-m <HNSW_M>
           `hnsw_m` parameter used during index
+      --hnsw-payload-m <HNSW_PAYLOAD_M>
+          `hnsw_payload_m` parameter used during index
       --search-hnsw-ef <SEARCH_HNSW_EF>
           `hnsw_ef` parameter used during search
       --search-with-payload
@@ -98,10 +132,14 @@ Options:
           Read consistency parameter to use for all read requests
       --timeout <TIMEOUT>
           Timeout for requests in seconds
+      --retry <RETRIES>
+          Number of retries for each URI on error, 0 for no retries [default: 0]
+      --retry-interval <SECONDS>
+          Number of seconds between each retry [default: 0]
       --ignore-errors
           Keep going on search error
       --quantization <QUANTIZATION>
-          [possible values: none, scalar, product-x4, product-x8, product-x16, product-x32, product-x64]
+          [possible values: none, binary, scalar, product-x4, product-x8, product-x16, product-x32, product-x64]
       --quantization-in-ram <QUANTIZATION_IN_RAM>
           Keep quantized vectors in memory [possible values: true, false]
       --quantization-rescore <QUANTIZATION_RESCORE>
@@ -115,13 +153,35 @@ Options:
       --sparse-vectors <SPARSITY>
           Whether to use sparse vectors and with how much sparsity
       --sparse-vectors-per-point <SPARSE_VECTORS_PER_POINT>
-          Number of named vectors per point [default: 1]
+          Number of named sparse vectors per point [default: 1]
+      --multivector-size <MULTIVECTOR_SIZE>
+          Whether to set dense vectors as multivectors
       --sparse-dim <SPARSE_DIM>
           Max dimension for sparse vectors (overrides --dim)
+      --jsonl-updates <JSONL_UPDATES>
+          Path to the jsonl file to save update timings TIP: Use `qdrant/mri` to visualize the timings
+      --jsonl-searches <JSONL_SEARCHES>
+          Path to the jsonl file to save search timings TIP: Use `qdrant/mri` to visualize the timings
+      --jsonl-rps <JSONL_RPS>
+          Path to the jsonl file to save rps timings TIP: Use `qdrant/mri` to visualize the timings
+      --absolute-time <ABSOLUTE_TIME>
+          Use timestamp instead of relative time in jsonl Default is relative time [possible values: true, false]
+      --shard-key <SHARD_KEY>
+          Use custom sharding for collection and upsert points to the specified sharding key
+      --tenants <TENANTS>
+          Use tenant optimization for field index [possible values: true, false]
+      --uuid-query <UUID_QUERY>
+          Use a custom UUID as filter when searching
+      --search-quality
+          Bench for search quality / accurracy too
+      --full-scan-threshold <FULL_SCAN_THRESHOLD>
+          Set a custom full-scan threshold
   -h, --help
           Print help
   -V, --version
           Print version
+
+Integers can be suffixed with k/M/G/T/ki/Mi/Gi/Ti, and underscores can be inserted to make them more readable, e.g., `--num-vectors 100k --offset 1_000_000`.
 ```
 
 API KEY:

@@ -15,13 +15,13 @@ use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
     BinaryQuantizationBuilder, BoolIndexParamsBuilder, CollectionStatus, CompressionRatio,
     CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder,
-    CreateShardKeyRequestBuilder, DatetimeIndexParamsBuilder, Distance, FieldType,
+    CreateShardKeyRequestBuilder, Datatype, DatetimeIndexParamsBuilder, Distance, FieldType,
     FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
-    KeywordIndexParamsBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
-    QuantizationType, ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod,
-    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder,
-    TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder, VectorParams, VectorParamsMap,
-    VectorsConfig,
+    KeywordIndexParamsBuilder, MultiVectorComparator, MultiVectorConfigBuilder,
+    OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
+    ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod, SparseIndexConfigBuilder,
+    SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
+    UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use qdrant_client::Qdrant;
 use rand::Rng;
@@ -137,6 +137,22 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         return Ok(());
     }
 
+    let datatype = args
+        .datatype
+        .as_ref()
+        .map(|datatype| match datatype.as_str() {
+            "Uint8" => Datatype::Uint8.into(),
+            "Float16" => Datatype::Float16.into(),
+            "Float32" => Datatype::Float32.into(),
+            _ => {
+                panic!("Unknown vector datatype {}", datatype)
+            }
+        });
+
+    let multivector_config = args.multivector_size.map(|_multivector_size| {
+        MultiVectorConfigBuilder::new(MultiVectorComparator::MaxSim).build()
+    });
+
     let vector_param = VectorParams {
         size: args.dim as u64,
         distance: match args.distance.as_str() {
@@ -149,6 +165,8 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             }
         },
         on_disk: args.on_disk_vectors,
+        multivector_config,
+        datatype,
         ..Default::default()
     };
 
@@ -168,12 +186,13 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
         let params: HashMap<_, _> = (0..args.sparse_vectors_per_point)
             .map(|idx| {
                 let key = format!("{idx}_sparse");
-
+                let mut index_builder = SparseIndexConfigBuilder::default()
+                    .on_disk(args.on_disk_index.unwrap_or_default());
+                if let Some(datatype) = datatype {
+                    index_builder = index_builder.datatype(datatype);
+                }
                 let config = SparseVectorParamsBuilder::default()
-                    .index(
-                        SparseIndexConfigBuilder::default()
-                            .on_disk(args.on_disk_index.unwrap_or_default()),
-                    )
+                    .index(index_builder)
                     .build();
 
                 (key, config)
