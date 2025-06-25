@@ -12,6 +12,7 @@ chrono = { version = "0.4.39", default-features = false, features = [
     "std",
 ] }
 clap = { version = "4.5.29", features = ["derive", "suggestions"] }
+clap_autocomplete = "0.4.2"
 ctrlc = "3.4.5"
 futures = "0.3.31"
 indicatif = "0.17.11"
@@ -27,9 +28,3 @@ uuid = { version = "1.13.1", features = ["serde", "v4"] }
 env_logger = "0.11.6"
 indicatif-log-bridge = "0.2.3"
 tracing = { version = "0.1.41", features = ["log"] }
-
-[build-dependencies]
-anyhow = "1.0.95"
-clap = { version = "4.5.29", features = ["derive"] }
-clap_complete = { version = "4.5.46" }
-qdrant-client = { git = "https://github.com/qdrant/rust-client", branch = "dev" }
