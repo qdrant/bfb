@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use qdrant_client::config::QdrantConfig;
@@ -764,8 +764,36 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
+/// Parse command line arguments with shell completion installation support
+fn parse_args() -> Args {
+    // Create the command and add shell completion subcommand
+    let mut command = Args::command();
+    command = clap_autocomplete::add_subcommand(command);
+
+    // Hide the complete subcommand from help to keep main command clean
+    if let Some(complete_cmd) = command.find_subcommand_mut("complete") {
+        *complete_cmd = complete_cmd.clone().hide(true);
+    }
+
+    // Parse arguments
+    let matches = command.clone().get_matches();
+
+    // Check if the complete subcommand was used
+    if let Some(result) = clap_autocomplete::test_subcommand(&matches, command) {
+        if let Err(err) = result {
+            eprintln!("Insufficient permissions: {err}");
+            std::process::exit(1);
+        } else {
+            std::process::exit(0);
+        }
+    }
+
+    // Parse args normally for the main application logic
+    Args::from_arg_matches(&matches).unwrap()
+}
+
 fn main() {
-    let args = Args::parse();
+    let args = parse_args();
 
     let stopped = Arc::new(AtomicBool::new(false));
     let r = stopped.clone();
