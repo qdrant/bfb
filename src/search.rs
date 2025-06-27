@@ -1,13 +1,13 @@
-use crate::common::{random_sparse_vector, random_vector_name, retry_with_clients, Timing};
+use crate::common::{Timing, random_sparse_vector, random_vector_name, retry_with_clients};
 use crate::processor::Processor;
-use crate::{random_dense_vector, random_filter, Args};
+use crate::{Args, random_dense_vector, random_filter};
 use indicatif::ProgressBar;
+use qdrant_client::Qdrant;
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::{
     PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryPointsBuilder, ScoredPoint,
     SearchParamsBuilder, SparseIndices, VectorInput,
 };
-use qdrant_client::Qdrant;
 
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;

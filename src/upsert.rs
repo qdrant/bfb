@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Error;
 use futures::TryFutureExt;
@@ -17,10 +17,10 @@ use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::common::{random_sparse_vector, random_vector, retry_with_clients, Timing};
+use crate::common::{Timing, random_sparse_vector, random_vector, retry_with_clients};
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
-use crate::{random_payload, Args};
+use crate::{Args, random_payload};
 
 fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError + use<'_> {
     move |e| {

@@ -1,14 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
 use clap::{CommandFactory, FromArgMatches};
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use qdrant_client::Qdrant;
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
@@ -23,7 +24,6 @@ use qdrant_client::qdrant::{
     SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
     UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
-use qdrant_client::Qdrant;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
@@ -34,9 +34,9 @@ use common::{BOOL_PAYLOAD_KEY, UUID_PAYLOAD_KEY};
 
 use crate::args::QuantizationArg;
 use crate::common::{
-    payload_prefixes, random_dense_vector, random_filter, random_payload, throttler, Timing,
     FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY, KEYWORD_PAYLOAD_KEY,
-    TEXT_PAYLOAD_KEY,
+    TEXT_PAYLOAD_KEY, Timing, payload_prefixes, random_dense_vector, random_filter, random_payload,
+    throttler,
 };
 use crate::fbin_reader::FBinReader;
 use crate::processor::Processor;
