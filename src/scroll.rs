@@ -2,12 +2,12 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use indicatif::ProgressBar;
-use qdrant_client::qdrant::ScrollPointsBuilder;
 use qdrant_client::Qdrant;
+use qdrant_client::qdrant::ScrollPointsBuilder;
 
-use crate::common::{retry_with_clients, Timing, DEFAULT_VOCAB_SIZE};
+use crate::common::{DEFAULT_VOCAB_SIZE, Timing, retry_with_clients};
 use crate::processor::Processor;
-use crate::{random_filter, Args};
+use crate::{Args, random_filter};
 
 pub struct ScrollProcessor {
     args: Args,
