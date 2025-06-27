@@ -112,7 +112,7 @@ impl UpsertProcessor {
             } else if self.args.vectors_per_point != 1 {
                 let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
                     .map(|i| {
-                        let vector_name = format!("{}", i);
+                        let vector_name = format!("{i}");
                         let vector = random_vector(&self.args);
                         (vector_name, vector)
                     })
@@ -126,7 +126,7 @@ impl UpsertProcessor {
                 let mut vectors_map: HashMap<_, _> = Default::default();
 
                 for i in 0..self.args.sparse_vectors_per_point {
-                    let vector_name = format!("{}_sparse", i);
+                    let vector_name = format!("{i}_sparse");
                     let vector = Vector::from(random_sparse_vector(
                         self.args.sparse_dim.unwrap_or(self.args.dim),
                         sparsity,
