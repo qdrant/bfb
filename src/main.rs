@@ -123,7 +123,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             println!("Deleted collection: {}", args.collection_name);
         }
         Err(e) => {
-            println!("Failed to delete collection: {:?}", e);
+            println!("Failed to delete collection: {e:?}");
         }
     }
 
@@ -145,7 +145,7 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             "Float16" => Datatype::Float16.into(),
             "Float32" => Datatype::Float32.into(),
             _ => {
-                panic!("Unknown vector datatype {}", datatype)
+                panic!("Unknown vector datatype {datatype}")
             }
         });
 
@@ -539,7 +539,7 @@ struct SearcherResults {
 fn write_to_json(path: &String, results: SearcherResults) {
     let mut file = File::create(path).unwrap();
     serde_json::to_writer(&mut file, &results).unwrap();
-    println!("Search results written to {}", path);
+    println!("Search results written to {path}");
 }
 
 fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_percentiles: bool) {
@@ -603,7 +603,7 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
         };
 
         if args.ignore_errors {
-            progress_bar.println(format!("Error: {}", err));
+            progress_bar.println(format!("Error: {err}"));
         } else {
             return Err(err);
         }
@@ -750,7 +750,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     if !args.skip_wait_index {
         println!("Waiting for index to be ready...");
         let wait_time = wait_index(&args, stopped.clone()).await?;
-        println!("Index ready in {} seconds", wait_time);
+        println!("Index ready in {wait_time} seconds");
     }
 
     if args.search || args.search_quality {

@@ -61,7 +61,7 @@ pub fn random_text(num_words: usize, vocab_size: usize) -> String {
 
     let words: Vec<_> = zipf_distributed_words
         .iter()
-        .map(|&word_id| format!("word_{}", word_id))
+        .map(|&word_id| format!("word_{word_id}"))
         .collect();
 
     words.join(" ")
@@ -70,7 +70,7 @@ pub fn random_text(num_words: usize, vocab_size: usize) -> String {
 pub fn random_keyword(num_variants: usize) -> String {
     let mut rng = rand::rng();
     let variant = rng.random_range(0..num_variants);
-    format!("keyword_{}", variant)
+    format!("keyword_{variant}")
 }
 
 fn random_geo_point() -> GeoPoint {
@@ -370,7 +370,7 @@ pub fn payload_prefixes(id: usize) -> String {
     if id == 0 {
         "".to_string()
     } else {
-        format!("payload_{}_", id)
+        format!("payload_{id}_")
     }
 }
 

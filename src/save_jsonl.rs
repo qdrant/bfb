@@ -32,7 +32,7 @@ pub fn save_data_as_jsonl(path: &str, data: &[HashMap<String, f64>]) -> std::io:
     if path == "-" {
         for record in data {
             let json = serde_json::to_string(&record)?;
-            println!("{}", json);
+            println!("{json}");
         }
         return Ok(());
     }
@@ -47,7 +47,7 @@ pub fn save_data_as_jsonl(path: &str, data: &[HashMap<String, f64>]) -> std::io:
 
     for record in data {
         let json = serde_json::to_string(&record)?;
-        writeln!(&mut file, "{}", json)?;
+        writeln!(&mut file, "{json}")?;
     }
 
     Ok(())
