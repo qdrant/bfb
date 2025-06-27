@@ -11,12 +11,12 @@ use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::distr::Distribution;
 use rand::prelude::SliceRandom;
 use rand::seq::IndexedRandom;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::interval;
-use tokio_stream::wrappers::IntervalStream;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::IntervalStream;
 use tracing::warn;
 use uuid::Uuid;
 
