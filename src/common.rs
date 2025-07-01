@@ -90,7 +90,7 @@ pub fn random_payload(args: &Args) -> Payload {
 
     for (idx, _) in args.float_payloads.iter().enumerate() {
         let value = rand::rng().random_range(-1.0..1.0);
-        payload.insert(float_payload_name(idx), value as i64);
+        payload.insert(float_payload_name(idx), value);
     }
 
     for (idx, integer_range) in args.int_payloads.iter().enumerate() {
