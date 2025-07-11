@@ -42,4 +42,11 @@ COPY --from=builder /bfb/bfb ${APP}/bfb
 
 WORKDIR ${APP}
 
+LABEL org.opencontainers.image.title="Qdrant bfb"
+LABEL org.opencontainers.image.description="high-load benchmarking tool for Qdrant"
+LABEL org.opencontainers.image.url="https://qdrant.com/"
+LABEL org.opencontainers.image.documentation="https://qdrant.com/docs"
+LABEL org.opencontainers.image.source="https://github.com/qdrant/bfb"
+LABEL org.opencontainers.image.vendor="Qdrant"
+
 CMD ["./bfb"]
