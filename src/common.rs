@@ -85,7 +85,16 @@ pub fn random_payload(args: &Args) -> Payload {
     let mut payload = Payload::new();
 
     for (idx, variants) in args.keywords.iter().enumerate() {
-        payload.insert(keyword_payload_name(idx), random_keyword(*variants));
+        let payload_name = keyword_payload_name(idx);
+        if args.max_keywords == 1 {
+            payload.insert(payload_name, random_keyword(*variants));
+        } else {
+            let count = rand::rng().random_range(1..=args.max_keywords);
+            let values = (0..count)
+                .map(|_| random_keyword(*variants))
+                .collect::<Vec<_>>();
+            payload.insert(payload_name, values);
+        }
     }
 
     for (idx, _) in args.float_payloads.iter().enumerate() {
