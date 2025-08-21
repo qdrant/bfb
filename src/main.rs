@@ -739,15 +739,15 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
 
-    if !args.skip_create {
+    if !args.skip_create && !args.skip_setup {
         recreate_collection(&args, stopped.clone()).await?;
     }
 
-    if !args.skip_upload {
+    if !args.skip_upload && !args.skip_setup {
         upload_data(&args, stopped.clone()).await?;
     }
 
-    if !args.skip_wait_index {
+    if !args.skip_wait_index && args.skip_setup {
         println!("Waiting for index to be ready...");
         let wait_time = wait_index(&args, stopped.clone()).await?;
         println!("Index ready in {wait_time} seconds");
