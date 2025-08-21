@@ -101,8 +101,11 @@ RUN PKG_CONFIG="/usr/bin/$(xx-info)-pkg-config" \
     && mv "target/$(xx-cargo --print-target-triple)/$PROFILE_DIR/bfb" /bfb/bfb
 
 FROM debian:12-slim AS bfb
+ARG APP=/bfb
 
-COPY --from=builder /bfb/bfb /bfb
+RUN mkdir -p ${APP}
+COPY --from=builder /bfb/bfb ${APP}/bfb
+WORKDIR ${APP}
 
 # USER 1000
 
