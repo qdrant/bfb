@@ -88,6 +88,11 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub skip_upload: bool,
 
+    /// Skip setting up collections.
+    /// Implies --skip-create --skip-upload --skip-wait-index
+    #[clap(long, default_value_t = false)]
+    pub skip_setup: bool,
+
     /// Perform search
     #[clap(long, default_value_t = false)]
     pub search: bool,
