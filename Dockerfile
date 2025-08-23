@@ -101,6 +101,11 @@ RUN PKG_CONFIG="/usr/bin/$(xx-info)-pkg-config" \
     && mv "target/$(xx-cargo --print-target-triple)/$PROFILE_DIR/bfb" /bfb/bfb
 
 FROM debian:12-slim AS bfb
+
+RUN apt-get update \
+    && apt-get install -y ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 ARG APP=/bfb
 
 RUN mkdir -p ${APP}
