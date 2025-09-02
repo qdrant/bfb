@@ -747,7 +747,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         upload_data(&args, stopped.clone()).await?;
     }
 
-    if !args.skip_wait_index && args.skip_setup {
+    if !args.skip_wait_index && !args.skip_setup {
         println!("Waiting for index to be ready...");
         let wait_time = wait_index(&args, stopped.clone()).await?;
         println!("Index ready in {wait_time} seconds");
