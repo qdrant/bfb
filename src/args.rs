@@ -150,7 +150,7 @@ pub struct Args {
     pub max_segment_size: Option<usize>,
 
     /// On disk payload
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = true)]
     pub on_disk_payload: bool,
 
     /// On disk payload
