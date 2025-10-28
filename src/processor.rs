@@ -21,4 +21,6 @@ pub trait Processor {
     fn precisions(&self) -> Vec<f32> {
         vec![]
     }
+
+    fn get_batch_size(&self) -> usize;
 }

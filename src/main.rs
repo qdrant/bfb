@@ -585,11 +585,13 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     let draw_target = ProgressDrawTarget::stdout_with_hz(2);
     progress_bar.set_draw_target(draw_target);
 
-    let query_stream = (0..args.num_vectors)
+    let batch_size = processor.get_batch_size();
+    let batch_count = args.num_vectors.div_ceil(batch_size);
+    let query_stream = (0..batch_count)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
             let future = processor.make_request(n, args, &progress_bar);
-            progress_bar.inc(1);
+            progress_bar.inc(batch_size as u64);
             future
         });
 

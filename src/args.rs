@@ -68,6 +68,10 @@ pub struct Args {
     #[clap(short, long, value_name = "POINTS", default_value_t = 100, value_parser = parse_number)]
     pub batch_size: usize,
 
+    /// Batch size for updates, in number of points. [default=100]
+    #[clap(long, value_name = "POINTS", default_value_t = 1, value_parser = parse_number)]
+    pub search_batch_size: usize,
+
     /// Throttle updates and searches, in batches/searches per second. [default=no throttling]
     #[clap(long, short = 'T', value_name = "RPS")]
     pub throttle: Option<f32>,

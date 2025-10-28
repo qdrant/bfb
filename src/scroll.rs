@@ -154,4 +154,8 @@ impl Processor for ScrollProcessor {
     fn full_timings(&self) -> Vec<Timing> {
         self.full_timings.lock().unwrap().clone()
     }
+
+    fn get_batch_size(&self) -> usize {
+        1 // No batching for scroll.
+    }
 }
