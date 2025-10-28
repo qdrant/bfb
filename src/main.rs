@@ -575,8 +575,11 @@ fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_perce
 }
 
 async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor: P) -> Result<()> {
+    let batch_size = processor.get_batch_size();
+    let batch_count = args.num_vectors.div_ceil(batch_size);
+
     let multiprogress = MultiProgress::new();
-    let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
+    let progress_bar = multiprogress.add(ProgressBar::new(batch_count as u64));
     let progress_style = ProgressStyle::default_bar()
         .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
         .expect("Failed to create progress style");
@@ -585,13 +588,11 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     let draw_target = ProgressDrawTarget::stdout_with_hz(2);
     progress_bar.set_draw_target(draw_target);
 
-    let batch_size = processor.get_batch_size();
-    let batch_count = args.num_vectors.div_ceil(batch_size);
     let query_stream = (0..batch_count)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
             let future = processor.make_request(n, args, &progress_bar);
-            progress_bar.inc(batch_size as u64);
+            progress_bar.inc(1);
             future
         });
 
