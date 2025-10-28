@@ -5,8 +5,9 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::{
-    PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder,
-    QueryPointsBuilder, ScoredPoint, SearchParamsBuilder, SparseIndices, VectorInput,
+    BatchResult, PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query,
+    QueryBatchPointsBuilder, QueryPointsBuilder, ScoredPoint, SearchParamsBuilder, SparseIndices,
+    VectorInput,
 };
 
 use std::collections::HashSet;
@@ -227,8 +228,10 @@ impl SearchProcessor {
                     .build()
                 })
                 .collect();
-            let batch_request_builder =
-                QueryBatchPointsBuilder::new(self.args.collection_name.clone(), query_points);
+            let batch_request_builder = QueryBatchPointsBuilder::new(
+                self.args.collection_name.clone(),
+                query_points.clone(),
+            );
 
             let request = batch_request_builder.clone().build();
             let res_batch = retry_with_clients(&self.clients, args, |client| {
@@ -267,6 +270,36 @@ impl SearchProcessor {
 
             if let Some(delay_millis) = self.args.delay {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
+            }
+
+            if !self.args.search_quality {
+                return Ok(());
+            }
+
+            // Search quality bench
+
+            let exact_search = search_params.clone().exact(true).build();
+            let exact_query_points = {
+                let mut query_points = query_points.clone();
+                for point in &mut query_points {
+                    point.params = Some(exact_search);
+                }
+                query_points
+            };
+            let exact_request_builder =
+                QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);
+            let exact_request = exact_request_builder.build();
+
+            let exact_res = retry_with_clients(&self.clients, args, |client| {
+                client.query_batch(exact_request.clone())
+            })
+            .await?;
+
+            let precisions = compare_batch_search_results(&res_batch.result, &exact_res.result);
+
+            {
+                let mut stats_guard = self.stats.lock().unwrap();
+                stats_guard.precisions.extend(precisions);
             }
 
             Ok(())
@@ -377,6 +410,18 @@ fn compare_search_results(exact_search: &[ScoredPoint], normal_search: &[ScoredP
     let false_positive: usize = normal_ids.iter().filter(|i| !exact_ids.contains(i)).count();
 
     true_positive as f32 / (true_positive as f32 + false_positive as f32)
+}
+
+fn compare_batch_search_results(
+    exact_search: &[BatchResult],
+    normal_search: &[BatchResult],
+) -> Vec<f32> {
+    assert_eq!(exact_search.len(), normal_search.len());
+    exact_search
+        .iter()
+        .zip(normal_search)
+        .map(|(exact, normal)| compare_search_results(&exact.result, &normal.result))
+        .collect()
 }
 
 // Copy of `qdrant_client::qdrant::PointId` that implements `Eq` and `Hash`.
