@@ -59,7 +59,7 @@ impl SearchProcessor {
                 random_vector_name(self.args.sparse_vectors_per_point)
             );
 
-            (0..self.args.search_batch_size)
+            (0..self.args.search_batch_size.unwrap_or(1))
                 .map(|_| {
                     let sparse_vector_tuples = random_sparse_vector(
                         self.args.sparse_dim.unwrap_or(self.args.dim),
@@ -84,7 +84,7 @@ impl SearchProcessor {
             None
         };
 
-        (0..self.args.search_batch_size)
+        (0..self.args.search_batch_size.unwrap_or(1))
             .map(|_| {
                 (
                     random_dense_vector(self.args.dim, false),
@@ -213,7 +213,7 @@ impl SearchProcessor {
             search_params = search_params.hnsw_ef(hnsw_ef as u64);
         }
 
-        if query_batch.len() > 1 {
+        if self.args.search_batch_size.is_some() {
             let query_points: Vec<_> = query_batch
                 .into_iter()
                 .map(|(query_vectors, sparse_indices, vector_name)| {
@@ -426,6 +426,6 @@ impl Processor for SearchProcessor {
     }
 
     fn get_batch_size(&self) -> usize {
-        self.args.search_batch_size
+        self.args.search_batch_size.unwrap_or(1)
     }
 }
