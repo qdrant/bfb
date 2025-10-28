@@ -32,8 +32,8 @@ Options:
           Number of connections to open from the client to the server [default: 1]
   -b, --batch-size <POINTS>
           Batch size for updates, in number of points. [default=100] [default: 100]
-      --search-batch-size <POINTS>
-          Batch size for searches, in number of searches per batch (no batching by default)
+      --search-batch-size <QUERIES>
+          Batch size for searches, in number of queries per batch (no batching by default)
   -T, --throttle <RPS>
           Throttle updates and searches, in batches/searches per second. [default=no throttling]
       --skip-create
