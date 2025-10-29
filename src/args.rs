@@ -68,9 +68,9 @@ pub struct Args {
     #[clap(short, long, value_name = "POINTS", default_value_t = 100, value_parser = parse_number)]
     pub batch_size: usize,
 
-    /// Batch size for searches, in number of queries per batch (no batching by default)
-    #[clap(long, value_name = "QUERIES", value_parser = parse_number)]
-    pub search_batch_size: Option<usize>,
+    /// Batch size for searches, in number of queries per batch.
+    #[clap(long, value_name = "QUERIES", default_value_t = 1, value_parser = parse_number)]
+    pub search_batch_size: usize,
 
     /// Throttle updates and searches, in batches/searches per second. [default=no throttling]
     #[clap(long, short = 'T', value_name = "RPS")]

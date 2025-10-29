@@ -33,7 +33,7 @@ Options:
   -b, --batch-size <POINTS>
           Batch size for updates, in number of points. [default=100] [default: 100]
       --search-batch-size <QUERIES>
-          Batch size for searches, in number of queries per batch (no batching by default)
+          Batch size for searches, in number of queries per batch. [default: 1]
   -T, --throttle <RPS>
           Throttle updates and searches, in batches/searches per second. [default=no throttling]
       --skip-create

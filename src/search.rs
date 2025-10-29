@@ -60,7 +60,7 @@ impl SearchProcessor {
                 random_vector_name(self.args.sparse_vectors_per_point)
             );
 
-            (0..self.args.search_batch_size.unwrap_or(1))
+            (0..self.args.search_batch_size)
                 .map(|_| {
                     let sparse_vector_tuples = random_sparse_vector(
                         self.args.sparse_dim.unwrap_or(self.args.dim),
@@ -85,7 +85,7 @@ impl SearchProcessor {
             None
         };
 
-        (0..self.args.search_batch_size.unwrap_or(1))
+        (0..self.args.search_batch_size)
             .map(|_| {
                 (
                     random_dense_vector(self.args.dim, false),
@@ -176,7 +176,7 @@ impl SearchProcessor {
             (false, false) => panic!("No sparse or dense vectors"),
         };
 
-        let mut query_batch = if use_sparse {
+        let query_batch = if use_sparse {
             self.get_sparse_queries()
         } else {
             self.get_dense_queries()
@@ -214,180 +214,92 @@ impl SearchProcessor {
             search_params = search_params.hnsw_ef(hnsw_ef as u64);
         }
 
-        if self.args.search_batch_size.is_some() {
-            let query_points: Vec<_> = query_batch
-                .into_iter()
-                .map(|(query_vectors, sparse_indices, vector_name)| {
-                    self.create_request_builder(
-                        query_filter.clone(),
-                        query_vectors,
-                        sparse_indices,
-                        vector_name,
-                        search_params.clone(),
-                    )
-                    .build()
-                })
-                .collect();
-            let batch_request_builder = QueryBatchPointsBuilder::new(
-                self.args.collection_name.clone(),
-                query_points.clone(),
-            );
-
-            let request = batch_request_builder.clone().build();
-            let res_batch = retry_with_clients(&self.clients, args, |client| {
-                client.query_batch(request.clone())
+        let query_points: Vec<_> = query_batch
+            .into_iter()
+            .map(|(query_vectors, sparse_indices, vector_name)| {
+                self.create_request_builder(
+                    query_filter.clone(),
+                    query_vectors,
+                    sparse_indices,
+                    vector_name,
+                    search_params.clone(),
+                )
+                .build()
             })
-            .await?;
+            .collect();
+        let batch_request_builder =
+            QueryBatchPointsBuilder::new(self.args.collection_name.clone(), query_points.clone());
 
-            let elapsed = start.elapsed().as_secs_f64();
+        let request = batch_request_builder.clone().build();
+        let res_batch = retry_with_clients(&self.clients, args, |client| {
+            client.query_batch(request.clone())
+        })
+        .await?;
 
-            let full_timing = Timing {
-                delay_millis: self.start_time.elapsed().as_millis() as f64,
-                value: elapsed,
-            };
+        let elapsed = start.elapsed().as_secs_f64();
 
-            if res_batch.time > self.args.timing_threshold {
-                progress_bar.println(format!("Slow search: {:?}", res_batch.time));
-            }
+        let full_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: elapsed,
+        };
 
-            let server_timing = Timing {
-                delay_millis: self.start_time.elapsed().as_millis() as f64,
-                value: res_batch.time,
-            };
-
-            let rps_timing = Timing {
-                delay_millis: self.start_time.elapsed().as_millis() as f64,
-                value: progress_bar.per_sec(),
-            };
-
-            // Update stats all at once
-            {
-                let mut stats_guard = self.stats.lock().unwrap();
-                stats_guard.server_timings.push(server_timing);
-                stats_guard.rps.push(rps_timing);
-                stats_guard.full_timings.push(full_timing);
-            }
-
-            if let Some(delay_millis) = self.args.delay {
-                tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
-            }
-
-            if !self.args.search_quality {
-                return Ok(());
-            }
-
-            // Search quality bench
-
-            let exact_search = search_params.clone().exact(true).build();
-            let exact_query_points = {
-                let mut query_points = query_points.clone();
-                for point in &mut query_points {
-                    point.params = Some(exact_search);
-                }
-                query_points
-            };
-            let exact_request_builder =
-                QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);
-            let exact_request = exact_request_builder.build();
-
-            let exact_res = retry_with_clients(&self.clients, args, |client| {
-                client.query_batch(exact_request.clone())
-            })
-            .await?;
-
-            let precisions = compare_batch_search_results(&res_batch.result, &exact_res.result);
-
-            {
-                let mut stats_guard = self.stats.lock().unwrap();
-                stats_guard.precisions.extend(precisions);
-            }
-
-            Ok(())
-        } else {
-            let (query_vectors, sparse_indices, vector_name) = query_batch
-                .pop()
-                .expect("should be a single vector for non-batch search");
-
-            let request_builder = self.create_request_builder(
-                query_filter,
-                query_vectors,
-                sparse_indices,
-                vector_name,
-                search_params.clone(),
-            );
-
-            let request = request_builder.clone().build();
-            let res =
-                retry_with_clients(&self.clients, args, |client| client.query(request.clone()))
-                    .await?;
-
-            let elapsed = start.elapsed().as_secs_f64();
-
-            let full_timing = Timing {
-                delay_millis: self.start_time.elapsed().as_millis() as f64,
-                value: elapsed,
-            };
-
-            if res.time > self.args.timing_threshold {
-                progress_bar.println(format!("Slow search: {:?}", res.time));
-            }
-
-            if res.result.len() < self.args.search_limit
-                && !self.args.uuid_payloads
-                && !self.args.search_quality
-            {
-                progress_bar.println(format!(
-                    "Search result is too small: {} of {}",
-                    res.result.len(),
-                    self.args.search_limit
-                ));
-            }
-
-            let server_timing = Timing {
-                delay_millis: self.start_time.elapsed().as_millis() as f64,
-                value: res.time,
-            };
-
-            let rps_timing = Timing {
-                delay_millis: self.start_time.elapsed().as_millis() as f64,
-                value: progress_bar.per_sec(),
-            };
-
-            // Update stats all at once
-            {
-                let mut stats_guard = self.stats.lock().unwrap();
-                stats_guard.server_timings.push(server_timing);
-                stats_guard.rps.push(rps_timing);
-                stats_guard.full_timings.push(full_timing);
-            }
-
-            if let Some(delay_millis) = self.args.delay {
-                tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
-            }
-
-            if !self.args.search_quality {
-                return Ok(());
-            }
-
-            // Search quality bench
-
-            let exact_search = search_params.clone().exact(true);
-            let exact_request_builder = request_builder.clone().params(exact_search);
-            let request = exact_request_builder.build();
-
-            let exact_res =
-                retry_with_clients(&self.clients, args, |client| client.query(request.clone()))
-                    .await?;
-
-            let precision = compare_search_results(&res.result, &exact_res.result);
-
-            {
-                let mut stats_guard = self.stats.lock().unwrap();
-                stats_guard.precisions.push(precision);
-            }
-
-            Ok(())
+        if res_batch.time > self.args.timing_threshold {
+            progress_bar.println(format!("Slow search: {:?}", res_batch.time));
         }
+
+        let server_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: res_batch.time,
+        };
+
+        let rps_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: progress_bar.per_sec(),
+        };
+
+        // Update stats all at once
+        {
+            let mut stats_guard = self.stats.lock().unwrap();
+            stats_guard.server_timings.push(server_timing);
+            stats_guard.rps.push(rps_timing);
+            stats_guard.full_timings.push(full_timing);
+        }
+
+        if let Some(delay_millis) = self.args.delay {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
+        }
+
+        if !self.args.search_quality {
+            return Ok(());
+        }
+
+        // Search quality bench
+
+        let exact_search = search_params.clone().exact(true).build();
+        let exact_query_points = {
+            let mut query_points = query_points.clone();
+            for point in &mut query_points {
+                point.params = Some(exact_search);
+            }
+            query_points
+        };
+        let exact_request_builder =
+            QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);
+        let exact_request = exact_request_builder.build();
+
+        let exact_res = retry_with_clients(&self.clients, args, |client| {
+            client.query_batch(exact_request.clone())
+        })
+        .await?;
+
+        let precisions = compare_batch_search_results(&res_batch.result, &exact_res.result);
+
+        {
+            let mut stats_guard = self.stats.lock().unwrap();
+            stats_guard.precisions.extend(precisions);
+        }
+
+        Ok(())
     }
 }
 
@@ -471,6 +383,6 @@ impl Processor for SearchProcessor {
     }
 
     fn get_batch_size(&self) -> usize {
-        self.args.search_batch_size.unwrap_or(1)
+        self.args.search_batch_size
     }
 }
