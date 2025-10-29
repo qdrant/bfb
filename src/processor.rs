@@ -14,6 +14,7 @@ pub trait Processor {
 
     fn server_timings(&self) -> Vec<Timing>;
 
+    fn qps(&self) -> Vec<Timing>;
     fn rps(&self) -> Vec<Timing>;
 
     fn full_timings(&self) -> Vec<Timing>;

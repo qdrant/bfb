@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Default)]
 struct SearchStats {
     server_timings: Vec<Timing>,
+    qps: Vec<Timing>,
     rps: Vec<Timing>,
     full_timings: Vec<Timing>,
     precisions: Vec<f32>,
@@ -252,15 +253,21 @@ impl SearchProcessor {
             value: res_batch.time,
         };
 
-        let rps_timing = Timing {
+        let qps_timing = Timing {
             delay_millis: self.start_time.elapsed().as_millis() as f64,
             value: progress_bar.per_sec(),
+        };
+
+        let rps_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: progress_bar.per_sec() / (self.args.search_batch_size as f64),
         };
 
         // Update stats all at once
         {
             let mut stats_guard = self.stats.lock().unwrap();
             stats_guard.server_timings.push(server_timing);
+            stats_guard.qps.push(qps_timing);
             stats_guard.rps.push(rps_timing);
             stats_guard.full_timings.push(full_timing);
         }
@@ -368,6 +375,10 @@ impl Processor for SearchProcessor {
 
     fn server_timings(&self) -> Vec<Timing> {
         self.stats.lock().unwrap().server_timings.clone()
+    }
+
+    fn qps(&self) -> Vec<Timing> {
+        self.stats.lock().unwrap().qps.clone()
     }
 
     fn rps(&self) -> Vec<Timing> {

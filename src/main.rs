@@ -624,9 +624,11 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     let mut server_timings = processor.server_timings();
     println!("--- Server timings ---");
     print_stats(args, &mut server_timings, "server time", true);
-    let mut rps = processor.rps();
-    println!("--- RPS ---");
-    print_stats(args, &mut rps, "rps", false);
+
+    let mut qps = processor.qps();
+    println!("--- QPS ---");
+    print_stats(args, &mut qps, "qps", false);
+
     let precisions = processor.precisions();
     if !precisions.is_empty() {
         println!("--- Precision ---");
@@ -639,6 +641,7 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
         println!("Median precision@10: {p50_time}");
     }
 
+    let rps = processor.rps();
     if args.json.is_some() {
         println!("--- Writing results to json file ---");
         write_to_json(

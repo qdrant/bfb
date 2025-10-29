@@ -147,7 +147,12 @@ impl Processor for ScrollProcessor {
         self.server_timings.lock().unwrap().clone()
     }
 
+    fn qps(&self) -> Vec<Timing> {
+        self.rps.lock().unwrap().clone()
+    }
+
     fn rps(&self) -> Vec<Timing> {
+        // for requests without batching, qps = rps
         self.rps.lock().unwrap().clone()
     }
 
