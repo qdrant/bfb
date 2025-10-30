@@ -32,6 +32,8 @@ Options:
           Number of connections to open from the client to the server [default: 1]
   -b, --batch-size <POINTS>
           Batch size for updates, in number of points. [default=100] [default: 100]
+      --search-batch-size <QUERIES>
+          Batch size for searches, in number of queries per batch. [default: 1]
   -T, --throttle <RPS>
           Throttle updates and searches, in batches/searches per second. [default=no throttling]
       --skip-create
@@ -42,6 +44,8 @@ Options:
           Skip wait until collection is indexed after upload
       --skip-upload
           Skip uploading new points
+      --skip-setup
+          Skip setting up collections. Implies --skip-create --skip-upload --skip-wait-index
       --search
           Perform search
       --search-exact
@@ -86,6 +90,8 @@ Options:
           Skip field indices creation if payloads are not empty
   -k, --keywords <KEYWORDS>
           Use keyword payloads. Defines how many different keywords there are in the payload
+      --max-keywords <MAX_KEYWORDS>
+          Maximum number of keywords per point [default: 1]
       --float-payloads <FLOAT_PAYLOADS>
           Use float payloads [possible values: true, false]
       --match-any <MATCH_ANY>

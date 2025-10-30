@@ -575,6 +575,9 @@ fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_perce
 }
 
 async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor: P) -> Result<()> {
+    let batch_size = processor.get_batch_size();
+    let batch_count = args.num_vectors.div_ceil(batch_size);
+
     let multiprogress = MultiProgress::new();
     let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
     let progress_style = ProgressStyle::default_bar()
@@ -585,11 +588,11 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     let draw_target = ProgressDrawTarget::stdout_with_hz(2);
     progress_bar.set_draw_target(draw_target);
 
-    let query_stream = (0..args.num_vectors)
+    let query_stream = (0..batch_count)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
             let future = processor.make_request(n, args, &progress_bar);
-            progress_bar.inc(1);
+            progress_bar.inc(batch_size as u64);
             future
         });
 
@@ -621,9 +624,14 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     let mut server_timings = processor.server_timings();
     println!("--- Server timings ---");
     print_stats(args, &mut server_timings, "server time", true);
+
     let mut rps = processor.rps();
     println!("--- RPS ---");
     print_stats(args, &mut rps, "rps", false);
+    let mut qps = processor.qps();
+    println!("--- QPS ---");
+    print_stats(args, &mut qps, "qps", false);
+
     let precisions = processor.precisions();
     if !precisions.is_empty() {
         println!("--- Precision ---");

@@ -5,8 +5,9 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::{
-    PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryPointsBuilder, ScoredPoint,
-    SearchParamsBuilder, SparseIndices, VectorInput,
+    BatchResult, PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query,
+    QueryBatchPointsBuilder, QueryPointsBuilder, ScoredPoint, SearchParamsBuilder, SparseIndices,
+    VectorInput,
 };
 
 use std::collections::HashSet;
@@ -16,6 +17,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Default)]
 struct SearchStats {
     server_timings: Vec<Timing>,
+    qps: Vec<Timing>,
     rps: Vec<Timing>,
     full_timings: Vec<Timing>,
     precisions: Vec<f32>,
@@ -52,30 +54,105 @@ impl SearchProcessor {
         }
     }
 
-    fn get_sparse_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
+    fn get_sparse_queries(&self) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
         if let Some(sparsity) = self.args.sparse_vectors {
-            let sparse_vector_tuples =
-                random_sparse_vector(self.args.sparse_dim.unwrap_or(self.args.dim), sparsity);
-            let (indices, values): (Vec<_>, Vec<_>) = sparse_vector_tuples.into_iter().unzip();
-            let sparse_indices = SparseIndices { data: indices };
             let name = format!(
                 "{}_sparse",
                 random_vector_name(self.args.sparse_vectors_per_point)
             );
-            (values, Some(sparse_indices), Some(name))
+
+            (0..self.args.search_batch_size)
+                .map(|_| {
+                    let sparse_vector_tuples = random_sparse_vector(
+                        self.args.sparse_dim.unwrap_or(self.args.dim),
+                        sparsity,
+                    );
+                    let (indices, values): (Vec<_>, Vec<_>) =
+                        sparse_vector_tuples.into_iter().unzip();
+                    let sparse_indices = SparseIndices { data: indices };
+                    (values, Some(sparse_indices), Some(name.clone()))
+                })
+                .collect()
         } else {
             panic!("No sparse vectors configured")
         }
     }
 
-    fn get_dense_query(&self) -> (Vec<f32>, Option<SparseIndices>, Option<String>) {
-        let query_vector = random_dense_vector(self.args.dim, false);
-        if self.args.vectors_per_point > 1 {
+    fn get_dense_queries(&self) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
+        let name = if self.args.vectors_per_point > 1 {
             let name = random_vector_name(self.args.vectors_per_point);
-            (query_vector, None, Some(name))
+            Some(name)
         } else {
-            (query_vector, None, None)
+            None
+        };
+
+        (0..self.args.search_batch_size)
+            .map(|_| {
+                (
+                    random_dense_vector(self.args.dim, false),
+                    None,
+                    name.clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn create_request_builder(
+        &self,
+        query_filter: Option<qdrant_client::qdrant::Filter>,
+        query_vectors: Vec<f32>,
+        sparse_indices: Option<SparseIndices>,
+        vector_name: Option<String>,
+        search_params: SearchParamsBuilder,
+    ) -> QueryPointsBuilder {
+        let mut request_builder = QueryPointsBuilder::new(
+            self.args.collection_name.clone(),
+            // query_vector,
+        )
+        .with_payload(self.args.search_with_payload)
+        .limit(self.args.search_limit as u64);
+
+        if let Some(vector_name) = vector_name {
+            request_builder = request_builder.using(vector_name);
         }
+
+        if let Some(filter) = query_filter {
+            request_builder = request_builder.filter(filter);
+        }
+
+        let vector = if let Some(sparse_indices) = sparse_indices {
+            VectorInput::new_sparse(sparse_indices.data, query_vectors)
+        } else {
+            VectorInput::new_dense(query_vectors)
+        };
+
+        let query = Query::new_nearest(vector);
+
+        if let Some(prefetch_limit) = self.args.prefetch {
+            let prefetch_query = PrefetchQueryBuilder::default();
+
+            prefetch_query.query(query.clone());
+
+            let mut params = SearchParamsBuilder::default()
+                .quantization(QuantizationSearchParamsBuilder::default().rescore(false));
+
+            if let Some(hnsw_ef) = self.args.hnsw_ef_construct {
+                params = params.hnsw_ef(hnsw_ef as u64);
+            }
+
+            request_builder = request_builder.params(params);
+            request_builder = request_builder.limit(prefetch_limit as u64);
+        }
+
+        request_builder = request_builder.query(query);
+
+        if let Some(read_consistency) = self.args.read_consistency {
+            request_builder = request_builder.read_consistency(read_consistency);
+        }
+
+        request_builder = request_builder.params(search_params.clone());
+
+        request_builder
     }
 
     pub async fn search(
@@ -100,10 +177,10 @@ impl SearchProcessor {
             (false, false) => panic!("No sparse or dense vectors"),
         };
 
-        let (query_vector, sparse_indices, vector_name) = if use_sparse {
-            self.get_sparse_query()
+        let query_batch = if use_sparse {
+            self.get_sparse_queries()
         } else {
-            self.get_dense_query()
+            self.get_dense_queries()
         };
 
         let query_filter = random_filter(
@@ -120,47 +197,6 @@ impl SearchProcessor {
                     .unwrap_or(crate::common::DEFAULT_VOCAB_SIZE)
             }),
         );
-
-        let mut request_builder = QueryPointsBuilder::new(
-            self.args.collection_name.clone(),
-            // query_vector,
-        )
-        .with_payload(self.args.search_with_payload)
-        .limit(self.args.search_limit as u64);
-
-        if let Some(vector_name) = vector_name {
-            request_builder = request_builder.using(vector_name);
-        }
-
-        if let Some(filter) = query_filter {
-            request_builder = request_builder.filter(filter);
-        }
-
-        let vector = if let Some(sparse_indices) = sparse_indices {
-            VectorInput::new_sparse(sparse_indices.data, query_vector)
-        } else {
-            VectorInput::new_dense(query_vector)
-        };
-
-        let query = Query::new_nearest(vector);
-
-        if let Some(prefetch_limit) = self.args.prefetch {
-            let prefetch_query = PrefetchQueryBuilder::default();
-
-            prefetch_query.query(query.clone());
-
-            let mut params = SearchParamsBuilder::default()
-                .quantization(QuantizationSearchParamsBuilder::default().rescore(false));
-
-            if let Some(hnsw_ef) = self.args.hnsw_ef_construct {
-                params = params.hnsw_ef(hnsw_ef as u64);
-            }
-
-            request_builder = request_builder.params(params);
-            request_builder = request_builder.limit(prefetch_limit as u64);
-        }
-
-        request_builder = request_builder.query(query);
 
         let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()
             .rescore(self.args.quantization_rescore.unwrap_or_default());
@@ -179,15 +215,27 @@ impl SearchProcessor {
             search_params = search_params.hnsw_ef(hnsw_ef as u64);
         }
 
-        if let Some(read_consistency) = self.args.read_consistency {
-            request_builder = request_builder.read_consistency(read_consistency);
-        }
+        let query_points: Vec<_> = query_batch
+            .into_iter()
+            .map(|(query_vectors, sparse_indices, vector_name)| {
+                self.create_request_builder(
+                    query_filter.clone(),
+                    query_vectors,
+                    sparse_indices,
+                    vector_name,
+                    search_params.clone(),
+                )
+                .build()
+            })
+            .collect();
+        let batch_request_builder =
+            QueryBatchPointsBuilder::new(self.args.collection_name.clone(), query_points.clone());
 
-        request_builder = request_builder.params(search_params.clone());
-
-        let request = request_builder.clone().build();
-        let res =
-            retry_with_clients(&self.clients, args, |client| client.query(request.clone())).await?;
+        let request = batch_request_builder.clone().build();
+        let res_batch = retry_with_clients(&self.clients, args, |client| {
+            client.query_batch(request.clone())
+        })
+        .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
 
@@ -196,35 +244,30 @@ impl SearchProcessor {
             value: elapsed,
         };
 
-        if res.time > self.args.timing_threshold {
-            progress_bar.println(format!("Slow search: {:?}", res.time));
-        }
-
-        if res.result.len() < self.args.search_limit
-            && !self.args.uuid_payloads
-            && !self.args.search_quality
-        {
-            progress_bar.println(format!(
-                "Search result is too small: {} of {}",
-                res.result.len(),
-                self.args.search_limit
-            ));
+        if res_batch.time > self.args.timing_threshold {
+            progress_bar.println(format!("Slow search: {:?}", res_batch.time));
         }
 
         let server_timing = Timing {
             delay_millis: self.start_time.elapsed().as_millis() as f64,
-            value: res.time,
+            value: res_batch.time,
+        };
+
+        let qps_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: progress_bar.per_sec(),
         };
 
         let rps_timing = Timing {
             delay_millis: self.start_time.elapsed().as_millis() as f64,
-            value: progress_bar.per_sec(),
+            value: progress_bar.per_sec() / (self.args.search_batch_size as f64),
         };
 
         // Update stats all at once
         {
             let mut stats_guard = self.stats.lock().unwrap();
             stats_guard.server_timings.push(server_timing);
+            stats_guard.qps.push(qps_timing);
             stats_guard.rps.push(rps_timing);
             stats_guard.full_timings.push(full_timing);
         }
@@ -239,18 +282,28 @@ impl SearchProcessor {
 
         // Search quality bench
 
-        let exact_search = search_params.clone().exact(true);
-        let exact_request_builder = request_builder.clone().params(exact_search);
-        let request = exact_request_builder.build();
+        let exact_search = search_params.clone().exact(true).build();
+        let exact_query_points = {
+            let mut query_points = query_points.clone();
+            for point in &mut query_points {
+                point.params = Some(exact_search);
+            }
+            query_points
+        };
+        let exact_request_builder =
+            QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);
+        let exact_request = exact_request_builder.build();
 
-        let exact_res =
-            retry_with_clients(&self.clients, args, |client| client.query(request.clone())).await?;
+        let exact_res = retry_with_clients(&self.clients, args, |client| {
+            client.query_batch(exact_request.clone())
+        })
+        .await?;
 
-        let precision = compare_search_results(&res.result, &exact_res.result);
+        let precisions = compare_batch_search_results(&res_batch.result, &exact_res.result);
 
         {
             let mut stats_guard = self.stats.lock().unwrap();
-            stats_guard.precisions.push(precision);
+            stats_guard.precisions.extend(precisions);
         }
 
         Ok(())
@@ -276,6 +329,18 @@ fn compare_search_results(exact_search: &[ScoredPoint], normal_search: &[ScoredP
     let false_positive: usize = normal_ids.iter().filter(|i| !exact_ids.contains(i)).count();
 
     true_positive as f32 / (true_positive as f32 + false_positive as f32)
+}
+
+fn compare_batch_search_results(
+    exact_search: &[BatchResult],
+    normal_search: &[BatchResult],
+) -> Vec<f32> {
+    assert_eq!(exact_search.len(), normal_search.len());
+    exact_search
+        .iter()
+        .zip(normal_search)
+        .map(|(exact, normal)| compare_search_results(&exact.result, &normal.result))
+        .collect()
 }
 
 // Copy of `qdrant_client::qdrant::PointId` that implements `Eq` and `Hash`.
@@ -312,6 +377,10 @@ impl Processor for SearchProcessor {
         self.stats.lock().unwrap().server_timings.clone()
     }
 
+    fn qps(&self) -> Vec<Timing> {
+        self.stats.lock().unwrap().qps.clone()
+    }
+
     fn rps(&self) -> Vec<Timing> {
         self.stats.lock().unwrap().rps.clone()
     }
@@ -322,5 +391,9 @@ impl Processor for SearchProcessor {
 
     fn precisions(&self) -> Vec<f32> {
         self.stats.lock().unwrap().precisions.clone()
+    }
+
+    fn get_batch_size(&self) -> usize {
+        self.args.search_batch_size
     }
 }
