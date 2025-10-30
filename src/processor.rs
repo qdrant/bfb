@@ -12,13 +12,19 @@ pub trait Processor {
 
     fn start_timestamp_millis(&self) -> f64;
 
+    /// Request timing reported by server.
     fn server_timings(&self) -> Vec<Timing>;
 
+    /// Query per second timing time series.
+    fn qps(&self) -> Vec<Timing>;
+    /// Request per second timing time series.
     fn rps(&self) -> Vec<Timing>;
-
+    /// Timing length time series.
     fn full_timings(&self) -> Vec<Timing>;
 
     fn precisions(&self) -> Vec<f32> {
         vec![]
     }
+
+    fn get_batch_size(&self) -> usize;
 }
