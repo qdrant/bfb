@@ -8,6 +8,8 @@ pub enum QuantizationArg {
     #[default]
     None,
     Binary,
+    Binary2bit,
+    Binary1p5bit,
     Scalar,
     ProductX4,
     ProductX8,

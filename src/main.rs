@@ -14,10 +14,10 @@ use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
-    BinaryQuantizationBuilder, BoolIndexParamsBuilder, CollectionStatus, CompressionRatio,
-    CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, CreateShardKeyBuilder,
-    CreateShardKeyRequestBuilder, Datatype, DatetimeIndexParamsBuilder, Distance, FieldType,
-    FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
+    BinaryQuantizationBuilder, BinaryQuantizationEncoding, BoolIndexParamsBuilder,
+    CollectionStatus, CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
+    CreateShardKeyBuilder, CreateShardKeyRequestBuilder, Datatype, DatetimeIndexParamsBuilder,
+    Distance, FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
     KeywordIndexParamsBuilder, MultiVectorComparator, MultiVectorConfigBuilder,
     OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
     ScalarQuantizationBuilder, ScrollPointsBuilder, ShardingMethod, SparseIndexConfigBuilder,
@@ -268,6 +268,14 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
             QuantizationArg::Binary => create_collection_builder.quantization_config(
                 BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default()),
             ),
+            QuantizationArg::Binary2bit => create_collection_builder.quantization_config(
+                BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default())
+                    .encoding(BinaryQuantizationEncoding::TwoBits),
+            ),
+            QuantizationArg::Binary1p5bit => create_collection_builder.quantization_config(
+                BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default())
+                    .encoding(BinaryQuantizationEncoding::OneAndHalfBits),
+            ),
             quantization => {
                 let compression = match quantization {
                     QuantizationArg::ProductX4 => CompressionRatio::X4,
@@ -275,7 +283,11 @@ async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Result<()
                     QuantizationArg::ProductX16 => CompressionRatio::X16,
                     QuantizationArg::ProductX32 => CompressionRatio::X32,
                     QuantizationArg::ProductX64 => CompressionRatio::X64,
-                    QuantizationArg::Scalar | QuantizationArg::Binary | QuantizationArg::None => {
+                    QuantizationArg::Scalar
+                    | QuantizationArg::Binary
+                    | QuantizationArg::Binary2bit
+                    | QuantizationArg::Binary1p5bit
+                    | QuantizationArg::None => {
                         unreachable!()
                     }
                 };
