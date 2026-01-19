@@ -33,7 +33,7 @@ Options:
   -b, --batch-size <POINTS>
           Batch size for updates, in number of points. [default=100] [default: 100]
       --search-batch-size <QUERIES>
-          Batch size for searches, in number of queries per batch. [default: 1]
+          Batch size for searches, in number of queries per batch [default: 1]
   -T, --throttle <RPS>
           Throttle updates and searches, in batches/searches per second. [default=no throttling]
       --skip-create
@@ -128,6 +128,8 @@ Options:
           `hnsw_ef` parameter used during search
       --search-with-payload
           Whether to request payload in search results
+      --search-with-vectors
+          Whether to request vectors in search results
       --wait-on-upsert
           Wait on upsert
       --replication-factor <REPLICATION_FACTOR>
@@ -149,7 +151,7 @@ Options:
       --ignore-errors
           Keep going on search error
       --quantization <QUANTIZATION>
-          [possible values: none, binary, scalar, product-x4, product-x8, product-x16, product-x32, product-x64]
+          [possible values: none, binary, binary2bit, binary1p5bit, scalar, product-x4, product-x8, product-x16, product-x32, product-x64]
       --quantization-in-ram <QUANTIZATION_IN_RAM>
           Keep quantized vectors in memory [possible values: true, false]
       --quantization-rescore <QUANTIZATION_RESCORE>
