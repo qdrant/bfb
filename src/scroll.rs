@@ -73,7 +73,8 @@ impl ScrollProcessor {
 
         let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())
             .limit(self.args.search_limit as u32)
-            .with_payload(self.args.search_with_payload);
+            .with_payload(self.args.search_with_payload)
+            .with_vectors(self.args.search_with_vectors);
 
         if let Some(filter) = query_filter {
             request_builder = request_builder.filter(filter);

@@ -110,6 +110,7 @@ impl SearchProcessor {
             // query_vector,
         )
         .with_payload(self.args.search_with_payload)
+        .with_vectors(self.args.search_with_vectors)
         .limit(self.args.search_limit as u64);
 
         if let Some(vector_name) = vector_name {

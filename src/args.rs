@@ -262,6 +262,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub search_with_payload: bool,
 
+    /// Whether to request vectors in search results
+    #[clap(long, default_value_t = false)]
+    pub search_with_vectors: bool,
+
     /// Wait on upsert
     #[clap(long, default_value_t = false)]
     pub wait_on_upsert: bool,
