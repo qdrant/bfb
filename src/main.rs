@@ -519,7 +519,15 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     // Use RPS mode if --rps is set, otherwise use parallel mode
     if let Some(target_rps) = args.rps {
-        upload_with_rps(args, stopped.clone(), &upserter, &sent_bar_arc, num_batches, target_rps).await?;
+        upload_with_rps(
+            args,
+            stopped.clone(),
+            &upserter,
+            &sent_bar_arc,
+            num_batches,
+            target_rps,
+        )
+        .await?;
     } else {
         upload_with_parallel(args, stopped.clone(), &upserter, &sent_bar_arc, num_batches).await?;
     }
@@ -678,7 +686,11 @@ fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_perce
     println!("Max {metric_name}: {max_time}");
 }
 
-async fn process<P: Processor + Sync>(args: &Args, stopped: Arc<AtomicBool>, processor: P) -> Result<()> {
+async fn process<P: Processor + Sync>(
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+    processor: P,
+) -> Result<()> {
     let batch_size = processor.get_batch_size();
     let batch_count = args.num_vectors.div_ceil(batch_size);
 
@@ -694,9 +706,26 @@ async fn process<P: Processor + Sync>(args: &Args, stopped: Arc<AtomicBool>, pro
 
     // Use RPS mode if --rps is set, otherwise use parallel mode
     if let Some(target_rps) = args.rps {
-        process_with_rps(args, stopped.clone(), &processor, &progress_bar, batch_count, batch_size, target_rps).await?;
+        process_with_rps(
+            args,
+            stopped.clone(),
+            &processor,
+            &progress_bar,
+            batch_count,
+            batch_size,
+            target_rps,
+        )
+        .await?;
     } else {
-        process_with_parallel(args, stopped.clone(), &processor, &progress_bar, batch_count, batch_size).await?;
+        process_with_parallel(
+            args,
+            stopped.clone(),
+            &processor,
+            &progress_bar,
+            batch_count,
+            batch_size,
+        )
+        .await?;
     }
 
     if stopped.load(Ordering::Relaxed) {
