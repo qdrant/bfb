@@ -5,9 +5,9 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 
-use crate::common::{DEFAULT_VOCAB_SIZE, Timing, retry_with_clients};
+use crate::args::Args;
+use crate::common::{DEFAULT_VOCAB_SIZE, Timing, random_filter, retry_with_clients};
 use crate::processor::Processor;
-use crate::{Args, random_filter};
 
 pub struct ScrollProcessor {
     args: Args,
