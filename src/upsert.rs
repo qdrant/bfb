@@ -17,10 +17,12 @@ use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::common::{Timing, random_sparse_vector, random_vector, retry_with_clients};
+use crate::args::Args;
+use crate::common::{
+    Timing, random_payload, random_sparse_vector, random_vector, retry_with_clients,
+};
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
-use crate::{Args, random_payload};
 
 fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError + use<'_> {
     move |e| {
