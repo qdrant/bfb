@@ -58,9 +58,15 @@ pub struct Args {
     #[clap(short, long, default_value_t = 2, value_parser = parse_number)]
     pub threads: usize,
 
-    /// Number of parallel requests to send
+    /// Number of parallel requests to send (ignored when --rps is set)
     #[clap(short, long, default_value_t = 2, value_parser = parse_number)]
     pub parallel: usize,
+
+    /// Target requests per second. When set, requests are sent at a fixed rate
+    /// regardless of how many are currently in-flight (simulates real user traffic).
+    /// This overrides --parallel for concurrency control.
+    #[clap(long, value_name = "RATE")]
+    pub rps: Option<f64>,
 
     /// Number of connections to open from the client to the server
     #[clap(short, long, default_value_t = 1, value_parser = parse_number)]

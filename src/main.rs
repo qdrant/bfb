@@ -512,6 +512,45 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let num_batches = args.num_vectors.div_ceil(args.batch_size);
 
+    if stopped.load(Ordering::Relaxed) {
+        sent_bar_arc.abandon();
+        return Ok(());
+    }
+
+    // Use RPS mode if --rps is set, otherwise use parallel mode
+    if let Some(target_rps) = args.rps {
+        upload_with_rps(
+            args,
+            stopped.clone(),
+            &upserter,
+            &sent_bar_arc,
+            num_batches,
+            target_rps,
+        )
+        .await?;
+    } else {
+        upload_with_parallel(args, stopped.clone(), &upserter, &sent_bar_arc, num_batches).await?;
+    }
+
+    if stopped.load(Ordering::Relaxed) {
+        sent_bar_arc.abandon();
+    } else {
+        sent_bar_arc.finish();
+    }
+
+    upserter.save_data().await;
+
+    Ok(())
+}
+
+/// Upload data using fixed parallelism (original behavior)
+async fn upload_with_parallel(
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+    upserter: &UpsertProcessor,
+    sent_bar_arc: &Arc<ProgressBar>,
+    num_batches: usize,
+) -> Result<()> {
     let query_stream = (0..num_batches)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
@@ -520,23 +559,84 @@ async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
             future
         });
 
-    if stopped.load(Ordering::Relaxed) {
-        sent_bar_arc.abandon();
-        return Ok(());
-    }
-
     let mut throttler = throttler(args.throttle);
     let mut upsert_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
     while let (Some(()), Some(result)) = { join!(throttler.next(), upsert_stream.next()) } {
         result?;
     }
-    if stopped.load(Ordering::Relaxed) {
-        sent_bar_arc.abandon();
-    } else {
-        sent_bar_arc.finish();
+    Ok(())
+}
+
+/// Upload data at a fixed rate (RPS mode)
+async fn upload_with_rps(
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+    upserter: &UpsertProcessor,
+    sent_bar_arc: &Arc<ProgressBar>,
+    num_batches: usize,
+    target_rps: f64,
+) -> Result<()> {
+    use futures::stream::FuturesUnordered;
+
+    let interval_duration = Duration::from_secs_f64(1.0 / target_rps);
+    let mut interval = tokio::time::interval(interval_duration);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
+    let mut batches_sent = 0usize;
+    let mut first_error: Option<anyhow::Error> = None;
+
+    loop {
+        if stopped.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let all_sent = batches_sent >= num_batches;
+
+        if all_sent && in_flight.is_empty() {
+            break;
+        }
+
+        tokio::select! {
+            _ = interval.tick(), if !all_sent => {
+                if stopped.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                let batch_id = batches_sent;
+                batches_sent += 1;
+                sent_bar_arc.inc(args.batch_size as u64);
+
+                let future = upserter.upsert(batch_id, args);
+                in_flight.push(future);
+            }
+            Some(Err(err)) = in_flight.next(), if !in_flight.is_empty() => {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                    break;
+                }
+            }
+            else => {
+                if let Some(Err(err)) = in_flight.next().await
+                    && first_error.is_none()
+                {
+                    first_error = Some(err);
+                    break;
+                }
+            }
+        }
     }
 
-    upserter.save_data().await;
+    // Drain remaining in-flight requests
+    while let Some(Err(err)) = in_flight.next().await {
+        if first_error.is_none() {
+            first_error = Some(err);
+        }
+    }
+
+    if let Some(err) = first_error {
+        return Err(err);
+    }
 
     Ok(())
 }
@@ -586,7 +686,11 @@ fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_perce
     println!("Max {metric_name}: {max_time}");
 }
 
-async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor: P) -> Result<()> {
+async fn process<P: Processor + Sync>(
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+    processor: P,
+) -> Result<()> {
     let batch_size = processor.get_batch_size();
     let batch_count = args.num_vectors.div_ceil(batch_size);
 
@@ -600,28 +704,28 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
     let draw_target = ProgressDrawTarget::stdout_with_hz(2);
     progress_bar.set_draw_target(draw_target);
 
-    let query_stream = (0..batch_count)
-        .take_while(|_| !stopped.load(Ordering::Relaxed))
-        .map(|n| {
-            let future = processor.make_request(n, args, &progress_bar);
-            progress_bar.inc(batch_size as u64);
-            future
-        });
-
-    let mut throttler = throttler(args.throttle);
-    let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
-    while let (Some(()), Some(result)) = { join!(throttler.next(), search_stream.next()) } {
-        // Continue with no error
-        let err = match result {
-            Ok(()) => continue,
-            Err(err) => err,
-        };
-
-        if args.ignore_errors {
-            progress_bar.println(format!("Error: {err}"));
-        } else {
-            return Err(err);
-        }
+    // Use RPS mode if --rps is set, otherwise use parallel mode
+    if let Some(target_rps) = args.rps {
+        process_with_rps(
+            args,
+            stopped.clone(),
+            &processor,
+            &progress_bar,
+            batch_count,
+            batch_size,
+            target_rps,
+        )
+        .await?;
+    } else {
+        process_with_parallel(
+            args,
+            stopped.clone(),
+            &processor,
+            &progress_bar,
+            batch_count,
+            batch_size,
+        )
+        .await?;
     }
 
     if stopped.load(Ordering::Relaxed) {
@@ -686,6 +790,130 @@ async fn process<P: Processor>(args: &Args, stopped: Arc<AtomicBool>, processor:
             processor.start_timestamp_millis(),
             "request_rps",
         )?;
+    }
+
+    Ok(())
+}
+
+/// Process requests using fixed parallelism (original behavior)
+async fn process_with_parallel<P: Processor>(
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+    processor: &P,
+    progress_bar: &ProgressBar,
+    batch_count: usize,
+    batch_size: usize,
+) -> Result<()> {
+    let query_stream = (0..batch_count)
+        .take_while(|_| !stopped.load(Ordering::Relaxed))
+        .map(|n| {
+            let future = processor.make_request(n, args, progress_bar);
+            progress_bar.inc(batch_size as u64);
+            future
+        });
+
+    let mut throttler = throttler(args.throttle);
+    let mut search_stream = futures::stream::iter(query_stream).buffer_unordered(args.parallel);
+    while let (Some(()), Some(result)) = { join!(throttler.next(), search_stream.next()) } {
+        // Continue with no error
+        let err = match result {
+            Ok(()) => continue,
+            Err(err) => err,
+        };
+
+        if args.ignore_errors {
+            progress_bar.println(format!("Error: {err}"));
+        } else {
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
+/// Process requests at a fixed rate (RPS mode)
+/// Spawns requests at regular intervals regardless of how many are in-flight.
+async fn process_with_rps<P: Processor + Sync>(
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+    processor: &P,
+    progress_bar: &ProgressBar,
+    batch_count: usize,
+    batch_size: usize,
+    target_rps: f64,
+) -> Result<()> {
+    use futures::stream::FuturesUnordered;
+
+    let interval_duration = Duration::from_secs_f64(1.0 / target_rps);
+    let mut interval = tokio::time::interval(interval_duration);
+    // Don't burst if we fall behind - skip missed ticks
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
+    let mut requests_sent = 0usize;
+    let mut first_error: Option<anyhow::Error> = None;
+
+    loop {
+        if stopped.load(Ordering::Relaxed) {
+            break;
+        }
+
+        // Check if we've sent all requests
+        let all_sent = requests_sent >= batch_count;
+
+        if all_sent && in_flight.is_empty() {
+            // All done
+            break;
+        }
+
+        tokio::select! {
+            // Wait for next interval tick to send a new request
+            _ = interval.tick(), if !all_sent => {
+                if stopped.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                let req_id = requests_sent;
+                requests_sent += 1;
+                progress_bar.inc(batch_size as u64);
+
+                let future = processor.make_request(req_id, args, progress_bar);
+                in_flight.push(future);
+            }
+            // Process completed requests
+            Some(Err(err)) = in_flight.next(), if !in_flight.is_empty() => {
+                if args.ignore_errors {
+                    progress_bar.println(format!("Error: {err}"));
+                } else if first_error.is_none() {
+                    first_error = Some(err);
+                    // Stop sending new requests on error
+                    break;
+                }
+            }
+            else => {
+                // If both branches are disabled, we need to wait for in_flight
+                if let Some(Err(err)) = in_flight.next().await {
+                    if args.ignore_errors {
+                        progress_bar.println(format!("Error: {err}"));
+                    } else if first_error.is_none() {
+                        first_error = Some(err);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Drain remaining in-flight requests
+    while let Some(Err(err)) = in_flight.next().await {
+        if args.ignore_errors {
+            progress_bar.println(format!("Error: {err}"));
+        } else if first_error.is_none() {
+            first_error = Some(err);
+        }
+    }
+
+    if let Some(err) = first_error {
+        return Err(err);
     }
 
     Ok(())
