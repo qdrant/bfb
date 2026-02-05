@@ -78,7 +78,7 @@ pub async fn process<P: Processor + Sync>(
     progress_bar.set_draw_target(draw_target);
 
     // Use RPS mode if --rps is set, otherwise use parallel mode
-    if let Some(target_rps) = args.rps {
+    let res = if let Some(target_rps) = args.rps {
         process_with_rps(
             args,
             stopped.clone(),
@@ -88,7 +88,7 @@ pub async fn process<P: Processor + Sync>(
             batch_size,
             target_rps,
         )
-        .await?;
+        .await
     } else {
         process_with_parallel(
             args,
@@ -98,8 +98,8 @@ pub async fn process<P: Processor + Sync>(
             batch_count,
             batch_size,
         )
-        .await?;
-    }
+        .await
+    };
 
     if stopped.load(Ordering::Relaxed) {
         progress_bar.abandon();
@@ -108,6 +108,12 @@ pub async fn process<P: Processor + Sync>(
     }
 
     let mut full_timings = processor.full_timings();
+
+    // Don't print stats if we didn't execute at least one request.
+    if res.is_err() && full_timings.is_empty() {
+        return Err(res.err().unwrap());
+    }
+
     println!("--- Request timings ---");
     print_stats(args, &mut full_timings, "request time", true);
     let mut server_timings = processor.server_timings();
@@ -133,10 +139,18 @@ pub async fn process<P: Processor + Sync>(
         println!("Median precision@10: {p50_time}");
     }
 
-    if args.json.is_some() {
+    // Include details of slow requests.
+    if args.measure_slow_requests {
+        println!("--- Slow requests ---");
+        let mut slow_requests = processor.slow_requests();
+        println!("Total: {}", slow_requests.len());
+        print_stats(args, &mut slow_requests, "slow request time", true);
+    }
+
+    if let Some(json_path) = &args.json {
         println!("--- Writing results to json file ---");
         write_to_json(
-            args.json.as_ref().unwrap(),
+            json_path,
             SearcherResults {
                 server_timings: server_timings.iter().map(|x| x.value).collect(),
                 rps: rps.iter().map(|x| x.value).collect(),
@@ -164,6 +178,9 @@ pub async fn process<P: Processor + Sync>(
             "request_rps",
         )?;
     }
+
+    // Don't ignore the error if occurred.
+    res?;
 
     Ok(())
 }

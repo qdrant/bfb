@@ -27,4 +27,6 @@ pub trait Processor {
     }
 
     fn get_batch_size(&self) -> usize;
+
+    fn slow_requests(&self) -> Vec<Timing>;
 }

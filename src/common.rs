@@ -44,7 +44,7 @@ const GEO_RADIUS_METERS_MAX: f64 = 50000.0;
 
 const BOOL_TRUE_RATIO: f64 = 0.7;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Timing {
     pub delay_millis: f64, // milliseconds
     pub value: f64,
