@@ -95,8 +95,12 @@ fn main() {
         .enable_all()
         .build();
 
-    runtime
+    let res = runtime
         .unwrap()
-        .block_on(run_benchmark(args, stopped))
-        .unwrap();
+        .block_on(run_benchmark(args, stopped.clone()));
+
+    if let Err(err) = res {
+        stopped.store(true, Ordering::SeqCst);
+        println!("\n=> Bfb exited early because of an error:\n{err:?}");
+    }
 }

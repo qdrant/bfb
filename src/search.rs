@@ -24,16 +24,17 @@ struct SearchStats {
     rps: Vec<Timing>,
     full_timings: Vec<Timing>,
     precisions: Vec<f32>,
+    slow_request_timings: Vec<Timing>,
 }
 
 pub struct SearchProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     clients: Vec<Qdrant>,
-    pub start_timestamp_millis: f64,
+    start_timestamp_millis: f64,
     start_time: std::time::Instant,
     stats: Mutex<SearchStats>,
-    pub uuids: Vec<String>,
+    uuids: Vec<String>,
 }
 
 impl SearchProcessor {
@@ -248,7 +249,8 @@ impl SearchProcessor {
             value: elapsed,
         };
 
-        if res_batch.time > self.args.timing_threshold {
+        let slow_request = res_batch.time > self.args.timing_threshold;
+        if slow_request {
             progress_bar.println(format!("Slow search: {:?}", res_batch.time));
         }
 
@@ -274,6 +276,9 @@ impl SearchProcessor {
             stats_guard.qps.push(qps_timing);
             stats_guard.rps.push(rps_timing);
             stats_guard.full_timings.push(full_timing);
+            if slow_request {
+                stats_guard.slow_request_timings.push(server_timing);
+            }
         }
 
         if let Some(delay_millis) = self.args.delay {
@@ -399,5 +404,9 @@ impl Processor for SearchProcessor {
 
     fn get_batch_size(&self) -> usize {
         self.args.search_batch_size
+    }
+
+    fn slow_requests(&self) -> Vec<Timing> {
+        self.stats.lock().unwrap().slow_request_timings.clone()
     }
 }

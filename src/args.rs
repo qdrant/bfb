@@ -181,6 +181,10 @@ pub struct Args {
     #[clap(long, default_value_t = 0.1)]
     pub timing_threshold: f64,
 
+    /// Include stats of slow requests in the final report.
+    #[clap(long, default_value_t = false)]
+    pub measure_slow_requests: bool,
+
     /// Use UUIDs instead of sequential ids
     #[clap(long, default_value_t = false)]
     pub uuids: bool,

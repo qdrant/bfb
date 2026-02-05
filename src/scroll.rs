@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use indicatif::ProgressBar;
@@ -13,12 +13,18 @@ pub struct ScrollProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     clients: Vec<Qdrant>,
-    pub start_timestamp_millis: f64,
+    start_timestamp_millis: f64,
     start_time: std::time::Instant,
-    pub server_timings: Mutex<Vec<Timing>>,
-    pub rps: Mutex<Vec<Timing>>,
-    pub full_timings: Mutex<Vec<Timing>>,
-    pub uuids: Vec<String>,
+    uuids: Vec<String>,
+    stats: Mutex<ScrollStats>,
+}
+
+#[derive(Default)]
+pub struct ScrollStats {
+    server_timings: Vec<Timing>,
+    rps: Vec<Timing>,
+    full_timings: Vec<Timing>,
+    slow_scroll: Vec<Timing>,
 }
 
 impl ScrollProcessor {
@@ -37,10 +43,8 @@ impl ScrollProcessor {
                 .unwrap()
                 .as_millis() as f64,
             start_time: std::time::Instant::now(),
-            server_timings: Mutex::new(Vec::new()),
-            rps: Mutex::new(Vec::new()),
-            full_timings: Mutex::new(Vec::new()),
             uuids,
+            stats: Mutex::new(ScrollStats::default()),
         }
     }
 
@@ -50,7 +54,7 @@ impl ScrollProcessor {
         args: &Args,
         progress_bar: &ProgressBar,
     ) -> Result<(), anyhow::Error> {
-        if self.stopped.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.stopped.load(Ordering::Relaxed) {
             return Ok(());
         }
 
@@ -95,9 +99,13 @@ impl ScrollProcessor {
             value: elapsed,
         };
 
-        self.full_timings.lock().unwrap().push(full_timing);
+        let server_timing = Timing {
+            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            value: res.time,
+        };
 
-        if res.time > self.args.timing_threshold {
+        let slow_request = res.time > self.args.timing_threshold;
+        if slow_request {
             progress_bar.println(format!("Slow scroll: {:?}", res.time));
         }
 
@@ -109,18 +117,22 @@ impl ScrollProcessor {
             ));
         }
 
-        let server_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
-            value: res.time,
-        };
-
         let rps_timing = Timing {
             delay_millis: self.start_time.elapsed().as_millis() as f64,
             value: progress_bar.per_sec(),
         };
 
-        self.server_timings.lock().unwrap().push(server_timing);
-        self.rps.lock().unwrap().push(rps_timing);
+        // Update stats all at once
+        {
+            let mut stats = self.stats.lock().unwrap();
+            stats.full_timings.push(full_timing);
+            stats.server_timings.push(server_timing);
+            stats.rps.push(rps_timing);
+
+            if slow_request {
+                stats.slow_scroll.push(server_timing);
+            }
+        }
 
         if let Some(delay_millis) = self.args.delay {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
@@ -145,23 +157,27 @@ impl Processor for ScrollProcessor {
     }
 
     fn server_timings(&self) -> Vec<Timing> {
-        self.server_timings.lock().unwrap().clone()
+        self.stats.lock().unwrap().server_timings.clone()
     }
 
     fn qps(&self) -> Vec<Timing> {
-        self.rps.lock().unwrap().clone()
+        self.stats.lock().unwrap().rps.clone()
     }
 
     fn rps(&self) -> Vec<Timing> {
         // for requests without batching, qps = rps
-        self.rps.lock().unwrap().clone()
+        self.stats.lock().unwrap().rps.clone()
     }
 
     fn full_timings(&self) -> Vec<Timing> {
-        self.full_timings.lock().unwrap().clone()
+        self.stats.lock().unwrap().full_timings.clone()
     }
 
     fn get_batch_size(&self) -> usize {
         1 // No batching for scroll.
+    }
+
+    fn slow_requests(&self) -> Vec<Timing> {
+        self.stats.lock().unwrap().slow_scroll.clone()
     }
 }
