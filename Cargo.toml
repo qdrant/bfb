@@ -28,3 +28,7 @@ uuid = { version = "1.18.1", features = ["serde", "v4"] }
 env_logger = "0.11.8"
 indicatif-log-bridge = "0.2.3"
 tracing = { version = "0.1.41", features = ["log"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
