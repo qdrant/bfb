@@ -127,16 +127,16 @@ pub async fn process<P: Processor + Sync>(
         let avg_precision = precisions.iter().sum::<f32>() / precisions.len() as f32;
         println!("Avg precision@10: {avg_precision}");
 
-        let mut sorted_precisions = precisions.clone();
+        let mut sorted_precisions = precisions;
         sorted_precisions.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
         let p50_time = sorted_precisions[(sorted_precisions.len() as f32 * 0.50) as usize];
         println!("Median precision@10: {p50_time}");
     }
 
-    if args.json.is_some() {
+    if let Some(json) = args.json.as_ref() {
         println!("--- Writing results to json file ---");
         write_to_json(
-            args.json.as_ref().unwrap(),
+            json,
             SearcherResults {
                 server_timings: server_timings.iter().map(|x| x.value).collect(),
                 rps: rps.iter().map(|x| x.value).collect(),
