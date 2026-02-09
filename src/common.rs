@@ -11,7 +11,7 @@ use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::distr::Distribution;
 use rand::prelude::SliceRandom;
 use rand::seq::IndexedRandom;
-use rand::{Rng, rng};
+use rand::Rng;
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::interval;
@@ -50,13 +50,11 @@ pub struct Timing {
     pub value: f64,
 }
 
-pub fn random_text(num_words: usize, vocab_size: usize) -> String {
-    let mut rng = rand::rng();
-
+pub fn random_text(rng: &mut impl Rng, num_words: usize, vocab_size: usize) -> String {
     let zipf = rand_distr::Zipf::new(f64::from(vocab_size as u32), 1.03).unwrap();
 
     let zipf_distributed_words: Vec<usize> = (0..num_words)
-        .map(|_| zipf.sample(&mut rng) as usize)
+        .map(|_| zipf.sample(rng) as usize)
         .collect();
 
     let words: Vec<_> = zipf_distributed_words
@@ -67,14 +65,12 @@ pub fn random_text(num_words: usize, vocab_size: usize) -> String {
     words.join(" ")
 }
 
-pub fn random_keyword(num_variants: usize) -> String {
-    let mut rng = rand::rng();
+pub fn random_keyword(rng: &mut impl Rng, num_variants: usize) -> String {
     let variant = rng.random_range(0..num_variants);
     format!("keyword_{variant}")
 }
 
-fn random_geo_point() -> GeoPoint {
-    let mut rng = rand::rng();
+fn random_geo_point(rng: &mut impl Rng,) -> GeoPoint {
     GeoPoint {
         lat: BERLIN.lat + rng.random_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
         lon: BERLIN.lon + rng.random_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
@@ -93,24 +89,25 @@ fn estimated_payload_size(args: &Args) -> usize {
 }
 
 pub fn random_payload(args: &Args) -> Payload {
+    let mut rng = rand::rng();
     let payload_size = estimated_payload_size(args);
     let mut payload = Payload::with_capacity(payload_size);
 
     for (idx, variants) in args.keywords.iter().enumerate() {
         let payload_name = keyword_payload_name(idx);
         if args.max_keywords == 1 {
-            payload.insert(payload_name, random_keyword(*variants));
+            payload.insert(payload_name, random_keyword(&mut rng, *variants));
         } else {
-            let count = rand::rng().random_range(1..=args.max_keywords);
+            let count = rng.random_range(1..=args.max_keywords);
             let values = (0..count)
-                .map(|_| random_keyword(*variants))
+                .map(|_| random_keyword(&mut rng, *variants))
                 .collect::<Vec<_>>();
             payload.insert(payload_name, values);
         }
     }
 
     for (idx, _) in args.float_payloads.iter().enumerate() {
-        let value = rand::rng().random_range(-1.0..1.0);
+        let value = rng.random_range(-1.0..1.0);
         payload.insert(float_payload_name(idx), value);
     }
 
@@ -118,12 +115,12 @@ pub fn random_payload(args: &Args) -> Payload {
         let payload_name = int_payload_name(idx);
 
         if args.max_int_payloads == 1 {
-            let value = rand::rng().random_range(0..*integer_range);
+            let value = rng.random_range(0..*integer_range);
             payload.insert(payload_name, value as i64);
         } else {
-            let count = rand::rng().random_range(1..=args.max_int_payloads);
+            let count = rng.random_range(1..=args.max_int_payloads);
             let values = (0..count)
-                .map(|_| rand::rng().random_range(0..*integer_range) as i64)
+                .map(|_| rng.random_range(0..*integer_range) as i64)
                 .collect::<Vec<_>>();
             payload.insert(payload_name, values);
         }
@@ -139,7 +136,7 @@ pub fn random_payload(args: &Args) -> Payload {
     }
 
     if args.geo_payloads {
-        let point = random_geo_point();
+        let point = random_geo_point(&mut rng);
 
         payload.insert(
             GEO_PAYLOAD_KEY,
@@ -152,11 +149,12 @@ pub fn random_payload(args: &Args) -> Payload {
     }
 
     if args.bool_payloads {
-        payload.insert(BOOL_PAYLOAD_KEY, rand::rng().random_bool(BOOL_TRUE_RATIO));
+        payload.insert(BOOL_PAYLOAD_KEY, rng.random_bool(BOOL_TRUE_RATIO));
     }
 
     if args.text_payloads {
         let text = random_text(
+            &mut rng,
             args.text_payload_length.unwrap_or(16),
             args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE),
         );
@@ -178,6 +176,7 @@ pub fn random_filter(
     bool_payloads: bool,
     text_payloads_vocab: Option<usize>,
 ) -> Option<Filter> {
+    let mut rng = rand::rng();
     let mut filter = Filter {
         should: vec![],
         must: vec![],
@@ -188,16 +187,16 @@ pub fn random_filter(
 
     if !keywords.is_empty() {
         // Pick a random keyword payload filter.
-        let keyword_index_pos = rand::rng().random_range(0..keywords.len());
+        let keyword_index_pos = rng.random_range(0..keywords.len());
         let keyword_variants = keywords[keyword_index_pos];
 
         let condition = if let Some(match_any) = match_any {
             let strings = (0..match_any)
-                .map(|_| random_keyword(keyword_variants))
+                .map(|_| random_keyword(&mut rng, keyword_variants))
                 .collect();
             MatchValue::Keywords(RepeatedStrings { strings })
         } else {
-            MatchValue::Keyword(random_keyword(keyword_variants))
+            MatchValue::Keyword(random_keyword(&mut rng, keyword_variants))
         };
 
         have_any = true;
@@ -210,7 +209,7 @@ pub fn random_filter(
     if !float_payloads.is_empty() {
         have_any = true;
 
-        let integer_index_pos = rand::rng().random_range(0..float_payloads.len());
+        let integer_index_pos = rng.random_range(0..float_payloads.len());
         filter.must.push(Condition::range(
             float_payload_name(integer_index_pos),
             Range {
@@ -225,10 +224,10 @@ pub fn random_filter(
     if !integer_payload.is_empty() {
         have_any = true;
 
-        let integer_index_pos = rand::rng().random_range(0..integer_payload.len());
+        let integer_index_pos = rng.random_range(0..integer_payload.len());
         let int_range = integer_payload[integer_index_pos];
 
-        let rand_int = rand::rng().random_range(0..int_range);
+        let rand_int = rng.random_range(0..int_range);
         filter.must.push(Condition::range(
             int_payload_name(integer_index_pos),
             Range {
@@ -242,7 +241,6 @@ pub fn random_filter(
 
     if !uuids.is_empty() {
         have_any = true;
-        let mut rng = rng();
         let random = uuids.choose(&mut rng).unwrap();
         filter
             .must
@@ -251,11 +249,11 @@ pub fn random_filter(
 
     if geo_payloads {
         have_any = true;
-        let radius = rand::rng().random_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
+        let radius = rng.random_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
         filter.must.push(Condition::geo_radius(
             GEO_PAYLOAD_KEY,
             GeoRadius {
-                center: Some(random_geo_point()),
+                center: Some(random_geo_point(&mut rng)),
                 radius: radius as f32,
             },
         ))
@@ -265,7 +263,7 @@ pub fn random_filter(
         have_any = true;
         filter.must.push(Condition::matches(
             BOOL_PAYLOAD_KEY,
-            rand::rng().random_bool(BOOL_TRUE_RATIO),
+            rng.random_bool(BOOL_TRUE_RATIO),
         ))
     }
 
@@ -273,7 +271,7 @@ pub fn random_filter(
         have_any = true;
         filter.must.push(Condition::matches_text(
             TEXT_PAYLOAD_KEY,
-            random_text(2, vocab_size),
+            random_text(&mut rng, 2, vocab_size),
         ))
     }
 
@@ -335,11 +333,12 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R,
     args: &Args,
     mut call: impl FnMut(&'a Qdrant) -> T,
 ) -> anyhow::Result<R> {
+    let mut rng = rand::rng();
     let mut permutation = (0..clients.len()).collect::<Vec<_>>();
     let mut previous_err: Option<Error> = None;
 
     for attempt in 0..=args.retries {
-        permutation.shuffle(&mut rand::rng());
+        permutation.shuffle(&mut rng);
         for client_id in &permutation {
             let client = clients.get(*client_id).unwrap();
 
