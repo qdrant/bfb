@@ -68,6 +68,7 @@ impl SearchProcessor {
             (0..self.args.search_batch_size)
                 .map(|_| {
                     let sparse_vector_tuples = random_sparse_vector(
+                        rng,
                         self.args.sparse_dim.unwrap_or(self.args.dim),
                         sparsity,
                     );
@@ -93,7 +94,7 @@ impl SearchProcessor {
         (0..self.args.search_batch_size)
             .map(|_| {
                 (
-                    random_dense_vector(self.args.dim, false),
+                    random_dense_vector(rng, self.args.dim, false),
                     None,
                     name.clone(),
                 )
