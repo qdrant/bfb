@@ -88,19 +88,18 @@ fn estimated_payload_size(args: &Args) -> usize {
         + args.text_payloads as usize
 }
 
-pub fn random_payload(args: &Args) -> Payload {
-    let mut rng = rand::rng();
+pub fn random_payload(rng: &mut impl Rng, args: &Args) -> Payload {
     let payload_size = estimated_payload_size(args);
     let mut payload = Payload::with_capacity(payload_size);
 
     for (idx, variants) in args.keywords.iter().enumerate() {
         let payload_name = keyword_payload_name(idx);
         if args.max_keywords == 1 {
-            payload.insert(payload_name, random_keyword(&mut rng, *variants));
+            payload.insert(payload_name, random_keyword(rng, *variants));
         } else {
             let count = rng.random_range(1..=args.max_keywords);
             let values = (0..count)
-                .map(|_| random_keyword(&mut rng, *variants))
+                .map(|_| random_keyword(rng, *variants))
                 .collect::<Vec<_>>();
             payload.insert(payload_name, values);
         }
@@ -136,7 +135,7 @@ pub fn random_payload(args: &Args) -> Payload {
     }
 
     if args.geo_payloads {
-        let point = random_geo_point(&mut rng);
+        let point = random_geo_point(rng);
 
         payload.insert(
             GEO_PAYLOAD_KEY,
@@ -154,7 +153,7 @@ pub fn random_payload(args: &Args) -> Payload {
 
     if args.text_payloads {
         let text = random_text(
-            &mut rng,
+            rng,
             args.text_payload_length.unwrap_or(16),
             args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE),
         );

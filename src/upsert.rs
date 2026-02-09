@@ -158,7 +158,7 @@ impl UpsertProcessor {
             points.push(PointStruct::new(
                 point_id,
                 vectors,
-                random_payload(&self.args),
+                random_payload(&mut rng, &self.args),
             ));
         }
 
@@ -194,7 +194,7 @@ impl UpsertProcessor {
         if self.args.set_payload {
             let mut request_builder = SetPayloadPointsBuilder::new(
                 self.args.collection_name.clone(),
-                random_payload(&self.args),
+                random_payload(&mut rng, &self.args),
             )
             .points_selector(batch_ids)
             .wait(self.args.wait_on_upsert);
