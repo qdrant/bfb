@@ -19,7 +19,7 @@ pub fn get_config(args: &Args) -> Vec<QdrantConfig> {
     let mut configs = Vec::new();
 
     for _i in 0..args.connections {
-        for uri in args.uri.iter() {
+        for uri in &args.uri {
             let mut config = QdrantConfig::from_url(uri);
             let api_key = std::env::var("QDRANT_API_KEY").ok();
 
