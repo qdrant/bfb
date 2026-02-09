@@ -166,6 +166,7 @@ pub fn random_payload(rng: &mut impl Rng, args: &Args) -> Payload {
 
 #[allow(clippy::too_many_arguments)]
 pub fn random_filter(
+    rng: &mut impl Rng,
     keywords: &[usize],
     float_payloads: &[bool],
     integer_payload: &[usize],
@@ -175,7 +176,6 @@ pub fn random_filter(
     bool_payloads: bool,
     text_payloads_vocab: Option<usize>,
 ) -> Option<Filter> {
-    let mut rng = rand::rng();
     let mut filter = Filter {
         should: vec![],
         must: vec![],
@@ -191,11 +191,11 @@ pub fn random_filter(
 
         let condition = if let Some(match_any) = match_any {
             let strings = (0..match_any)
-                .map(|_| random_keyword(&mut rng, keyword_variants))
+                .map(|_| random_keyword(rng, keyword_variants))
                 .collect();
             MatchValue::Keywords(RepeatedStrings { strings })
         } else {
-            MatchValue::Keyword(random_keyword(&mut rng, keyword_variants))
+            MatchValue::Keyword(random_keyword(rng, keyword_variants))
         };
 
         have_any = true;
@@ -240,7 +240,7 @@ pub fn random_filter(
 
     if !uuids.is_empty() {
         have_any = true;
-        let random = uuids.choose(&mut rng).unwrap();
+        let random = uuids.choose(rng).unwrap();
         filter
             .must
             .push(Condition::matches(UUID_PAYLOAD_KEY, random.to_string()))
@@ -252,7 +252,7 @@ pub fn random_filter(
         filter.must.push(Condition::geo_radius(
             GEO_PAYLOAD_KEY,
             GeoRadius {
-                center: Some(random_geo_point(&mut rng)),
+                center: Some(random_geo_point(rng)),
                 radius: radius as f32,
             },
         ))
@@ -270,7 +270,7 @@ pub fn random_filter(
         have_any = true;
         filter.must.push(Condition::matches_text(
             TEXT_PAYLOAD_KEY,
-            random_text(&mut rng, 2, vocab_size),
+            random_text(rng, 2, vocab_size),
         ))
     }
 
@@ -322,8 +322,7 @@ pub fn random_dense_vector(dim: usize, is_uint: bool) -> Vec<f32> {
     }
 }
 
-pub fn random_vector_name(max: usize) -> String {
-    let mut rng = rand::rng();
+pub fn random_vector_name(rng: &mut impl Rng, max: usize) -> String {
     format!("{}", rng.random_range(0..max))
 }
 

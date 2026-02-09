@@ -12,6 +12,7 @@ use qdrant_client::qdrant::{
     QueryBatchPointsBuilder, QueryPointsBuilder, ScoredPoint, SearchParamsBuilder, SparseIndices,
     VectorInput,
 };
+use rand::Rng;
 
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
@@ -57,11 +58,11 @@ impl SearchProcessor {
         }
     }
 
-    fn get_sparse_queries(&self) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
+    fn get_sparse_queries(&self, rng: &mut impl Rng) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
         if let Some(sparsity) = self.args.sparse_vectors {
             let name = format!(
                 "{}_sparse",
-                random_vector_name(self.args.sparse_vectors_per_point)
+                random_vector_name(rng, self.args.sparse_vectors_per_point)
             );
 
             (0..self.args.search_batch_size)
@@ -81,9 +82,9 @@ impl SearchProcessor {
         }
     }
 
-    fn get_dense_queries(&self) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
+    fn get_dense_queries(&self, rng: &mut impl Rng) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
         let name = if self.args.vectors_per_point > 1 {
-            let name = random_vector_name(self.args.vectors_per_point);
+            let name = random_vector_name(rng, self.args.vectors_per_point);
             Some(name)
         } else {
             None
@@ -170,7 +171,7 @@ impl SearchProcessor {
         }
 
         let start = std::time::Instant::now();
-
+        let mut rng = rand::rng();
         let has_sparse = self.args.sparse_vectors.is_some();
         let has_dense = self.args.vectors_per_point > 0;
 
@@ -182,12 +183,13 @@ impl SearchProcessor {
         };
 
         let query_batch = if use_sparse {
-            self.get_sparse_queries()
+            self.get_sparse_queries(&mut rng)
         } else {
-            self.get_dense_queries()
+            self.get_dense_queries(&mut rng)
         };
 
         let query_filter = random_filter(
+            &mut rng,
             &self.args.keywords,
             &self.args.float_payloads,
             &self.args.int_payloads,
