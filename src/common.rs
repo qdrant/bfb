@@ -353,7 +353,7 @@ pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R,
         }
     }
 
-    Err(previous_err.unwrap_or(anyhow::anyhow!("No clients")))
+    Err(previous_err.unwrap_or_else(|| anyhow::anyhow!("No clients")))
 }
 
 /// Build a stream that will emit a unit value at the given frequency

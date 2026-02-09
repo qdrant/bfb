@@ -154,7 +154,7 @@ impl SearchProcessor {
             request_builder = request_builder.read_consistency(read_consistency);
         }
 
-        request_builder = request_builder.params(search_params.clone());
+        request_builder = request_builder.params(search_params);
 
         request_builder
     }
@@ -235,7 +235,7 @@ impl SearchProcessor {
         let batch_request_builder =
             QueryBatchPointsBuilder::new(self.args.collection_name.clone(), query_points.clone());
 
-        let request = batch_request_builder.clone().build();
+        let request = batch_request_builder.build();
         let res_batch = retry_with_clients(&self.clients, args, |client| {
             client.query_batch(request.clone())
         })
