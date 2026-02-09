@@ -176,7 +176,7 @@ impl SearchProcessor {
         let has_dense = self.args.vectors_per_point > 0;
 
         let use_sparse = match (has_sparse, has_dense) {
-            (true, true) => rand::random::<bool>(),
+            (true, true) => rng.random_bool(0.5),
             (true, false) => true,
             (false, true) => false,
             (false, false) => panic!("No sparse or dense vectors"),
