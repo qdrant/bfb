@@ -58,7 +58,10 @@ impl SearchProcessor {
         }
     }
 
-    fn get_sparse_queries(&self, rng: &mut impl Rng) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
+    fn get_sparse_queries(
+        &self,
+        rng: &mut impl Rng,
+    ) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
         if let Some(sparsity) = self.args.sparse_vectors {
             let name = format!(
                 "{}_sparse",
@@ -83,7 +86,10 @@ impl SearchProcessor {
         }
     }
 
-    fn get_dense_queries(&self, rng: &mut impl Rng) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
+    fn get_dense_queries(
+        &self,
+        rng: &mut impl Rng,
+    ) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
         let name = if self.args.vectors_per_point > 1 {
             let name = random_vector_name(rng, self.args.vectors_per_point);
             Some(name)
@@ -245,9 +251,10 @@ impl SearchProcessor {
         .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
+        let delay_millis = self.start_time.elapsed().as_millis() as f64;
 
         let full_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            delay_millis,
             value: elapsed,
         };
 
@@ -256,17 +263,17 @@ impl SearchProcessor {
         }
 
         let server_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            delay_millis,
             value: res_batch.time,
         };
 
         let qps_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            delay_millis,
             value: progress_bar.per_sec(),
         };
 
         let rps_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            delay_millis,
             value: progress_bar.per_sec() / (self.args.search_batch_size as f64),
         };
 
