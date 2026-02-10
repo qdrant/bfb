@@ -55,8 +55,9 @@ impl ScrollProcessor {
         }
 
         let start = std::time::Instant::now();
-
+        let mut rng = rand::rng();
         let query_filter = random_filter(
+            &mut rng,
             &self.args.keywords,
             &self.args.float_payloads,
             &self.args.int_payloads,

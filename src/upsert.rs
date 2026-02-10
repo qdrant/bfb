@@ -116,13 +116,13 @@ impl UpsertProcessor {
                 let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
                     .map(|i| {
                         let vector_name = format!("{i}");
-                        let vector = random_vector(&self.args);
+                        let vector = random_vector(&mut rng, &self.args);
                         (vector_name, vector)
                     })
                     .collect();
                 vectors_map.into()
             } else {
-                random_vector(&self.args).into()
+                random_vector(&mut rng, &self.args).into()
             };
 
             let vectors: Vectors = if let Some(sparsity) = self.args.sparse_vectors {
@@ -131,6 +131,7 @@ impl UpsertProcessor {
                 for i in 0..self.args.sparse_vectors_per_point {
                     let vector_name = format!("{i}_sparse");
                     let vector = Vector::from(random_sparse_vector(
+                        &mut rng,
                         self.args.sparse_dim.unwrap_or(self.args.dim),
                         sparsity,
                     ));
@@ -158,7 +159,7 @@ impl UpsertProcessor {
             points.push(PointStruct::new(
                 point_id,
                 vectors,
-                random_payload(&self.args),
+                random_payload(&mut rng, &self.args),
             ));
         }
 
@@ -194,7 +195,7 @@ impl UpsertProcessor {
         if self.args.set_payload {
             let mut request_builder = SetPayloadPointsBuilder::new(
                 self.args.collection_name.clone(),
-                random_payload(&self.args),
+                random_payload(&mut rng, &self.args),
             )
             .points_selector(batch_ids)
             .wait(self.args.wait_on_upsert);
