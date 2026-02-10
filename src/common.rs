@@ -81,8 +81,20 @@ fn random_geo_point() -> GeoPoint {
     }
 }
 
+fn estimated_payload_size(args: &Args) -> usize {
+    args.keywords.len()
+        + args.float_payloads.len()
+        + args.int_payloads.len()
+        + args.uuid_payloads as usize
+        + args.timestamp_payload as usize
+        + args.geo_payloads as usize
+        + args.bool_payloads as usize
+        + args.text_payloads as usize
+}
+
 pub fn random_payload(args: &Args) -> Payload {
-    let mut payload = Payload::new();
+    let payload_size = estimated_payload_size(args);
+    let mut payload = Payload::with_capacity(payload_size);
 
     for (idx, variants) in args.keywords.iter().enumerate() {
         let payload_name = keyword_payload_name(idx);
