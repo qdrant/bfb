@@ -87,11 +87,12 @@ impl UpsertProcessor {
         }
 
         let mut rng = rand::rng();
-        let mut points = Vec::new();
 
-        let mut batch_ids = Vec::new();
+        let batch_size = min(self.args.batch_size, points_left);
+        let mut points = Vec::with_capacity(batch_size);
+        let mut batch_ids = Vec::with_capacity(batch_size);
 
-        for i in 0..min(self.args.batch_size, points_left) {
+        for i in 0..batch_size {
             let idx = if let Some(max_id) = self.args.max_id {
                 rng.random_range(self.args.offset..max_id) as u64
             } else {
