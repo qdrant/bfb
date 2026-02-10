@@ -90,9 +90,9 @@ impl ScrollProcessor {
             .await?;
 
         let elapsed = start.elapsed().as_secs_f64();
-
+        let delay_millis = self.start_time.elapsed().as_millis() as f64;
         let full_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            delay_millis,
             value: elapsed,
         };
 
@@ -111,12 +111,12 @@ impl ScrollProcessor {
         }
 
         let server_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            delay_millis,
             value: res.time,
         };
 
         let rps_timing = Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
+            delay_millis,
             value: progress_bar.per_sec(),
         };
 
