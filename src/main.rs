@@ -21,6 +21,13 @@ mod stats;
 mod upload;
 mod upsert;
 
+#[cfg(all(
+    not(target_env = "msvc"),
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     if args.search_quality && args.search_exact {
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
