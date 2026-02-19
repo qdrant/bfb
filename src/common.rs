@@ -8,10 +8,10 @@ use qdrant_client::qdrant::{
     Condition, Datatype, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, Vector,
 };
 use qdrant_client::{Payload, Qdrant, QdrantError};
+use rand::Rng;
 use rand::distr::Distribution;
 use rand::prelude::SliceRandom;
 use rand::seq::IndexedRandom;
-use rand::Rng;
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::interval;
@@ -53,9 +53,8 @@ pub struct Timing {
 pub fn random_text(rng: &mut impl Rng, num_words: usize, vocab_size: usize) -> String {
     let zipf = rand_distr::Zipf::new(f64::from(vocab_size as u32), 1.03).unwrap();
 
-    let zipf_distributed_words: Vec<usize> = (0..num_words)
-        .map(|_| zipf.sample(rng) as usize)
-        .collect();
+    let zipf_distributed_words: Vec<usize> =
+        (0..num_words).map(|_| zipf.sample(rng) as usize).collect();
 
     let words: Vec<_> = zipf_distributed_words
         .iter()
@@ -65,12 +64,16 @@ pub fn random_text(rng: &mut impl Rng, num_words: usize, vocab_size: usize) -> S
     words.join(" ")
 }
 
-pub fn random_keyword(rng: &mut impl Rng, num_variants: usize) -> String {
+pub fn random_keyword(
+    rng: &mut impl Rng,
+    num_variants: usize,
+    keyword_len_multiplier: usize,
+) -> String {
     let variant = rng.random_range(0..num_variants);
-    format!("keyword_{variant}")
+    format!("keyword_{variant}").repeat(keyword_len_multiplier)
 }
 
-fn random_geo_point(rng: &mut impl Rng,) -> GeoPoint {
+fn random_geo_point(rng: &mut impl Rng) -> GeoPoint {
     GeoPoint {
         lat: BERLIN.lat + rng.random_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
         lon: BERLIN.lon + rng.random_range(-GEO_RADIUS_DEG..=GEO_RADIUS_DEG),
@@ -95,11 +98,14 @@ pub fn random_payload(rng: &mut impl Rng, args: &Args) -> Payload {
     for (idx, variants) in args.keywords.iter().enumerate() {
         let payload_name = keyword_payload_name(idx);
         if args.max_keywords == 1 {
-            payload.insert(payload_name, random_keyword(rng, *variants));
+            payload.insert(
+                payload_name,
+                random_keyword(rng, *variants, args.keywords_length_multiplier),
+            );
         } else {
             let count = rng.random_range(1..=args.max_keywords);
             let values = (0..count)
-                .map(|_| random_keyword(rng, *variants))
+                .map(|_| random_keyword(rng, *variants, args.keywords_length_multiplier))
                 .collect::<Vec<_>>();
             payload.insert(payload_name, values);
         }
@@ -175,6 +181,7 @@ pub fn random_filter(
     geo_payloads: bool,
     bool_payloads: bool,
     text_payloads_vocab: Option<usize>,
+    keyword_len_multiplier: usize,
 ) -> Option<Filter> {
     let mut filter = Filter {
         should: vec![],
@@ -191,11 +198,15 @@ pub fn random_filter(
 
         let condition = if let Some(match_any) = match_any {
             let strings = (0..match_any)
-                .map(|_| random_keyword(rng, keyword_variants))
+                .map(|_| random_keyword(rng, keyword_variants, keyword_len_multiplier))
                 .collect();
             MatchValue::Keywords(RepeatedStrings { strings })
         } else {
-            MatchValue::Keyword(random_keyword(rng, keyword_variants))
+            MatchValue::Keyword(random_keyword(
+                rng,
+                keyword_variants,
+                keyword_len_multiplier,
+            ))
         };
 
         have_any = true;
