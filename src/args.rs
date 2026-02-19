@@ -1,6 +1,6 @@
 use std::{fmt, str};
 
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use qdrant_client::qdrant;
 
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
@@ -162,7 +162,7 @@ pub struct Args {
     pub max_segment_size: Option<usize>,
 
     /// On disk payload
-    #[clap(long, default_value_t = true)]
+    #[clap(long, default_value_t = true, action = ArgAction::Set)]
     pub on_disk_payload: bool,
 
     /// On disk payload
