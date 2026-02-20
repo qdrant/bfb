@@ -70,6 +70,7 @@ impl ScrollProcessor {
                     .text_payload_vocabulary
                     .unwrap_or(DEFAULT_VOCAB_SIZE)
             }),
+            args.keywords_length_multiplier,
         );
 
         let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())

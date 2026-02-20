@@ -209,6 +209,7 @@ impl SearchProcessor {
                     .text_payload_vocabulary
                     .unwrap_or(crate::common::DEFAULT_VOCAB_SIZE)
             }),
+            self.args.keywords_length_multiplier,
         );
 
         let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()
