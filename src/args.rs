@@ -193,6 +193,12 @@ pub struct Args {
     #[clap(long, short = 'k', value_parser = parse_number)]
     pub keywords: Vec<usize>,
 
+    /// Multiplies the length of keyword payload values by a given factor. Can be used to test larger keyword payloads.
+    ///
+    /// Note: This must be set for both, uspertions and searches (in case they're running in parallel) to prevent empty results due to different keywords being used.
+    #[clap(long, value_parser = parse_number, default_value_t = 1)]
+    pub keywords_length_multiplier: usize,
+
     /// Maximum number of keywords per point
     #[clap(long, value_parser = parse_number, default_value_t = 1)]
     pub max_keywords: usize,
