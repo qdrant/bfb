@@ -9,6 +9,7 @@ use qdrant_client::qdrant::{
 };
 use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::Rng;
+use rand::RngExt;
 use rand::distr::Distribution;
 use rand::prelude::SliceRandom;
 use rand::seq::IndexedRandom;

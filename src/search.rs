@@ -13,6 +13,7 @@ use qdrant_client::qdrant::{
     VectorInput,
 };
 use rand::Rng;
+use rand::RngExt;
 
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;

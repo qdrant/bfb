@@ -13,7 +13,7 @@ use qdrant_client::qdrant::{
     PointId, PointStruct, SetPayloadPointsBuilder, UpsertPointsBuilder, Vector, Vectors,
 };
 use qdrant_client::{Qdrant, QdrantError};
-use rand::Rng;
+use rand::RngExt;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
