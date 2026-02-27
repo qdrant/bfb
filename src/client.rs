@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::Result;
 use qdrant_client::Qdrant;
 use qdrant_client::config::QdrantConfig;
-use rand::Rng;
+use rand::RngExt;
 
 use crate::args::Args;
 
