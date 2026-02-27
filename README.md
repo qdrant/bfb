@@ -27,7 +27,9 @@ Options:
   -t, --threads <THREADS>
           Number of worker threads to use [default: 2]
   -p, --parallel <PARALLEL>
-          Number of parallel requests to send [default: 2]
+          Number of parallel requests to send (ignored when --rps is set) [default: 2]
+      --rps <RATE>
+          Target requests per second. When set, requests are sent at a fixed rate regardless of how many are currently in-flight (simulates real user traffic). This overrides --parallel for concurrency control
   -c, --connections <CONNECTIONS>
           Number of connections to open from the client to the server [default: 1]
   -b, --batch-size <POINTS>
@@ -74,8 +76,8 @@ Options:
           Number of segments
       --max-segment-size <MAX_SEGMENT_SIZE>
           Do not create segments larger this size (in kilobytes)
-      --on-disk-payload
-          On disk payload
+      --on-disk-payload <ON_DISK_PAYLOAD>
+          On disk payload [default: true] [possible values: true, false]
       --on-disk-payload-index
           On disk payload
       --on-disk-index <ON_DISK_INDEX>
@@ -90,6 +92,8 @@ Options:
           Skip field indices creation if payloads are not empty
   -k, --keywords <KEYWORDS>
           Use keyword payloads. Defines how many different keywords there are in the payload
+      --keywords-length-multiplier <KEYWORDS_LENGTH_MULTIPLIER>
+          Multiplies the length of keyword payload values by a given factor. Can be used to test larger keyword payloads. Note: This must be set for both upsertions and searches (in case they're running in parallel) to prevent empty results due to different keywords being used. [default: 1]
       --max-keywords <MAX_KEYWORDS>
           Maximum number of keywords per point [default: 1]
       --float-payloads <FLOAT_PAYLOADS>
