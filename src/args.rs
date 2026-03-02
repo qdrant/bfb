@@ -396,6 +396,20 @@ pub struct Args {
     /// Set a custom full-scan threshold.
     #[clap(long)]
     pub full_scan_threshold: Option<usize>,
+
+    /// Enable structured vector generation (Poincaré disk + low-rank projection).
+    /// Generates vectors with inherent cluster structure instead of uniform random.
+    #[clap(long, default_value_t = false)]
+    pub structured_vectors: bool,
+
+    /// Intrinsic dimension for structured vector generation.
+    /// Lower values create stronger cluster structure. [default: clamp(dim/8, 4, 32)]
+    #[clap(long, value_parser = parse_number)]
+    pub intrinsic_dim: Option<usize>,
+
+    /// Gaussian noise sigma for structured vector generation. [default: 0.1]
+    #[clap(long, default_value_t = 0.1)]
+    pub noise_sigma: f32,
 }
 
 #[derive(Copy, Clone, Debug)]

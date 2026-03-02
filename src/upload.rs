@@ -12,9 +12,14 @@ use crate::args::Args;
 use crate::client::get_config;
 use crate::common::throttler;
 use crate::fbin_reader::FBinReader;
+use crate::structured_vectors::StructuredVectorGenerator;
 use crate::upsert::UpsertProcessor;
 
-pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+pub async fn upload_data(
+    args: &Args,
+    generator: Option<Arc<StructuredVectorGenerator>>,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
     let mut clients = Vec::new();
     for config in get_config(args) {
         clients.push(qdrant_client::Qdrant::new(config)?);
@@ -47,6 +52,7 @@ pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     };
     let upserter = UpsertProcessor::new(
         args.clone(),
+        generator,
         stopped.clone(),
         clients,
         sent_bar_arc.clone(),

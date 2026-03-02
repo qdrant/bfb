@@ -23,6 +23,7 @@ use crate::common::{
 };
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
+use crate::structured_vectors::StructuredVectorGenerator;
 
 fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError + use<'_> {
     move |e| {
@@ -46,6 +47,7 @@ fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError
 
 pub struct UpsertProcessor {
     args: Args,
+    generator: Option<Arc<StructuredVectorGenerator>>,
     stopped: Arc<AtomicBool>,
     clients: Vec<Qdrant>,
     progress_bar: Arc<ProgressBar>,
@@ -58,6 +60,7 @@ pub struct UpsertProcessor {
 impl UpsertProcessor {
     pub fn new(
         args: Args,
+        generator: Option<Arc<StructuredVectorGenerator>>,
         stopped: Arc<AtomicBool>,
         clients: Vec<Qdrant>,
         progress_bar: Arc<ProgressBar>,
@@ -65,6 +68,7 @@ impl UpsertProcessor {
     ) -> Self {
         UpsertProcessor {
             args,
+            generator,
             stopped,
             clients,
             progress_bar,
@@ -116,13 +120,13 @@ impl UpsertProcessor {
                 let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
                     .map(|i| {
                         let vector_name = format!("{i}");
-                        let vector = random_vector(&mut rng, &self.args);
+                        let vector = random_vector(&mut rng, &self.args, self.generator.as_deref());
                         (vector_name, vector)
                     })
                     .collect();
                 vectors_map.into()
             } else {
-                random_vector(&mut rng, &self.args).into()
+                random_vector(&mut rng, &self.args, self.generator.as_deref()).into()
             };
 
             let vectors: Vectors = if let Some(sparsity) = self.args.sparse_vectors {

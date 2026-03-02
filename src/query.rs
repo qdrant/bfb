@@ -12,12 +12,17 @@ use crate::common::UUID_PAYLOAD_KEY;
 use crate::scroll::ScrollProcessor;
 use crate::search::SearchProcessor;
 use crate::stats::process;
+use crate::structured_vectors::StructuredVectorGenerator;
 
-pub async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+pub async fn search(
+    args: &Args,
+    generator: Option<Arc<StructuredVectorGenerator>>,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
     let clients = create_clients(args)?;
     let uuids = get_uuids(args, &clients[0]).await?;
 
-    let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients, uuids);
+    let searcher = SearchProcessor::new(args.clone(), generator, stopped.clone(), clients, uuids);
     process(args, stopped, searcher).await
 }
 

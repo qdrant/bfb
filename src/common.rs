@@ -289,7 +289,11 @@ pub fn random_filter(
     have_any.then_some(filter)
 }
 
-pub fn random_vector(rng: &mut impl Rng, args: &Args) -> Vector {
+pub fn random_vector(
+    rng: &mut impl Rng,
+    args: &Args,
+    generator: Option<&crate::structured_vectors::StructuredVectorGenerator>,
+) -> Vector {
     let is_uint = args
         .datatype
         .as_ref()
@@ -297,11 +301,11 @@ pub fn random_vector(rng: &mut impl Rng, args: &Args) -> Vector {
         .unwrap_or(false);
     if let Some(count) = args.multivector_size {
         let multivector: Vec<_> = (0..count)
-            .map(|_| random_dense_vector(rng, args.dim, is_uint))
+            .map(|_| random_dense_vector(rng, args.dim, is_uint, generator))
             .collect();
         Vector::new_multi(multivector)
     } else {
-        random_dense_vector(rng, args.dim, is_uint).into()
+        random_dense_vector(rng, args.dim, is_uint, generator).into()
     }
 }
 
@@ -324,9 +328,16 @@ pub fn random_sparse_vector(rng: &mut impl Rng, max_size: usize, sparsity: f64) 
     pairs
 }
 
-pub fn random_dense_vector(rng: &mut impl Rng, dim: usize, is_uint: bool) -> Vec<f32> {
+pub fn random_dense_vector(
+    rng: &mut impl Rng,
+    dim: usize,
+    is_uint: bool,
+    generator: Option<&crate::structured_vectors::StructuredVectorGenerator>,
+) -> Vec<f32> {
     if is_uint {
         (0..dim).map(|_| rng.random_range(0..255) as f32).collect()
+    } else if let Some(structured) = generator {
+        structured.generate(rng)
     } else {
         (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect()
     }
