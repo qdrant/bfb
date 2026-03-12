@@ -171,6 +171,9 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
     if let Some(max_segment_size) = args.max_segment_size {
         optimizers_config = optimizers_config.max_segment_size(max_segment_size as u64);
     }
+    if args.prevent_unoptimized {
+        optimizers_config = optimizers_config.prevent_unoptimized(true);
+    }
 
     let mut create_collection_builder = CreateCollectionBuilder::new(args.collection_name.clone())
         .vectors_config(vectors_config)
