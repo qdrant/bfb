@@ -282,6 +282,10 @@ pub struct Args {
     #[clap(long, default_value_t = false)]
     pub wait_on_upsert: bool,
 
+    /// Prevent unoptimized segments from being used for search
+    #[clap(long, default_value_t = false)]
+    pub prevent_unoptimized: bool,
+
     /// Replication factor
     #[clap(long, default_value_t = 1, value_parser = parse_number)]
     pub replication_factor: usize,
