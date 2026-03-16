@@ -4,6 +4,7 @@ use crate::common::{
     retry_with_clients,
 };
 use crate::processor::Processor;
+use crate::structured_vectors::StructuredVectorGenerator;
 use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::point_id::PointIdOptions;
@@ -30,6 +31,7 @@ struct SearchStats {
 
 pub struct SearchProcessor {
     args: Args,
+    generator: Option<Arc<StructuredVectorGenerator>>,
     stopped: Arc<AtomicBool>,
     clients: Vec<Qdrant>,
     pub start_timestamp_millis: f64,
@@ -41,12 +43,14 @@ pub struct SearchProcessor {
 impl SearchProcessor {
     pub fn new(
         args: Args,
+        generator: Option<Arc<StructuredVectorGenerator>>,
         stopped: Arc<AtomicBool>,
         clients: Vec<Qdrant>,
         uuids: Vec<String>,
     ) -> Self {
         SearchProcessor {
             args,
+            generator,
             stopped,
             clients,
             start_timestamp_millis: std::time::SystemTime::now()
@@ -98,10 +102,11 @@ impl SearchProcessor {
             None
         };
 
+        let generator = self.generator.as_deref();
         (0..self.args.search_batch_size)
             .map(|_| {
                 (
-                    random_dense_vector(rng, self.args.dim, false),
+                    random_dense_vector(rng, self.args.dim, false, generator),
                     None,
                     name.clone(),
                 )

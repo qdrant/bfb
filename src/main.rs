@@ -6,6 +6,7 @@ use clap::{CommandFactory, FromArgMatches};
 use tokio::runtime;
 
 use args::Args;
+use structured_vectors::StructuredVectorGenerator;
 
 mod args;
 mod client;
@@ -18,10 +19,15 @@ mod save_jsonl;
 mod scroll;
 mod search;
 mod stats;
+mod structured_vectors;
 mod upload;
 mod upsert;
 
-async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+async fn run_benchmark(
+    args: Args,
+    generator: Option<Arc<StructuredVectorGenerator>>,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
     if args.search_quality && args.search_exact {
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
@@ -31,7 +37,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     }
 
     if !args.skip_upload && !args.skip_setup {
-        upload::upload_data(&args, stopped.clone()).await?;
+        upload::upload_data(&args, generator.clone(), stopped.clone()).await?;
     }
 
     if !args.skip_wait_index && !args.skip_setup {
@@ -41,7 +47,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     }
 
     if args.search || args.search_quality {
-        query::search(&args, stopped.clone()).await?;
+        query::search(&args, generator.clone(), stopped.clone()).await?;
     }
 
     if args.scroll {
@@ -82,6 +88,22 @@ fn parse_args() -> Args {
 fn main() {
     let args = parse_args();
 
+    let generator = if args.structured_vectors {
+        let intrinsic_dim = args
+            .intrinsic_dim
+            .unwrap_or_else(|| (args.dim / 8).clamp(4, 32));
+        let normalize = args.distance == "Cosine";
+        Some(Arc::new(StructuredVectorGenerator::new(
+            intrinsic_dim,
+            args.dim,
+            args.noise_sigma,
+            normalize,
+            42,
+        )))
+    } else {
+        None
+    };
+
     let stopped = Arc::new(AtomicBool::new(false));
     let r = stopped.clone();
 
@@ -97,6 +119,6 @@ fn main() {
 
     runtime
         .unwrap()
-        .block_on(run_benchmark(args, stopped))
+        .block_on(run_benchmark(args, generator, stopped))
         .unwrap();
 }
