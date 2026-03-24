@@ -98,10 +98,12 @@ impl SearchProcessor {
             None
         };
 
+        let is_uint = self.args.is_uint8_datatype();
+
         (0..self.args.search_batch_size)
             .map(|_| {
                 (
-                    random_dense_vector(rng, self.args.dim, false),
+                    random_dense_vector(rng, self.args.dim, is_uint),
                     None,
                     name.clone(),
                 )
