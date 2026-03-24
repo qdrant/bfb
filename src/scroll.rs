@@ -6,7 +6,7 @@ use qdrant_client::Qdrant;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 
 use crate::args::Args;
-use crate::common::{DEFAULT_VOCAB_SIZE, Timing, random_filter, retry_with_clients};
+use crate::common::{DEFAULT_VOCAB_SIZE, Timing, create_zipf, random_filter, retry_with_clients};
 use crate::processor::Processor;
 
 pub struct ScrollProcessor {
@@ -19,6 +19,7 @@ pub struct ScrollProcessor {
     pub rps: Mutex<Vec<Timing>>,
     pub full_timings: Mutex<Vec<Timing>>,
     pub uuids: Vec<String>,
+    zipf: Option<rand_distr::Zipf<f64>>,
 }
 
 impl ScrollProcessor {
@@ -28,6 +29,13 @@ impl ScrollProcessor {
         clients: Vec<Qdrant>,
         uuids: Vec<String>,
     ) -> Self {
+        let zipf = args.text_payloads.then(|| {
+            create_zipf(
+                args.text_payload_vocabulary
+                    .unwrap_or(DEFAULT_VOCAB_SIZE),
+            )
+        });
+
         ScrollProcessor {
             args,
             stopped,
@@ -41,6 +49,7 @@ impl ScrollProcessor {
             rps: Mutex::new(Vec::new()),
             full_timings: Mutex::new(Vec::new()),
             uuids,
+            zipf,
         }
     }
 
@@ -65,12 +74,8 @@ impl ScrollProcessor {
             self.args.match_any,
             self.args.geo_payloads,
             self.args.bool_payloads,
-            self.args.text_payloads.then(|| {
-                self.args
-                    .text_payload_vocabulary
-                    .unwrap_or(DEFAULT_VOCAB_SIZE)
-            }),
             args.keywords_length_multiplier,
+            self.zipf.as_ref(),
         );
 
         let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())

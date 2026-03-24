@@ -51,9 +51,11 @@ pub struct Timing {
     pub value: f64,
 }
 
-pub fn random_text(rng: &mut impl Rng, num_words: usize, vocab_size: usize) -> String {
-    let zipf = rand_distr::Zipf::new(f64::from(vocab_size as u32), 1.03).unwrap();
+pub fn create_zipf(vocab_size: usize) -> rand_distr::Zipf<f64> {
+    rand_distr::Zipf::new(f64::from(vocab_size as u32), 1.03).unwrap()
+}
 
+pub fn random_text(rng: &mut impl Rng, num_words: usize, zipf: &rand_distr::Zipf<f64>) -> String {
     let zipf_distributed_words: Vec<usize> =
         (0..num_words).map(|_| zipf.sample(rng) as usize).collect();
 
@@ -92,7 +94,11 @@ fn estimated_payload_size(args: &Args) -> usize {
         + args.text_payloads as usize
 }
 
-pub fn random_payload(rng: &mut impl Rng, args: &Args) -> Payload {
+pub fn random_payload(
+    rng: &mut impl Rng,
+    args: &Args,
+    zipf: Option<&rand_distr::Zipf<f64>>,
+) -> Payload {
     let payload_size = estimated_payload_size(args);
     let mut payload = Payload::with_capacity(payload_size);
 
@@ -158,11 +164,11 @@ pub fn random_payload(rng: &mut impl Rng, args: &Args) -> Payload {
         payload.insert(BOOL_PAYLOAD_KEY, rng.random_bool(BOOL_TRUE_RATIO));
     }
 
-    if args.text_payloads {
+    if let Some(zipf) = zipf {
         let text = random_text(
             rng,
             args.text_payload_length.unwrap_or(16),
-            args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE),
+            zipf,
         );
 
         payload.insert(TEXT_PAYLOAD_KEY, text);
@@ -181,8 +187,8 @@ pub fn random_filter(
     match_any: Option<usize>,
     geo_payloads: bool,
     bool_payloads: bool,
-    text_payloads_vocab: Option<usize>,
     keyword_len_multiplier: usize,
+    zipf: Option<&rand_distr::Zipf<f64>>,
 ) -> Option<Filter> {
     let mut filter = Filter {
         should: vec![],
@@ -278,11 +284,11 @@ pub fn random_filter(
         ))
     }
 
-    if let Some(vocab_size) = text_payloads_vocab {
+    if let Some(zipf) = zipf {
         have_any = true;
         filter.must.push(Condition::matches_text(
             TEXT_PAYLOAD_KEY,
-            random_text(rng, 2, vocab_size),
+            random_text(rng, 2, zipf),
         ))
     }
 
