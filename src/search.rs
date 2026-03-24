@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::common::{
-    Timing, random_dense_vector, random_filter, random_sparse_vector, random_vector_name,
-    retry_with_clients,
+    DEFAULT_VOCAB_SIZE, Timing, create_zipf, random_dense_vector, random_filter,
+    random_sparse_vector, random_vector_name, retry_with_clients,
 };
 use crate::processor::Processor;
 use indicatif::ProgressBar;
@@ -36,6 +36,7 @@ pub struct SearchProcessor {
     start_time: std::time::Instant,
     stats: Mutex<SearchStats>,
     pub uuids: Vec<String>,
+    zipf: Option<rand_distr::Zipf<f64>>,
 }
 
 impl SearchProcessor {
@@ -45,6 +46,13 @@ impl SearchProcessor {
         clients: Vec<Qdrant>,
         uuids: Vec<String>,
     ) -> Self {
+        let zipf = args.text_payloads.then(|| {
+            create_zipf(
+                args.text_payload_vocabulary
+                    .unwrap_or(DEFAULT_VOCAB_SIZE),
+            )
+        });
+
         SearchProcessor {
             args,
             stopped,
@@ -56,6 +64,7 @@ impl SearchProcessor {
             start_time: std::time::Instant::now(),
             stats: Mutex::new(SearchStats::default()),
             uuids,
+            zipf,
         }
     }
 
@@ -209,12 +218,8 @@ impl SearchProcessor {
             self.args.match_any,
             self.args.geo_payloads,
             self.args.bool_payloads,
-            self.args.text_payloads.then(|| {
-                self.args
-                    .text_payload_vocabulary
-                    .unwrap_or(crate::common::DEFAULT_VOCAB_SIZE)
-            }),
             self.args.keywords_length_multiplier,
+            self.zipf.as_ref(),
         );
 
         let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()

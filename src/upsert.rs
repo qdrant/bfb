@@ -19,7 +19,8 @@ use tokio::time::sleep;
 
 use crate::args::Args;
 use crate::common::{
-    Timing, random_payload, random_sparse_vector, random_vector, retry_with_clients,
+    DEFAULT_VOCAB_SIZE, Timing, create_zipf, random_payload, random_sparse_vector, random_vector,
+    retry_with_clients,
 };
 use crate::fbin_reader::FBinReader;
 use crate::save_jsonl::save_timings_as_jsonl;
@@ -53,6 +54,7 @@ pub struct UpsertProcessor {
     start_timestamp_millis: f64,
     start_time: std::time::Instant,
     timings: RwLock<Vec<Timing>>,
+    zipf: Option<rand_distr::Zipf<f64>>,
 }
 
 impl UpsertProcessor {
@@ -63,6 +65,13 @@ impl UpsertProcessor {
         progress_bar: Arc<ProgressBar>,
         reader: Option<FBinReader>,
     ) -> Self {
+        let zipf = args.text_payloads.then(|| {
+            create_zipf(
+                args.text_payload_vocabulary
+                    .unwrap_or(DEFAULT_VOCAB_SIZE),
+            )
+        });
+
         UpsertProcessor {
             args,
             stopped,
@@ -75,6 +84,7 @@ impl UpsertProcessor {
                 .as_millis() as f64,
             start_time: std::time::Instant::now(),
             timings: RwLock::new(Vec::new()),
+            zipf,
         }
     }
 
@@ -159,7 +169,7 @@ impl UpsertProcessor {
             points.push(PointStruct::new(
                 point_id,
                 vectors,
-                random_payload(&mut rng, &self.args),
+                random_payload(&mut rng, &self.args, self.zipf.as_ref()),
             ));
         }
 
@@ -195,7 +205,7 @@ impl UpsertProcessor {
         if self.args.set_payload {
             let mut request_builder = SetPayloadPointsBuilder::new(
                 self.args.collection_name.clone(),
-                random_payload(&mut rng, &self.args),
+                random_payload(&mut rng, &self.args, self.zipf.as_ref()),
             )
             .points_selector(batch_ids)
             .wait(self.args.wait_on_upsert);
