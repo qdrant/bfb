@@ -402,6 +402,14 @@ pub struct Args {
     pub full_scan_threshold: Option<usize>,
 }
 
+impl Args {
+    pub fn is_uint8_datatype(&self) -> bool {
+        self.datatype
+            .as_ref()
+            .is_some_and(|x| x == qdrant::Datatype::Uint8.as_str_name())
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum WriteOrdering {
     Weak,
