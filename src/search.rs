@@ -142,19 +142,23 @@ impl SearchProcessor {
         let query = Query::new_nearest(vector);
 
         if let Some(prefetch_limit) = self.args.prefetch {
-            let prefetch_query = PrefetchQueryBuilder::default();
-
-            prefetch_query.query(query.clone());
-
-            let mut params = SearchParamsBuilder::default()
+            let mut prefetch_params = SearchParamsBuilder::default()
                 .quantization(QuantizationSearchParamsBuilder::default().rescore(false));
 
-            if let Some(hnsw_ef) = self.args.hnsw_ef_construct {
-                params = params.hnsw_ef(hnsw_ef as u64);
+            if let Some(hnsw_ef) = self.args.search_hnsw_ef {
+                prefetch_params = prefetch_params.hnsw_ef(hnsw_ef as u64);
             }
 
-            request_builder = request_builder.params(params);
-            request_builder = request_builder.limit(prefetch_limit as u64);
+            let prefetch = PrefetchQueryBuilder::default()
+                .query(query.clone())
+                .params(prefetch_params)
+                .limit(prefetch_limit as u64)
+                .build();
+
+            request_builder = request_builder.prefetch(vec![prefetch]);
+            request_builder = request_builder.params(search_params);
+        } else {
+            request_builder = request_builder.params(search_params);
         }
 
         request_builder = request_builder.query(query);
@@ -162,8 +166,6 @@ impl SearchProcessor {
         if let Some(read_consistency) = self.args.read_consistency {
             request_builder = request_builder.read_consistency(read_consistency);
         }
-
-        request_builder = request_builder.params(search_params);
 
         request_builder
     }
@@ -226,7 +228,7 @@ impl SearchProcessor {
             .quantization(quantization_params_builder)
             .indexed_only(self.args.indexed_only.unwrap_or_default());
 
-        if let Some(hnsw_ef) = self.args.hnsw_ef_construct {
+        if let Some(hnsw_ef) = self.args.search_hnsw_ef {
             search_params = search_params.hnsw_ef(hnsw_ef as u64);
         }
 
