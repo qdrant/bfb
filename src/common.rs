@@ -5,7 +5,7 @@ use core::option::Option::{None, Some};
 use futures::Stream;
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{
-    Condition, Datatype, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, Vector,
+    Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, Vector,
 };
 use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::Rng;
@@ -290,11 +290,7 @@ pub fn random_filter(
 }
 
 pub fn random_vector(rng: &mut impl Rng, args: &Args) -> Vector {
-    let is_uint = args
-        .datatype
-        .as_ref()
-        .map(|x| x == Datatype::Uint8.as_str_name())
-        .unwrap_or(false);
+    let is_uint = args.is_uint8_datatype();
     if let Some(count) = args.multivector_size {
         let multivector: Vec<_> = (0..count)
             .map(|_| random_dense_vector(rng, args.dim, is_uint))
