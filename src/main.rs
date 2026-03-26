@@ -95,8 +95,9 @@ fn main() {
         .enable_all()
         .build();
 
-    runtime
-        .unwrap()
-        .block_on(run_benchmark(args, stopped))
-        .unwrap();
+    let runtime = runtime.expect("Failed to create tokio runtime");
+    if let Err(err) = runtime.block_on(run_benchmark(args, stopped)) {
+        eprintln!("Benchmark failed: {err:#}");
+        std::process::exit(1);
+    }
 }
