@@ -124,4 +124,4 @@ LABEL org.opencontainers.image.documentation="https://qdrant.com/docs"
 LABEL org.opencontainers.image.source="https://github.com/qdrant/bfb"
 LABEL org.opencontainers.image.vendor="Qdrant"
 
-CMD ["/bfb"]
+ENTRYPOINT ["./bfb"]
