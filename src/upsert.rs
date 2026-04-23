@@ -195,8 +195,8 @@ impl UpsertProcessor {
         let latency = res.time;
 
         self.timings.write().await.push(Timing {
-            delay_millis: self.start_time.elapsed().as_millis() as f64,
-            value: latency,
+            delay_millis: self.start_time.elapsed().as_millis() as u32,
+            value: latency as f32,
         });
 
         if self.args.set_payload {

@@ -258,8 +258,8 @@ impl SearchProcessor {
         })
         .await?;
 
-        let elapsed = start.elapsed().as_secs_f64();
-        let delay_millis = self.start_time.elapsed().as_millis() as f64;
+        let elapsed = start.elapsed().as_secs_f32();
+        let delay_millis = self.start_time.elapsed().as_millis() as u32;
 
         let full_timing = Timing {
             delay_millis,
@@ -272,17 +272,17 @@ impl SearchProcessor {
 
         let server_timing = Timing {
             delay_millis,
-            value: res_batch.time,
+            value: res_batch.time as f32,
         };
 
         let qps_timing = Timing {
             delay_millis,
-            value: progress_bar.per_sec(),
+            value: progress_bar.per_sec() as f32,
         };
 
         let rps_timing = Timing {
             delay_millis,
-            value: progress_bar.per_sec() / (self.args.search_batch_size as f64),
+            value: (progress_bar.per_sec() / self.args.search_batch_size as f64) as f32,
         };
 
         // Update stats all at once

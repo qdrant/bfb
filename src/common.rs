@@ -47,8 +47,8 @@ const BOOL_TRUE_RATIO: f64 = 0.7;
 
 #[derive(Debug, Clone)]
 pub struct Timing {
-    pub delay_millis: f64, // milliseconds
-    pub value: f64,
+    pub delay_millis: u32,
+    pub value: f32,
 }
 
 pub fn create_zipf(vocab_size: usize) -> rand_distr::Zipf<f64> {
