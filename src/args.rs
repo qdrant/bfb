@@ -270,6 +270,10 @@ pub struct Args {
     #[clap(long, value_parser = parse_number)]
     pub search_hnsw_ef: Option<usize>,
 
+    /// Store HNSW links inline with vectors (hnsw_config.inline_storage)
+    #[clap(long, default_value_t = false)]
+    pub hnsw_inline_storage: bool,
+
     /// Whether to request payload in search results
     #[clap(long, default_value_t = false)]
     pub search_with_payload: bool,
