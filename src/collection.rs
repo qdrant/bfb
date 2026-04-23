@@ -157,6 +157,9 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
     if let Some(fs_th) = args.full_scan_threshold {
         hnsw_config = hnsw_config.full_scan_threshold(fs_th as u64);
     }
+    if args.hnsw_inline_storage {
+        hnsw_config = hnsw_config.inline_storage(true);
+    }
 
     let mut optimizers_config = OptimizersConfigDiffBuilder::default();
     if let Some(default_segment_number) = args.segments {
