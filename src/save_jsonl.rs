@@ -16,12 +16,12 @@ pub fn save_timings_as_jsonl(
         if absolute_time {
             record.insert(
                 "timestamp".to_string(),
-                start_timestamp_millis + timing.delay_millis,
+                start_timestamp_millis + f64::from(timing.delay_millis),
             );
         } else {
-            record.insert("delay".to_string(), timing.delay_millis);
+            record.insert("delay".to_string(), f64::from(timing.delay_millis));
         }
-        record.insert(value_name.to_string(), timing.value);
+        record.insert(value_name.to_string(), f64::from(timing.value));
         data.push(record);
     }
 
