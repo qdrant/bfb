@@ -16,9 +16,9 @@ use crate::save_jsonl::save_timings_as_jsonl;
 
 #[derive(Serialize, Deserialize)]
 pub struct SearcherResults {
-    pub server_timings: Vec<f64>,
-    pub rps: Vec<f64>,
-    pub full_timings: Vec<f64>,
+    pub server_timings: Vec<f32>,
+    pub rps: Vec<f32>,
+    pub full_timings: Vec<f32>,
 }
 
 pub fn write_to_json(path: &String, results: SearcherResults) {
@@ -34,21 +34,21 @@ pub fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_p
     // sort values in ascending order
     values.sort_unstable_by(|a, b| a.value.partial_cmp(&b.value).unwrap());
 
-    let avg_time: f64 = values.iter().map(|x| x.value).sum::<f64>() / values.len() as f64;
-    let min_time: f64 = values.first().unwrap().value;
-    let max_time: f64 = values.last().unwrap().value;
-    let p50_time: f64 = values[(values.len() as f32 * 0.50) as usize].value;
+    let avg_time = values.iter().map(|x| x.value as f64).sum::<f64>() / values.len() as f64;
+    let min_time = values.first().unwrap().value;
+    let max_time = values.last().unwrap().value;
+    let p50_time = values[(values.len() as f32 * 0.50) as usize].value;
 
     println!("Min {metric_name}: {min_time}");
     println!("Avg {metric_name}: {avg_time}");
     println!("Median {metric_name}: {p50_time}");
 
     if show_percentiles {
-        let p95_time: f64 = values[(values.len() as f32 * 0.95) as usize].value;
+        let p95_time = values[(values.len() as f32 * 0.95) as usize].value;
         println!("p95 {metric_name}: {p95_time}");
 
         for digits in 2..=args.p9 {
-            let factor = 1.0 - 1.0 * 0.1f64.powf(digits as f64);
+            let factor = 1.0 - 0.1f64.powf(digits as f64);
             let index = ((values.len() as f64 * factor) as usize).min(values.len() - 1);
             let nines = "9".repeat(digits);
             let time = values[index].value;

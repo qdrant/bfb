@@ -95,8 +95,8 @@ impl ScrollProcessor {
         let res = retry_with_clients(&self.clients, args, |client| client.scroll(request.clone()))
             .await?;
 
-        let elapsed = start.elapsed().as_secs_f64();
-        let delay_millis = self.start_time.elapsed().as_millis() as f64;
+        let elapsed = start.elapsed().as_secs_f32();
+        let delay_millis = self.start_time.elapsed().as_millis() as u32;
         let full_timing = Timing {
             delay_millis,
             value: elapsed,
@@ -116,12 +116,12 @@ impl ScrollProcessor {
 
         let server_timing = Timing {
             delay_millis,
-            value: res.time,
+            value: res.time as f32,
         };
 
         let rps_timing = Timing {
             delay_millis,
-            value: progress_bar.per_sec(),
+            value: progress_bar.per_sec() as f32,
         };
 
         {
