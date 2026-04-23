@@ -9,15 +9,20 @@ use crate::args::Args;
 use crate::common::{DEFAULT_VOCAB_SIZE, Timing, create_zipf, random_filter, retry_with_clients};
 use crate::processor::Processor;
 
+#[derive(Debug, Default)]
+struct ScrollStats {
+    server_timings: Vec<Timing>,
+    rps: Vec<Timing>,
+    full_timings: Vec<Timing>,
+}
+
 pub struct ScrollProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
     clients: Vec<Qdrant>,
     pub start_timestamp_millis: f64,
     start_time: std::time::Instant,
-    pub server_timings: Mutex<Vec<Timing>>,
-    pub rps: Mutex<Vec<Timing>>,
-    pub full_timings: Mutex<Vec<Timing>>,
+    stats: Mutex<ScrollStats>,
     pub uuids: Vec<String>,
     zipf: Option<rand_distr::Zipf<f64>>,
 }
@@ -42,9 +47,7 @@ impl ScrollProcessor {
                 .unwrap()
                 .as_millis() as f64,
             start_time: std::time::Instant::now(),
-            server_timings: Mutex::new(Vec::new()),
-            rps: Mutex::new(Vec::new()),
-            full_timings: Mutex::new(Vec::new()),
+            stats: Mutex::new(ScrollStats::default()),
             uuids,
             zipf,
         }
@@ -99,8 +102,6 @@ impl ScrollProcessor {
             value: elapsed,
         };
 
-        self.full_timings.lock().unwrap().push(full_timing);
-
         if res.time > self.args.timing_threshold {
             progress_bar.println(format!("Slow scroll: {:?}", res.time));
         }
@@ -123,8 +124,12 @@ impl ScrollProcessor {
             value: progress_bar.per_sec(),
         };
 
-        self.server_timings.lock().unwrap().push(server_timing);
-        self.rps.lock().unwrap().push(rps_timing);
+        {
+            let mut stats = self.stats.lock().unwrap();
+            stats.full_timings.push(full_timing);
+            stats.server_timings.push(server_timing);
+            stats.rps.push(rps_timing);
+        }
 
         if let Some(delay_millis) = self.args.delay {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
@@ -149,20 +154,19 @@ impl Processor for ScrollProcessor {
     }
 
     fn server_timings(&self) -> Vec<Timing> {
-        self.server_timings.lock().unwrap().clone()
+        self.stats.lock().unwrap().server_timings.clone()
     }
 
     fn qps(&self) -> Vec<Timing> {
-        self.rps.lock().unwrap().clone()
+        self.stats.lock().unwrap().rps.clone()
     }
 
     fn rps(&self) -> Vec<Timing> {
-        // for requests without batching, qps = rps
-        self.rps.lock().unwrap().clone()
+        self.stats.lock().unwrap().rps.clone()
     }
 
     fn full_timings(&self) -> Vec<Timing> {
-        self.full_timings.lock().unwrap().clone()
+        self.stats.lock().unwrap().full_timings.clone()
     }
 
     fn get_batch_size(&self) -> usize {
