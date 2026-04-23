@@ -29,12 +29,9 @@ impl ScrollProcessor {
         clients: Vec<Qdrant>,
         uuids: Vec<String>,
     ) -> Self {
-        let zipf = args.text_payloads.then(|| {
-            create_zipf(
-                args.text_payload_vocabulary
-                    .unwrap_or(DEFAULT_VOCAB_SIZE),
-            )
-        });
+        let zipf = args
+            .text_payloads
+            .then(|| create_zipf(args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE)));
 
         ScrollProcessor {
             args,

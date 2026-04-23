@@ -165,11 +165,7 @@ pub fn random_payload(
     }
 
     if let Some(zipf) = zipf {
-        let text = random_text(
-            rng,
-            args.text_payload_length.unwrap_or(16),
-            zipf,
-        );
+        let text = random_text(rng, args.text_payload_length.unwrap_or(16), zipf);
 
         payload.insert(TEXT_PAYLOAD_KEY, text);
     }
