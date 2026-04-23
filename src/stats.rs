@@ -16,9 +16,9 @@ use crate::save_jsonl::save_timings_as_jsonl;
 
 #[derive(Serialize, Deserialize)]
 pub struct SearcherResults {
-    pub server_timings: Vec<f64>,
-    pub rps: Vec<f64>,
-    pub full_timings: Vec<f64>,
+    pub server_timings: Vec<f32>,
+    pub rps: Vec<f32>,
+    pub full_timings: Vec<f32>,
 }
 
 pub fn write_to_json(path: &String, results: SearcherResults) {
@@ -138,9 +138,9 @@ pub async fn process<P: Processor + Sync>(
         write_to_json(
             json,
             SearcherResults {
-                server_timings: server_timings.iter().map(|x| x.value as f64).collect(),
-                rps: rps.iter().map(|x| x.value as f64).collect(),
-                full_timings: full_timings.iter().map(|x| x.value as f64).collect(),
+                server_timings: server_timings.iter().map(|x| x.value).collect(),
+                rps: rps.iter().map(|x| x.value).collect(),
+                full_timings: full_timings.iter().map(|x| x.value).collect(),
             },
         );
     }
