@@ -1,6 +1,6 @@
 use std::cmp::min;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Error;
@@ -14,7 +14,6 @@ use qdrant_client::qdrant::{
 };
 use qdrant_client::{Qdrant, QdrantError};
 use rand::RngExt;
-use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use crate::args::Args;
@@ -53,7 +52,7 @@ pub struct UpsertProcessor {
     reader: Option<FBinReader>,
     start_timestamp_millis: f64,
     start_time: std::time::Instant,
-    timings: RwLock<Vec<Timing>>,
+    timings: Mutex<Vec<Timing>>,
     zipf: Option<rand_distr::Zipf<f64>>,
 }
 
@@ -80,7 +79,7 @@ impl UpsertProcessor {
                 .unwrap()
                 .as_millis() as f64,
             start_time: std::time::Instant::now(),
-            timings: RwLock::new(Vec::new()),
+            timings: Mutex::new(Vec::new()),
             zipf,
         }
     }
@@ -194,7 +193,7 @@ impl UpsertProcessor {
 
         let latency = res.time;
 
-        self.timings.write().await.push(Timing {
+        self.timings.lock().unwrap().push(Timing {
             delay_millis: self.start_time.elapsed().as_millis() as u32,
             value: latency as f32,
         });
@@ -231,12 +230,12 @@ impl UpsertProcessor {
         Ok(())
     }
 
-    pub async fn save_data(&self) {
+    pub fn save_data(&self) {
         if let Some(jsonl_path) = &self.args.jsonl_updates {
             save_timings_as_jsonl(
                 jsonl_path,
                 self.args.absolute_time.unwrap_or(false),
-                &self.timings.read().await,
+                &self.timings.lock().unwrap(),
                 self.start_timestamp_millis,
                 "upsert_latency",
             )
