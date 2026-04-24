@@ -81,7 +81,7 @@ pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
         sent_bar_arc.finish();
     }
 
-    upserter.save_data().await;
+    upserter.save_data();
 
     Ok(())
 }
