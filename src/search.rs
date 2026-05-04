@@ -249,8 +249,15 @@ impl SearchProcessor {
                 .build()
             })
             .collect();
+
+        let (query_points_for_quality, batch_query_points) = if self.args.search_quality {
+            (Some(query_points.clone()), query_points)
+        } else {
+            (None, query_points)
+        };
+
         let batch_request_builder =
-            QueryBatchPointsBuilder::new(self.args.collection_name.clone(), query_points.clone());
+            QueryBatchPointsBuilder::new(self.args.collection_name.clone(), batch_query_points);
 
         let request = batch_request_builder.build();
         let res_batch = retry_with_clients(&self.clients, args, |client| {
@@ -298,20 +305,16 @@ impl SearchProcessor {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
         }
 
-        if !self.args.search_quality {
-            return Ok(());
-        }
-
         // Search quality bench
 
-        let exact_search = search_params.clone().exact(true).build();
-        let exact_query_points = {
-            let mut query_points = query_points.clone();
-            for point in &mut query_points {
-                point.params = Some(exact_search);
-            }
-            query_points
+        let Some(mut exact_query_points) = query_points_for_quality else {
+            return Ok(());
         };
+
+        let exact_search = search_params.clone().exact(true).build();
+        for point in &mut exact_query_points {
+            point.params = Some(exact_search);
+        }
         let exact_request_builder =
             QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);
         let exact_request = exact_request_builder.build();
