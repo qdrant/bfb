@@ -14,8 +14,8 @@ use qdrant_client::qdrant::{
     KeywordIndexParamsBuilder, MultiVectorComparator, MultiVectorConfigBuilder,
     OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
     ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder, SparseVectorConfig,
-    SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder,
-    VectorParams, VectorParamsMap, VectorsConfig,
+    SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType, TurboQuantBitSize,
+    TurboQuantizationBuilder, UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use tokio::time::sleep;
 
@@ -220,6 +220,39 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
                 BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default())
                     .encoding(BinaryQuantizationEncoding::OneAndHalfBits),
             ),
+            QuantizationArg::Turbo1Bit
+            | QuantizationArg::Turbo1_5Bit
+            | QuantizationArg::Turbo2Bit
+            | QuantizationArg::Turbo4Bit => {
+                let size = match quantization {
+                    QuantizationArg::Turbo1Bit => TurboQuantBitSize::Bits1,
+                    QuantizationArg::Turbo1_5Bit => TurboQuantBitSize::Bits15,
+                    QuantizationArg::Turbo2Bit => TurboQuantBitSize::Bits2,
+                    QuantizationArg::Turbo4Bit => TurboQuantBitSize::Bits4,
+                    QuantizationArg::None
+                    | QuantizationArg::Binary
+                    | QuantizationArg::Binary2bit
+                    | QuantizationArg::Binary1p5bit
+                    | QuantizationArg::Scalar
+                    | QuantizationArg::ProductX4
+                    | QuantizationArg::ProductX8
+                    | QuantizationArg::ProductX16
+                    | QuantizationArg::ProductX32
+                    | QuantizationArg::ProductX64 => unreachable!(),
+                };
+
+                let data_fit_disabled = args.turbo_quant_disable_data_fit == Some(true);
+
+                let tq_builder = TurboQuantizationBuilder::new()
+                    .always_ram(args.quantization_in_ram.unwrap_or_default())
+                    .bits(size);
+
+                create_collection_builder.quantization_config(if data_fit_disabled {
+                    tq_builder.data_fit_disabled()
+                } else {
+                    tq_builder
+                })
+            }
             quantization => {
                 let compression = match quantization {
                     QuantizationArg::ProductX4 => CompressionRatio::X4,
@@ -231,7 +264,11 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
                     | QuantizationArg::Binary
                     | QuantizationArg::Binary2bit
                     | QuantizationArg::Binary1p5bit
-                    | QuantizationArg::None => {
+                    | QuantizationArg::None
+                    | QuantizationArg::Turbo1Bit
+                    | QuantizationArg::Turbo1_5Bit
+                    | QuantizationArg::Turbo2Bit
+                    | QuantizationArg::Turbo4Bit => {
                         unreachable!()
                     }
                 };

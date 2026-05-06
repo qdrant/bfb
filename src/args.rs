@@ -16,6 +16,10 @@ pub enum QuantizationArg {
     ProductX16,
     ProductX32,
     ProductX64,
+    Turbo1Bit,
+    Turbo1_5Bit,
+    Turbo2Bit,
+    Turbo4Bit,
 }
 
 /// Big F*cking Benchmark tool for stress-testing Qdrant
@@ -340,6 +344,10 @@ pub struct Args {
     /// Quantization oversampling factor
     #[clap(long)]
     pub quantization_oversampling: Option<f64>,
+
+    /// Disable datafitting in turbo-quant quantization. Requires --quantization turboX-bit
+    #[clap(long)]
+    pub turbo_quant_disable_data_fit: Option<bool>,
 
     /// Delay between requests in milliseconds
     #[clap(long, value_parser = parse_number)]
