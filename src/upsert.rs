@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Error;
 use futures::TryFutureExt;
