@@ -10,12 +10,12 @@ use qdrant_client::qdrant::{
     BinaryQuantizationBuilder, BinaryQuantizationEncoding, BoolIndexParamsBuilder,
     CollectionStatus, CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     CreateShardKeyBuilder, CreateShardKeyRequestBuilder, Datatype, DatetimeIndexParamsBuilder,
-    Distance, FieldType, FloatIndexParamsBuilder, HnswConfigDiffBuilder, IntegerIndexParamsBuilder,
-    KeywordIndexParamsBuilder, MultiVectorComparator, MultiVectorConfigBuilder,
-    OptimizersConfigDiffBuilder, ProductQuantizationBuilder, QuantizationType,
-    ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder, SparseVectorConfig,
-    SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder,
-    VectorParams, VectorParamsMap, VectorsConfig,
+    Distance, FieldType, FloatIndexParamsBuilder, GeoIndexParamsBuilder, HnswConfigDiffBuilder,
+    IntegerIndexParamsBuilder, KeywordIndexParamsBuilder, MultiVectorComparator,
+    MultiVectorConfigBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
+    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
+    SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
+    UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
 };
 use tokio::time::sleep;
 
@@ -342,6 +342,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                 )
                 .field_index_params(
                     DatetimeIndexParamsBuilder::default()
+                        .on_disk(args.on_disk_payload_index)
                         .is_principal(args.tenants.unwrap_or_default()),
                 )
                 .wait(true),
@@ -377,6 +378,9 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     GEO_PAYLOAD_KEY,
                     FieldType::Geo,
                 )
+                .field_index_params(
+                    GeoIndexParamsBuilder::new().on_disk(args.on_disk_payload_index),
+                )
                 .wait(true),
             )
             .await
@@ -408,7 +412,10 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     TEXT_PAYLOAD_KEY,
                     FieldType::Text,
                 )
-                .field_index_params(TextIndexParamsBuilder::new(TokenizerType::Word))
+                .field_index_params(
+                    TextIndexParamsBuilder::new(TokenizerType::Word)
+                        .on_disk(args.on_disk_payload_index),
+                )
                 .wait(true),
             )
             .await
