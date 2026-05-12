@@ -411,3 +411,110 @@ pub fn int_payload_name(id: usize) -> String {
 pub fn float_payload_name(id: usize) -> String {
     format!("{}{}", payload_prefixes(id), FLOAT_PAYLOAD_KEY)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+
+    fn seeded_rng() -> rand::rngs::StdRng {
+        rand::rngs::StdRng::seed_from_u64(42)
+    }
+
+    #[test]
+    fn test_payload_prefixes() {
+        assert_eq!(payload_prefixes(0), "");
+        assert_eq!(payload_prefixes(1), "payload_1_");
+        assert_eq!(payload_prefixes(5), "payload_5_");
+    }
+
+    #[test]
+    fn test_keyword_payload_name() {
+        assert_eq!(keyword_payload_name(0), KEYWORD_PAYLOAD_KEY);
+        assert_eq!(keyword_payload_name(1), format!("payload_1_{KEYWORD_PAYLOAD_KEY}"));
+    }
+
+    #[test]
+    fn test_int_payload_name() {
+        assert_eq!(int_payload_name(0), INTEGERS_PAYLOAD_KEY);
+        assert_eq!(int_payload_name(2), format!("payload_2_{INTEGERS_PAYLOAD_KEY}"));
+    }
+
+    #[test]
+    fn test_float_payload_name() {
+        assert_eq!(float_payload_name(0), FLOAT_PAYLOAD_KEY);
+        assert_eq!(float_payload_name(3), format!("payload_3_{FLOAT_PAYLOAD_KEY}"));
+    }
+
+    #[test]
+    fn test_random_keyword_format() {
+        let mut rng = seeded_rng();
+        let kw = random_keyword(&mut rng, 10, 1);
+        assert!(kw.starts_with("keyword_"));
+    }
+
+    #[test]
+    fn test_random_keyword_length_multiplier() {
+        let mut rng = seeded_rng();
+        let single = random_keyword(&mut rng, 10, 1);
+        let mut rng = seeded_rng();
+        let triple = random_keyword(&mut rng, 10, 3);
+        assert_eq!(triple.len(), single.len() * 3);
+    }
+
+    #[test]
+    fn test_random_dense_vector_dimension() {
+        let mut rng = seeded_rng();
+        let vec = random_dense_vector(&mut rng, 128, false);
+        assert_eq!(vec.len(), 128);
+    }
+
+    #[test]
+    fn test_random_dense_vector_float_range() {
+        let mut rng = seeded_rng();
+        let vec = random_dense_vector(&mut rng, 1000, false);
+        for &v in &vec {
+            assert!((-1.0..1.0).contains(&v), "value {v} out of [-1, 1) range");
+        }
+    }
+
+    #[test]
+    fn test_random_dense_vector_uint_range() {
+        let mut rng = seeded_rng();
+        let vec = random_dense_vector(&mut rng, 1000, true);
+        for &v in &vec {
+            assert!(v >= 0.0 && v < 255.0, "uint8 value {v} out of [0, 255) range");
+            assert_eq!(v, v.floor(), "uint8 value {v} should be integral");
+        }
+    }
+
+    #[test]
+    fn test_random_text_word_count() {
+        let mut rng = seeded_rng();
+        let zipf = create_zipf(DEFAULT_VOCAB_SIZE);
+        let text = random_text(&mut rng, 5, &zipf);
+        let words: Vec<&str> = text.split_whitespace().collect();
+        assert_eq!(words.len(), 5);
+        for word in &words {
+            assert!(word.starts_with("word_"));
+        }
+    }
+
+    #[test]
+    fn test_random_sparse_vector_bounds() {
+        let mut rng = seeded_rng();
+        let pairs = random_sparse_vector(&mut rng, 100, 0.5);
+        for &(idx, val) in &pairs {
+            assert!(idx >= 1, "sparse index should be >= 1, got {idx}");
+            assert!(idx <= 100, "sparse index should be <= max_size, got {idx}");
+            assert!(val >= 0.0, "sparse value should be non-negative, got {val}");
+        }
+    }
+
+    #[test]
+    fn test_random_sparse_vector_empty_with_zero_sparsity() {
+        let mut rng = seeded_rng();
+        let pairs = random_sparse_vector(&mut rng, 100, 0.0);
+        assert!(pairs.is_empty());
+    }
+}
