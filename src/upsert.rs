@@ -182,6 +182,9 @@ impl UpsertProcessor {
         if let Some(shard_key) = &args.shard_key {
             request = request.shard_key_selector(vec![Key::Keyword(shard_key.to_string())]);
         }
+        if let Some(timeout) = self.args.timeout {
+            request = request.timeout(timeout as u64);
+        }
 
         let request = request.build();
         let res = retry_with_clients(&self.clients, args, |client| {
@@ -208,6 +211,9 @@ impl UpsertProcessor {
 
             if let Some(ordering) = self.args.write_ordering {
                 request_builder = request_builder.ordering(ordering);
+            }
+            if let Some(timeout) = self.args.timeout {
+                request_builder = request_builder.timeout(timeout as u64);
             }
 
             let request = request_builder.build();
