@@ -15,7 +15,8 @@ use qdrant_client::qdrant::{
     MultiVectorConfigBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
     QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
     SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
-    UuidIndexParamsBuilder, VectorParams, VectorParamsMap, VectorsConfig,
+    TurboQuantBitSize, TurboQuantizationBuilder, UuidIndexParamsBuilder, VectorParams,
+    VectorParamsMap, VectorsConfig,
 };
 use tokio::time::sleep;
 
@@ -220,6 +221,26 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
                 BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default())
                     .encoding(BinaryQuantizationEncoding::OneAndHalfBits),
             ),
+            QuantizationArg::Turbo1bit => create_collection_builder.quantization_config(
+                TurboQuantizationBuilder::new()
+                    .bits(TurboQuantBitSize::Bits1)
+                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
+            ),
+            QuantizationArg::Turbo1p5bit => create_collection_builder.quantization_config(
+                TurboQuantizationBuilder::new()
+                    .bits(TurboQuantBitSize::Bits15)
+                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
+            ),
+            QuantizationArg::Turbo2bit => create_collection_builder.quantization_config(
+                TurboQuantizationBuilder::new()
+                    .bits(TurboQuantBitSize::Bits2)
+                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
+            ),
+            QuantizationArg::Turbo4bit => create_collection_builder.quantization_config(
+                TurboQuantizationBuilder::new()
+                    .bits(TurboQuantBitSize::Bits4)
+                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
+            ),
             quantization => {
                 let compression = match quantization {
                     QuantizationArg::ProductX4 => CompressionRatio::X4,
@@ -231,6 +252,10 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
                     | QuantizationArg::Binary
                     | QuantizationArg::Binary2bit
                     | QuantizationArg::Binary1p5bit
+                    | QuantizationArg::Turbo1bit
+                    | QuantizationArg::Turbo1p5bit
+                    | QuantizationArg::Turbo2bit
+                    | QuantizationArg::Turbo4bit
                     | QuantizationArg::None => {
                         unreachable!()
                     }
