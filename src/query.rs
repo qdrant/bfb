@@ -42,13 +42,13 @@ async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
     }
 
     // Retrieve existing UUIDs
-    let res = client
-        .scroll(
-            ScrollPointsBuilder::new(&args.collection_name)
-                .with_payload(true)
-                .limit(args.num_vectors as u32),
-        )
-        .await?;
+    let mut scroll_builder = ScrollPointsBuilder::new(&args.collection_name)
+        .with_payload(true)
+        .limit(args.num_vectors as u32);
+    if let Some(timeout) = args.timeout {
+        scroll_builder = scroll_builder.timeout(timeout as u64);
+    }
+    let res = client.scroll(scroll_builder).await?;
     let uuids: Vec<_> = res
         .result
         .iter()

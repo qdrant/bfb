@@ -256,8 +256,11 @@ impl SearchProcessor {
             (None, query_points)
         };
 
-        let batch_request_builder =
+        let mut batch_request_builder =
             QueryBatchPointsBuilder::new(self.args.collection_name.clone(), batch_query_points);
+        if let Some(timeout) = self.args.timeout {
+            batch_request_builder = batch_request_builder.timeout(timeout as u64);
+        }
 
         let request = batch_request_builder.build();
         let res_batch = retry_with_clients(&self.clients, args, |client| {
@@ -315,8 +318,11 @@ impl SearchProcessor {
         for point in &mut exact_query_points {
             point.params = Some(exact_search);
         }
-        let exact_request_builder =
+        let mut exact_request_builder =
             QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);
+        if let Some(timeout) = self.args.timeout {
+            exact_request_builder = exact_request_builder.timeout(timeout as u64);
+        }
         let exact_request = exact_request_builder.build();
 
         let exact_res = retry_with_clients(&self.clients, args, |client| {

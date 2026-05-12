@@ -24,8 +24,11 @@ pub fn get_config(args: &Args) -> Vec<QdrantConfig> {
             let api_key = std::env::var("QDRANT_API_KEY").ok();
 
             if let Some(timeout) = args.timeout {
-                config.set_timeout(Duration::from_secs(timeout as u64));
-                config.set_connect_timeout(Duration::from_secs(timeout as u64));
+                // Give the channel a small cushion over the server-side request timeout
+                // so the server's structured timeout error wins the race over a transport deadline.
+                let channel_timeout = Duration::from_secs(timeout as u64 + 5);
+                config.set_timeout(channel_timeout);
+                config.set_connect_timeout(channel_timeout);
             }
 
             if let Some(api_key) = api_key {
