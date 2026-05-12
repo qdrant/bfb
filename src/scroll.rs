@@ -91,6 +91,10 @@ impl ScrollProcessor {
             request_builder = request_builder.read_consistency(read_consistency);
         }
 
+        if let Some(timeout) = self.args.timeout {
+            request_builder = request_builder.timeout(timeout as u64);
+        }
+
         let request = request_builder.build();
         let res = retry_with_clients(&self.clients, args, |client| client.scroll(request.clone()))
             .await?;

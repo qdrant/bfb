@@ -310,7 +310,7 @@ pub struct Args {
     #[clap(long)]
     pub read_consistency: Option<ReadConsistency>,
 
-    /// Timeout for requests in seconds
+    /// Timeout for requests in seconds (applied as both the client channel deadline and the server-side request timeout where supported).
     #[clap(long, value_parser = parse_number)]
     pub timeout: Option<usize>,
 
