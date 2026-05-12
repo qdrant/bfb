@@ -168,43 +168,6 @@ pub async fn process<P: Processor + Sync>(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_searcher_results_serde_roundtrip() {
-        let results = SearcherResults {
-            server_timings: vec![1.0, 2.5, 3.7],
-            rps: vec![100.0, 200.0],
-            full_timings: vec![0.5, 1.5, 2.5, 3.5],
-        };
-
-        let json = serde_json::to_string(&results).unwrap();
-        let deserialized: SearcherResults = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(results.server_timings, deserialized.server_timings);
-        assert_eq!(results.rps, deserialized.rps);
-        assert_eq!(results.full_timings, deserialized.full_timings);
-    }
-
-    #[test]
-    fn test_searcher_results_empty() {
-        let results = SearcherResults {
-            server_timings: vec![],
-            rps: vec![],
-            full_timings: vec![],
-        };
-
-        let json = serde_json::to_string(&results).unwrap();
-        let deserialized: SearcherResults = serde_json::from_str(&json).unwrap();
-
-        assert!(deserialized.server_timings.is_empty());
-        assert!(deserialized.rps.is_empty());
-        assert!(deserialized.full_timings.is_empty());
-    }
-}
-
 /// Process requests using fixed parallelism (original behavior)
 async fn process_with_parallel<P: Processor>(
     args: &Args,
@@ -327,4 +290,41 @@ async fn process_with_rps<P: Processor + Sync>(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_searcher_results_serde_roundtrip() {
+        let results = SearcherResults {
+            server_timings: vec![1.0, 2.5, 3.7],
+            rps: vec![100.0, 200.0],
+            full_timings: vec![0.5, 1.5, 2.5, 3.5],
+        };
+
+        let json = serde_json::to_string(&results).unwrap();
+        let deserialized: SearcherResults = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(results.server_timings, deserialized.server_timings);
+        assert_eq!(results.rps, deserialized.rps);
+        assert_eq!(results.full_timings, deserialized.full_timings);
+    }
+
+    #[test]
+    fn test_searcher_results_empty() {
+        let results = SearcherResults {
+            server_timings: vec![],
+            rps: vec![],
+            full_timings: vec![],
+        };
+
+        let json = serde_json::to_string(&results).unwrap();
+        let deserialized: SearcherResults = serde_json::from_str(&json).unwrap();
+
+        assert!(deserialized.server_timings.is_empty());
+        assert!(deserialized.rps.is_empty());
+        assert!(deserialized.full_timings.is_empty());
+    }
 }

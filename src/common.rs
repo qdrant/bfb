@@ -431,19 +431,28 @@ mod tests {
     #[test]
     fn test_keyword_payload_name() {
         assert_eq!(keyword_payload_name(0), KEYWORD_PAYLOAD_KEY);
-        assert_eq!(keyword_payload_name(1), format!("payload_1_{KEYWORD_PAYLOAD_KEY}"));
+        assert_eq!(
+            keyword_payload_name(1),
+            format!("payload_1_{KEYWORD_PAYLOAD_KEY}")
+        );
     }
 
     #[test]
     fn test_int_payload_name() {
         assert_eq!(int_payload_name(0), INTEGERS_PAYLOAD_KEY);
-        assert_eq!(int_payload_name(2), format!("payload_2_{INTEGERS_PAYLOAD_KEY}"));
+        assert_eq!(
+            int_payload_name(2),
+            format!("payload_2_{INTEGERS_PAYLOAD_KEY}")
+        );
     }
 
     #[test]
     fn test_float_payload_name() {
         assert_eq!(float_payload_name(0), FLOAT_PAYLOAD_KEY);
-        assert_eq!(float_payload_name(3), format!("payload_3_{FLOAT_PAYLOAD_KEY}"));
+        assert_eq!(
+            float_payload_name(3),
+            format!("payload_3_{FLOAT_PAYLOAD_KEY}")
+        );
     }
 
     #[test]
@@ -483,7 +492,10 @@ mod tests {
         let mut rng = seeded_rng();
         let vec = random_dense_vector(&mut rng, 1000, true);
         for &v in &vec {
-            assert!(v >= 0.0 && v < 255.0, "uint8 value {v} out of [0, 255) range");
+            assert!(
+                (0.0..255.0).contains(&v),
+                "uint8 value {v} out of [0, 255) range"
+            );
             assert_eq!(v, v.floor(), "uint8 value {v} should be integral");
         }
     }

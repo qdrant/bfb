@@ -619,16 +619,29 @@ mod tests {
 
     #[test]
     fn test_write_ordering_from_str() {
-        assert!(matches!("Weak".parse::<WriteOrdering>().unwrap(), WriteOrdering::Weak));
-        assert!(matches!("Medium".parse::<WriteOrdering>().unwrap(), WriteOrdering::Medium));
-        assert!(matches!("Strong".parse::<WriteOrdering>().unwrap(), WriteOrdering::Strong));
+        assert!(matches!(
+            "Weak".parse::<WriteOrdering>().unwrap(),
+            WriteOrdering::Weak
+        ));
+        assert!(matches!(
+            "Medium".parse::<WriteOrdering>().unwrap(),
+            WriteOrdering::Medium
+        ));
+        assert!(matches!(
+            "Strong".parse::<WriteOrdering>().unwrap(),
+            WriteOrdering::Strong
+        ));
         assert!("weak".parse::<WriteOrdering>().is_err());
         assert!("".parse::<WriteOrdering>().is_err());
     }
 
     #[test]
     fn test_write_ordering_display_roundtrip() {
-        for ordering in [WriteOrdering::Weak, WriteOrdering::Medium, WriteOrdering::Strong] {
+        for ordering in [
+            WriteOrdering::Weak,
+            WriteOrdering::Medium,
+            WriteOrdering::Strong,
+        ] {
             let s = ordering.to_string();
             let parsed: WriteOrdering = s.parse().unwrap();
             assert_eq!(ordering.to_string(), parsed.to_string());
@@ -637,16 +650,29 @@ mod tests {
 
     #[test]
     fn test_read_consistency_type_from_str() {
-        assert!(matches!("All".parse::<ReadConsistencyType>().unwrap(), ReadConsistencyType::All));
-        assert!(matches!("Majority".parse::<ReadConsistencyType>().unwrap(), ReadConsistencyType::Majority));
-        assert!(matches!("Quorum".parse::<ReadConsistencyType>().unwrap(), ReadConsistencyType::Quorum));
+        assert!(matches!(
+            "All".parse::<ReadConsistencyType>().unwrap(),
+            ReadConsistencyType::All
+        ));
+        assert!(matches!(
+            "Majority".parse::<ReadConsistencyType>().unwrap(),
+            ReadConsistencyType::Majority
+        ));
+        assert!(matches!(
+            "Quorum".parse::<ReadConsistencyType>().unwrap(),
+            ReadConsistencyType::Quorum
+        ));
         assert!("all".parse::<ReadConsistencyType>().is_err());
         assert!("".parse::<ReadConsistencyType>().is_err());
     }
 
     #[test]
     fn test_read_consistency_type_display_roundtrip() {
-        for consistency in [ReadConsistencyType::All, ReadConsistencyType::Majority, ReadConsistencyType::Quorum] {
+        for consistency in [
+            ReadConsistencyType::All,
+            ReadConsistencyType::Majority,
+            ReadConsistencyType::Quorum,
+        ] {
             let s = consistency.to_string();
             let parsed: ReadConsistencyType = s.parse().unwrap();
             assert_eq!(consistency.to_string(), parsed.to_string());
@@ -662,7 +688,10 @@ mod tests {
     #[test]
     fn test_read_consistency_from_str_with_type() {
         let parsed: ReadConsistency = "All".parse().unwrap();
-        assert!(matches!(parsed, ReadConsistency::Type(ReadConsistencyType::All)));
+        assert!(matches!(
+            parsed,
+            ReadConsistency::Type(ReadConsistencyType::All)
+        ));
     }
 
     #[test]
