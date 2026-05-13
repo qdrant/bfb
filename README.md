@@ -155,7 +155,7 @@ Options:
       --ignore-errors
           Keep going on search error
       --quantization <QUANTIZATION>
-          [possible values: none, binary, binary2bit, binary1p5bit, scalar, product-x4, product-x8, product-x16, product-x32, product-x64]
+          [possible values: none, binary, binary2bit, binary1p5bit, turbo1bit, turbo1p5bit, turbo2bit, turbo4bit, scalar, product-x4, product-x8, product-x16, product-x32, product-x64]
       --quantization-in-ram <QUANTIZATION_IN_RAM>
           Keep quantized vectors in memory [possible values: true, false]
       --quantization-rescore <QUANTIZATION_RESCORE>
