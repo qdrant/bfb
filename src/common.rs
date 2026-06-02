@@ -14,6 +14,7 @@ use rand::distr::Distribution;
 use rand::prelude::SliceRandom;
 use rand::seq::IndexedRandom;
 use serde_json::json;
+use std::collections::HashSet;
 use std::time::Duration;
 use tokio::time::interval;
 use tokio_stream::StreamExt;
@@ -303,23 +304,39 @@ pub fn random_vector(rng: &mut impl Rng, args: &Args) -> Vector {
     }
 }
 
-/// Generate random sparse vector with random size and random values.
-/// - `max_size` - maximum size of vector
-/// - `sparsity` - how many non-zero values should be in vector
-pub fn random_sparse_vector(rng: &mut impl Rng, max_size: usize, sparsity: f64) -> Vec<(u32, f32)> {
-    let size = rng.random_range(1..max_size);
-    // (index, value)
-    let mut pairs = Vec::with_capacity(size);
-    for i in 1..=size {
-        // probability of skipping a dimension to make the vectors sparse
-        let skip = !rng.random_bool(sparsity);
-        if skip {
-            continue;
-        }
-        // Only positive values are generated to make sure to hit the pruning path.
-        pairs.push((i as u32, rng.random_range(0.0..10.0) as f32));
+/// Generate random sparse vector with random values.
+///
+/// - `vocab_size` - the range of possible indices (1..=vocab_size)
+/// - `avg_dim` - the average number of non-zero values per vector
+///
+/// The actual number of non-zero values is randomized around `avg_dim` to
+/// produce vectors of varying length, while keeping the average close to the
+/// requested value.
+pub fn random_sparse_vector(
+    rng: &mut impl Rng,
+    vocab_size: usize,
+    avg_dim: usize,
+) -> Vec<(u32, f32)> {
+    if vocab_size == 0 || avg_dim == 0 {
+        return Vec::new();
     }
-    pairs
+
+    // Randomize the number of non-zero values uniformly in [1, 2*avg_dim],
+    // which keeps the expected value at `avg_dim`. Clamp to the vocabulary size.
+    let max_dim = (2 * avg_dim).min(vocab_size);
+    let size = rng.random_range(1..=max_dim);
+
+    // Sample `size` distinct indices from 1..=vocab_size.
+    let mut indices: HashSet<u32> = HashSet::with_capacity(size);
+    while indices.len() < size {
+        indices.insert(rng.random_range(1..=vocab_size) as u32);
+    }
+
+    indices
+        .into_iter()
+        // Only positive values are generated to make sure to hit the pruning path.
+        .map(|idx| (idx, rng.random_range(0.0..10.0) as f32))
+        .collect()
 }
 
 pub fn random_dense_vector(rng: &mut impl Rng, dim: usize, is_uint: bool) -> Vec<f32> {
@@ -515,18 +532,46 @@ mod tests {
     #[test]
     fn test_random_sparse_vector_bounds() {
         let mut rng = seeded_rng();
-        let pairs = random_sparse_vector(&mut rng, 100, 0.5);
+        let vocab_size = 1000;
+        let pairs = random_sparse_vector(&mut rng, vocab_size, 16);
         for &(idx, val) in &pairs {
             assert!(idx >= 1, "sparse index should be >= 1, got {idx}");
-            assert!(idx <= 100, "sparse index should be <= max_size, got {idx}");
+            assert!(
+                idx <= vocab_size as u32,
+                "sparse index should be <= vocab_size, got {idx}"
+            );
             assert!(val >= 0.0, "sparse value should be non-negative, got {val}");
         }
     }
 
     #[test]
-    fn test_random_sparse_vector_empty_with_zero_sparsity() {
+    fn test_random_sparse_vector_distinct_indices() {
         let mut rng = seeded_rng();
-        let pairs = random_sparse_vector(&mut rng, 100, 0.0);
+        let pairs = random_sparse_vector(&mut rng, 1000, 16);
+        let unique: HashSet<u32> = pairs.iter().map(|&(idx, _)| idx).collect();
+        assert_eq!(unique.len(), pairs.len(), "indices should be distinct");
+    }
+
+    #[test]
+    fn test_random_sparse_vector_average_dim() {
+        let mut rng = seeded_rng();
+        let avg_dim = 32;
+        let samples = 1000;
+        let total: usize = (0..samples)
+            .map(|_| random_sparse_vector(&mut rng, 100_000, avg_dim).len())
+            .sum();
+        let observed = total as f64 / samples as f64;
+        // Expected value of uniform [1, 2*avg_dim] is roughly avg_dim.
+        assert!(
+            (observed - avg_dim as f64).abs() < avg_dim as f64 * 0.2,
+            "observed average dim {observed} should be close to {avg_dim}"
+        );
+    }
+
+    #[test]
+    fn test_random_sparse_vector_empty_with_zero_avg_dim() {
+        let mut rng = seeded_rng();
+        let pairs = random_sparse_vector(&mut rng, 100, 0);
         assert!(pairs.is_empty());
     }
 }

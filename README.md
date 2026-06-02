@@ -23,7 +23,7 @@ Options:
   -m, --max-id <MAX_ID>
           If set, will randomly upsert/override vector ids within range [offset, max_id)
   -d, --dim <DIM>
-          Number of dimensions in each dense vector or max dimension for sparse vectors [default: 128]
+          Number of dimensions in each dense vector [default: 128]
   -t, --threads <THREADS>
           Number of worker threads to use [default: 2]
   -p, --parallel <PARALLEL>
@@ -166,14 +166,16 @@ Options:
           Delay between requests in milliseconds
       --indexed-only <INDEXED_ONLY>
           Skip un-indexed segments during search [possible values: true, false]
-      --sparse-vectors <SPARSITY>
-          Whether to use sparse vectors and with how much sparsity
+      --sparse-vectors
+          Use sparse vectors. Can be combined with dense vectors. Sparse vectors are configured independently from dense vectors via `--sparse-vocab-size` (index range) and `--sparse-avg-dim` (average number of non-zero values). This flag is implied when either of those options is set
       --sparse-vectors-per-point <SPARSE_VECTORS_PER_POINT>
           Number of named sparse vectors per point [default: 1]
+      --sparse-vocab-size <SPARSE_VOCAB_SIZE>
+          Vocabulary size for sparse vectors, i.e. the range of possible indices. Implies `--sparse-vectors`. [default: 100000]
+      --sparse-avg-dim <SPARSE_AVG_DIM>
+          Average number of non-zero values per sparse vector. Implies `--sparse-vectors`. [default: 32]
       --multivector-size <MULTIVECTOR_SIZE>
           Whether to set dense vectors as multivectors
-      --sparse-dim <SPARSE_DIM>
-          Max dimension for sparse vectors (overrides --dim)
       --jsonl-updates <JSONL_UPDATES>
           Path to the jsonl file to save update timings TIP: Use `qdrant/mri` to visualize the timings
       --jsonl-searches <JSONL_SEARCHES>

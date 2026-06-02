@@ -121,7 +121,7 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
 
     let vectors_config: VectorsConfig = dense_vector_params.clone().into();
 
-    let sparse_vectors_config = if args.sparse_vectors.is_some() {
+    let sparse_vectors_config = if args.use_sparse_vectors() {
         let params: HashMap<_, _> = (0..args.sparse_vectors_per_point)
             .map(|idx| {
                 let key = format!("{idx}_sparse");

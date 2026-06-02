@@ -54,7 +54,7 @@ pub struct Args {
     #[clap(short, long, value_parser = parse_number)]
     pub max_id: Option<usize>,
 
-    /// Number of dimensions in each dense vector or max dimension for sparse vectors
+    /// Number of dimensions in each dense vector
     #[clap(short, long, default_value_t = 128, value_parser = parse_number)]
     pub dim: usize,
 
@@ -353,21 +353,32 @@ pub struct Args {
     #[clap(long)]
     pub indexed_only: Option<bool>,
 
-    /// Whether to use sparse vectors and with how much sparsity
-    #[clap(long, value_name = "SPARSITY")]
-    pub sparse_vectors: Option<f64>,
+    /// Use sparse vectors. Can be combined with dense vectors.
+    ///
+    /// Sparse vectors are configured independently from dense vectors via
+    /// `--sparse-vocab-size` (index range) and `--sparse-avg-dim` (average
+    /// number of non-zero values). This flag is implied when either of those
+    /// options is set.
+    #[clap(long, default_value_t = false)]
+    pub sparse_vectors: bool,
 
     /// Number of named sparse vectors per point
     #[clap(long, default_value_t = 1)]
     pub sparse_vectors_per_point: usize,
 
+    /// Vocabulary size for sparse vectors, i.e. the range of possible indices.
+    /// Implies `--sparse-vectors`. [default: 100000]
+    #[clap(long, value_parser = parse_number)]
+    pub sparse_vocab_size: Option<usize>,
+
+    /// Average number of non-zero values per sparse vector.
+    /// Implies `--sparse-vectors`. [default: 32]
+    #[clap(long, value_parser = parse_number)]
+    pub sparse_avg_dim: Option<usize>,
+
     /// Whether to set dense vectors as multivectors
     #[clap(long)]
     pub multivector_size: Option<usize>,
-
-    /// Max dimension for sparse vectors (overrides --dim)
-    #[clap(long, value_parser = parse_number)]
-    pub sparse_dim: Option<usize>,
 
     /// Path to the jsonl file to save update timings
     /// TIP: Use `qdrant/mri` to visualize the timings
@@ -410,11 +421,35 @@ pub struct Args {
     pub full_scan_threshold: Option<usize>,
 }
 
+/// Default vocabulary size (index range) for sparse vectors.
+pub const DEFAULT_SPARSE_VOCAB_SIZE: usize = 100_000;
+
+/// Default average number of non-zero values per sparse vector.
+pub const DEFAULT_SPARSE_AVG_DIM: usize = 32;
+
 impl Args {
     pub fn is_uint8_datatype(&self) -> bool {
         self.datatype
             .as_ref()
             .is_some_and(|x| x == qdrant::Datatype::Uint8.as_str_name())
+    }
+
+    /// Whether sparse vectors should be used.
+    ///
+    /// Enabled either via the `--sparse-vectors` flag or implicitly when any
+    /// of the sparse configuration options is set.
+    pub fn use_sparse_vectors(&self) -> bool {
+        self.sparse_vectors || self.sparse_vocab_size.is_some() || self.sparse_avg_dim.is_some()
+    }
+
+    /// Vocabulary size (index range) used to generate sparse vectors.
+    pub fn sparse_vocab_size(&self) -> usize {
+        self.sparse_vocab_size.unwrap_or(DEFAULT_SPARSE_VOCAB_SIZE)
+    }
+
+    /// Average number of non-zero values per generated sparse vector.
+    pub fn sparse_avg_dim(&self) -> usize {
+        self.sparse_avg_dim.unwrap_or(DEFAULT_SPARSE_AVG_DIM)
     }
 }
 

@@ -69,7 +69,7 @@ impl SearchProcessor {
         &self,
         rng: &mut impl Rng,
     ) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
-        if let Some(sparsity) = self.args.sparse_vectors {
+        if self.args.use_sparse_vectors() {
             let name = format!(
                 "{}_sparse",
                 random_vector_name(rng, self.args.sparse_vectors_per_point)
@@ -79,8 +79,8 @@ impl SearchProcessor {
                 .map(|_| {
                     let sparse_vector_tuples = random_sparse_vector(
                         rng,
-                        self.args.sparse_dim.unwrap_or(self.args.dim),
-                        sparsity,
+                        self.args.sparse_vocab_size(),
+                        self.args.sparse_avg_dim(),
                     );
                     let (indices, values): (Vec<_>, Vec<_>) =
                         sparse_vector_tuples.into_iter().unzip();
@@ -190,7 +190,7 @@ impl SearchProcessor {
 
         let start = std::time::Instant::now();
         let mut rng = rand::rng();
-        let has_sparse = self.args.sparse_vectors.is_some();
+        let has_sparse = self.args.use_sparse_vectors();
         let has_dense = self.args.vectors_per_point > 0;
 
         let use_sparse = match (has_sparse, has_dense) {

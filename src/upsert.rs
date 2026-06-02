@@ -131,15 +131,15 @@ impl UpsertProcessor {
                 random_vector(&mut rng, &self.args).into()
             };
 
-            let vectors: Vectors = if let Some(sparsity) = self.args.sparse_vectors {
+            let vectors: Vectors = if self.args.use_sparse_vectors() {
                 let mut vectors_map: HashMap<_, _> = Default::default();
 
                 for i in 0..self.args.sparse_vectors_per_point {
                     let vector_name = format!("{i}_sparse");
                     let vector = Vector::from(random_sparse_vector(
                         &mut rng,
-                        self.args.sparse_dim.unwrap_or(self.args.dim),
-                        sparsity,
+                        self.args.sparse_vocab_size(),
+                        self.args.sparse_avg_dim(),
                     ));
                     vectors_map.insert(vector_name, vector);
                 }
