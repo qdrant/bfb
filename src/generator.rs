@@ -424,3 +424,142 @@ impl PointGenerator for ConfigGenerator {
         self.gen_payload(&mut rng)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qdrant_client::qdrant::vectors::VectorsOptions;
+    use std::collections::HashMap;
+
+    fn build_gen(yaml: &str) -> ConfigGenerator {
+        let config: UploadConfig = serde_yaml::from_str(yaml).unwrap();
+        config.validate().unwrap();
+        ConfigGenerator::new(&config).unwrap()
+    }
+
+    fn named(point: &PointStruct) -> HashMap<String, Vector> {
+        match point.vectors.clone().unwrap().vectors_options.unwrap() {
+            VectorsOptions::Vectors(nv) => nv.vectors,
+            _ => panic!("expected named vectors"),
+        }
+    }
+
+    fn dense_dim(v: &Vector) -> usize {
+        match v.vector.as_ref().unwrap() {
+            qdrant_client::qdrant::vector::Vector::Dense(d) => d.data.len(),
+            _ => panic!("expected dense vector"),
+        }
+    }
+
+    #[test]
+    fn point_id_integer_and_uuid() {
+        let g = build_gen("collection:\n  id: integer\n  vectors:\n    - size: 8\n");
+        assert!(matches!(
+            g.make_point(7).id.unwrap().point_id_options,
+            Some(PointIdOptions::Num(7))
+        ));
+
+        let g = build_gen("collection:\n  id: uuid\n  vectors:\n    - size: 8\n");
+        assert!(matches!(
+            g.make_point(7).id.unwrap().point_id_options,
+            Some(PointIdOptions::Uuid(_))
+        ));
+    }
+
+    #[test]
+    fn unnamed_vector_is_single() {
+        let g = build_gen("collection:\n  vectors:\n    - size: 8\n");
+        assert!(matches!(
+            g.make_point(0).vectors.unwrap().vectors_options.unwrap(),
+            VectorsOptions::Vector(_)
+        ));
+    }
+
+    #[test]
+    fn named_vectors_sparse_and_dims() {
+        let g = build_gen(
+            "collection:
+  vectors:
+    - name: image
+      size: 16
+    - name: text
+      size: 8
+  sparse_vectors:
+    - name: bm25
+      source: { type: random, dim: 100, sparsity: 0.2 }
+",
+        );
+        let point = g.make_point(1);
+        let nv = named(&point);
+
+        let mut keys: Vec<_> = nv.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["bm25", "image", "text"]);
+
+        assert_eq!(dense_dim(&nv["image"]), 16);
+        assert_eq!(dense_dim(&nv["text"]), 8);
+        assert!(matches!(
+            nv["bm25"].vector.as_ref().unwrap(),
+            qdrant_client::qdrant::vector::Vector::Sparse(_)
+        ));
+    }
+
+    #[test]
+    fn multivector_arity() {
+        let g = build_gen(
+            "collection:\n  vectors:\n    - name: m\n      size: 4\n      multivector: { count: 3 }\n",
+        );
+        let point = g.make_point(0);
+        match named(&point)["m"].vector.as_ref().unwrap() {
+            qdrant_client::qdrant::vector::Vector::MultiDense(m) => {
+                assert_eq!(m.vectors.len(), 3);
+                assert!(m.vectors.iter().all(|v| v.data.len() == 4));
+            }
+            _ => panic!("expected multidense vector"),
+        }
+    }
+
+    #[test]
+    fn payload_fields_and_types() {
+        let g = build_gen(
+            "collection:
+  vectors:
+    - size: 4
+  payloads:
+    - name: color
+      type: keyword
+      source: { type: random, cardinality: 10 }
+    - name: price
+      type: integer
+      source: { type: random, min: 5, max: 9 }
+    - name: ok
+      type: bool
+    - name: loc
+      type: geo
+",
+        );
+        let value = g.make_payload().deserialize::<serde_json::Value>().unwrap();
+        let obj = value.as_object().unwrap();
+
+        assert!(obj["color"].is_string());
+        let price = obj["price"].as_i64().unwrap();
+        assert!((5..9).contains(&price), "price {price} out of [5, 9)");
+        assert!(obj["ok"].is_boolean());
+        let loc = obj["loc"].as_object().unwrap();
+        assert!(loc.contains_key("lat") && loc.contains_key("lon"));
+    }
+
+    #[test]
+    fn keyword_uses_configured_cardinality() {
+        // 100 points × low cardinality ⇒ all values fall in keyword_0..keyword_5.
+        let g = build_gen(
+            "collection:\n  vectors:\n    - size: 4\n  payloads:\n    - name: c\n      type: keyword\n      source: { type: random, cardinality: 5 }\n",
+        );
+        for _ in 0..100 {
+            let value = g.make_payload().deserialize::<serde_json::Value>().unwrap();
+            let kw = value["c"].as_str().unwrap().to_string();
+            let n: usize = kw.strip_prefix("keyword_").unwrap().parse().unwrap();
+            assert!(n < 5, "keyword index {n} exceeds cardinality");
+        }
+    }
+}

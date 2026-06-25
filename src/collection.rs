@@ -788,3 +788,69 @@ async fn create_field_indices_from_config(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vector_config(yaml: &str) -> VectorConfig {
+        let config: UploadConfig = serde_yaml::from_str(yaml).unwrap();
+        config.collection.vectors.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn distance_mapping() {
+        assert_eq!(
+            distance_to_i32(DistanceKind::Cosine),
+            Distance::Cosine as i32
+        );
+        assert_eq!(distance_to_i32(DistanceKind::Dot), Distance::Dot as i32);
+        assert_eq!(
+            distance_to_i32(DistanceKind::Euclid),
+            Distance::Euclid as i32
+        );
+        assert_eq!(
+            distance_to_i32(DistanceKind::Manhattan),
+            Distance::Manhattan as i32
+        );
+    }
+
+    #[test]
+    fn datatype_mapping() {
+        assert_eq!(
+            datatype_to_i32(DatatypeKind::Float32),
+            Datatype::Float32 as i32
+        );
+        assert_eq!(
+            datatype_to_i32(DatatypeKind::Float16),
+            Datatype::Float16 as i32
+        );
+        assert_eq!(datatype_to_i32(DatatypeKind::Uint8), Datatype::Uint8 as i32);
+    }
+
+    #[test]
+    fn quantization_none_is_none() {
+        assert!(build_quantization_config(QuantKind::None, true).is_none());
+    }
+
+    #[test]
+    fn quantization_variants_build() {
+        assert!(build_quantization_config(QuantKind::Scalar, true).is_some());
+        assert!(build_quantization_config(QuantKind::Binary, false).is_some());
+        assert!(build_quantization_config(QuantKind::ProductX8, false).is_some());
+        assert!(build_quantization_config(QuantKind::Turbo4bit, true).is_some());
+    }
+
+    #[test]
+    fn vector_params_from_config() {
+        let vc = vector_config(
+            "collection:\n  vectors:\n    - size: 256\n      distance: dot\n      datatype: uint8\n      quantization: { type: scalar }\n      multivector: { count: 4 }\n",
+        );
+        let params = build_vector_params(&vc);
+        assert_eq!(params.size, 256);
+        assert_eq!(params.distance, Distance::Dot as i32);
+        assert_eq!(params.datatype, Some(Datatype::Uint8 as i32));
+        assert!(params.multivector_config.is_some());
+        assert!(params.quantization_config.is_some());
+    }
+}
