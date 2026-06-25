@@ -53,11 +53,7 @@ impl LegacyGenerator {
         let zipf = args
             .text_payloads
             .then(|| create_zipf(args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE)));
-        LegacyGenerator {
-            args,
-            reader,
-            zipf,
-        }
+        LegacyGenerator { args, reader, zipf }
     }
 }
 
@@ -187,8 +183,7 @@ impl ConfigGenerator {
             .payloads
             .iter()
             .map(|p| {
-                (p.kind == PayloadType::Geo
-                    && p.source.kind == PayloadSourceKind::RandomClusters)
+                (p.kind == PayloadType::Geo && p.source.kind == PayloadSourceKind::RandomClusters)
                     .then(|| {
                         let count = p.source.clusters.unwrap_or(10);
                         (0..count)
@@ -210,8 +205,7 @@ impl ConfigGenerator {
             .sparse_vectors
             .iter()
             .map(|s| {
-                (s.source.distribution == DistributionKind::Zipf)
-                    .then(|| create_zipf(s.source.dim))
+                (s.source.distribution == DistributionKind::Zipf).then(|| create_zipf(s.source.dim))
             })
             .collect();
 
@@ -247,13 +241,7 @@ impl ConfigGenerator {
         }
     }
 
-    fn gen_dense(
-        &self,
-        i: usize,
-        vc: &VectorConfig,
-        idx: u64,
-        rng: &mut impl Rng,
-    ) -> Vector {
+    fn gen_dense(&self, i: usize, vc: &VectorConfig, idx: u64, rng: &mut impl Rng) -> Vector {
         let reader = &self.readers[i];
         if let Some(mv) = &vc.multivector {
             let multi: Vec<_> = (0..mv.count)
@@ -323,11 +311,17 @@ impl ConfigGenerator {
                 }
                 PayloadType::Float => {
                     let min = src.min.unwrap_or(-1.0);
-                    let max = src.max.unwrap_or(1.0).max(src.min.unwrap_or(-1.0) + f64::EPSILON);
+                    let max = src
+                        .max
+                        .unwrap_or(1.0)
+                        .max(src.min.unwrap_or(-1.0) + f64::EPSILON);
                     payload.insert(pc.name.clone(), rng.random_range(min..max));
                 }
                 PayloadType::Bool => {
-                    payload.insert(pc.name.clone(), rng.random_bool(src.true_ratio.unwrap_or(0.5)));
+                    payload.insert(
+                        pc.name.clone(),
+                        rng.random_bool(src.true_ratio.unwrap_or(0.5)),
+                    );
                 }
                 PayloadType::Uuid => {
                     payload.insert(pc.name.clone(), Uuid::new_v4().to_string());
@@ -337,12 +331,10 @@ impl ConfigGenerator {
                         Some(centers) => {
                             let &(clat, clon) = centers.choose(rng).unwrap();
                             (
-                                clat + rng.random_range(
-                                    -GEO_CLUSTER_JITTER_DEG..GEO_CLUSTER_JITTER_DEG,
-                                ),
-                                clon + rng.random_range(
-                                    -GEO_CLUSTER_JITTER_DEG..GEO_CLUSTER_JITTER_DEG,
-                                ),
+                                clat + rng
+                                    .random_range(-GEO_CLUSTER_JITTER_DEG..GEO_CLUSTER_JITTER_DEG),
+                                clon + rng
+                                    .random_range(-GEO_CLUSTER_JITTER_DEG..GEO_CLUSTER_JITTER_DEG),
                             )
                         }
                         None => (
@@ -362,7 +354,9 @@ impl ConfigGenerator {
                     };
                     let text = match &self.text_zipf[i] {
                         Some(zipf) => random_text(rng, len, zipf),
-                        None => uniform_text(rng, len, src.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE)),
+                        None => {
+                            uniform_text(rng, len, src.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE))
+                        }
                     };
                     payload.insert(pc.name.clone(), text);
                 }

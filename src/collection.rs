@@ -27,8 +27,8 @@ use crate::common::{
     KEYWORD_PAYLOAD_KEY, TEXT_PAYLOAD_KEY, UUID_PAYLOAD_KEY, payload_prefixes,
 };
 use crate::config::{
-    ComparatorKind, DatatypeKind, DistanceKind, PayloadType, QuantKind, TokenizerKind, UploadConfig,
-    VectorConfig,
+    ComparatorKind, DatatypeKind, DistanceKind, PayloadType, QuantKind, TokenizerKind,
+    UploadConfig, VectorConfig,
 };
 
 pub async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
@@ -725,16 +725,14 @@ async fn create_field_indices_from_config(
         let field = pc.name.clone();
 
         let builder = match pc.kind {
-            PayloadType::Keyword => CreateFieldIndexCollectionBuilder::new(
-                name,
-                field,
-                FieldType::Keyword,
-            )
-            .field_index_params(
-                KeywordIndexParamsBuilder::default()
-                    .on_disk(pc.on_disk)
-                    .is_tenant(pc.is_tenant),
-            ),
+            PayloadType::Keyword => {
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Keyword)
+                    .field_index_params(
+                        KeywordIndexParamsBuilder::default()
+                            .on_disk(pc.on_disk)
+                            .is_tenant(pc.is_tenant),
+                    )
+            }
             PayloadType::Integer => {
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Integer)
                     .field_index_params(
@@ -763,10 +761,8 @@ async fn create_field_indices_from_config(
                             .on_disk(pc.on_disk),
                     )
             }
-            PayloadType::Geo => {
-                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Geo)
-                    .field_index_params(GeoIndexParamsBuilder::new().on_disk(pc.on_disk))
-            }
+            PayloadType::Geo => CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Geo)
+                .field_index_params(GeoIndexParamsBuilder::new().on_disk(pc.on_disk)),
             PayloadType::Datetime => {
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Datetime)
                     .field_index_params(
@@ -783,9 +779,7 @@ async fn create_field_indices_from_config(
                     TokenizerKind::Multilingual => TokenizerType::Multilingual,
                 };
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Text)
-                    .field_index_params(
-                        TextIndexParamsBuilder::new(tokenizer).on_disk(pc.on_disk),
-                    )
+                    .field_index_params(TextIndexParamsBuilder::new(tokenizer).on_disk(pc.on_disk))
             }
         };
 

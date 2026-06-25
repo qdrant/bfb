@@ -24,7 +24,11 @@ mod upload;
 mod upsert;
 
 /// `bfb upload --file config.yaml`: YAML-config-driven upload.
-async fn run_upload(args: Args, upload_args: args::UploadArgs, stopped: Arc<AtomicBool>) -> Result<()> {
+async fn run_upload(
+    args: Args,
+    upload_args: args::UploadArgs,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
     let config = config::load(&upload_args.file)?;
 
     // The config owns the collection name and (optional) custom shard key; the

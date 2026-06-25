@@ -259,7 +259,9 @@ impl FromStr for SparseSource {
     fn from_str(s: &str) -> Result<Self, String> {
         match s {
             "random" => Ok(SparseSource::default()),
-            other => Err(format!("unknown sparse source {other:?}; expected \"random\"")),
+            other => Err(format!(
+                "unknown sparse source {other:?}; expected \"random\""
+            )),
         }
     }
 }
@@ -385,8 +387,8 @@ pub enum PayloadSourceKind {
 pub fn load(path: &str) -> Result<UploadConfig> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read config file {path}"))?;
-    let config: UploadConfig =
-        serde_yaml::from_str(&text).with_context(|| format!("failed to parse config file {path}"))?;
+    let config: UploadConfig = serde_yaml::from_str(&text)
+        .with_context(|| format!("failed to parse config file {path}"))?;
     config.validate()?;
     Ok(config)
 }
@@ -406,9 +408,7 @@ impl UploadConfig {
         }
         if unnamed == 1 && c.vectors.len() > 1 {
             // The unnamed default vector cannot coexist with named ones in a map.
-            bail!(
-                "when multiple dense vectors are defined, every vector must have a `name`"
-            );
+            bail!("when multiple dense vectors are defined, every vector must have a `name`");
         }
 
         let mut names = std::collections::HashSet::new();
@@ -433,10 +433,16 @@ impl UploadConfig {
         }
         for s in &c.sparse_vectors {
             if !names.insert(s.name.clone()) {
-                bail!("sparse vector name {:?} collides with another vector", s.name);
+                bail!(
+                    "sparse vector name {:?} collides with another vector",
+                    s.name
+                );
             }
             if !(0.0..=1.0).contains(&s.source.sparsity) {
-                bail!("sparse sparsity must be in [0, 1], got {}", s.source.sparsity);
+                bail!(
+                    "sparse sparsity must be in [0, 1], got {}",
+                    s.source.sparsity
+                );
             }
         }
 
@@ -455,7 +461,10 @@ impl UploadConfig {
         if let Some(sh) = &c.sharding
             && sh.method != "custom"
         {
-            bail!("only `custom` sharding method is supported, got {:?}", sh.method);
+            bail!(
+                "only `custom` sharding method is supported, got {:?}",
+                sh.method
+            );
         }
 
         Ok(())
@@ -531,7 +540,10 @@ collection:
         assert_eq!(cfg.collection.name, "test");
         assert_eq!(cfg.collection.vectors.len(), 1);
         assert_eq!(cfg.collection.vectors[0].size, 128);
-        assert!(matches!(cfg.collection.vectors[0].source, VectorSource::Random));
+        assert!(matches!(
+            cfg.collection.vectors[0].source,
+            VectorSource::Random
+        ));
         assert!(matches!(cfg.collection.id, IdType::Integer));
     }
 
@@ -551,7 +563,10 @@ collection:
         strategy: from-start
 "#;
         let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(matches!(cfg.collection.vectors[0].source, VectorSource::Random));
+        assert!(matches!(
+            cfg.collection.vectors[0].source,
+            VectorSource::Random
+        ));
         match &cfg.collection.vectors[1].source {
             VectorSource::File { path, strategy } => {
                 assert_eq!(path, "/etc/hostname");
@@ -589,11 +604,17 @@ collection:
 "#;
         let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
         cfg.validate().unwrap();
-        assert_eq!(cfg.collection.quantization.as_ref().unwrap().kind, QuantKind::Turbo4bit);
+        assert_eq!(
+            cfg.collection.quantization.as_ref().unwrap().kind,
+            QuantKind::Turbo4bit
+        );
         assert_eq!(cfg.collection.payloads.len(), 3);
         assert_eq!(cfg.collection.payloads[0].source.cardinality, Some(100));
         assert!(!cfg.collection.payloads[1].index);
-        assert_eq!(cfg.collection.payloads[2].source.kind, PayloadSourceKind::RandomClusters);
+        assert_eq!(
+            cfg.collection.payloads[2].source.kind,
+            PayloadSourceKind::RandomClusters
+        );
     }
 
     #[test]
