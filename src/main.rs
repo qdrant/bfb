@@ -5,13 +5,15 @@ use anyhow::Result;
 use clap::{CommandFactory, FromArgMatches};
 use tokio::runtime;
 
-use args::Args;
+use args::{Args, Command};
 
 mod args;
 mod client;
 mod collection;
 mod common;
+mod config;
 mod fbin_reader;
+mod generator;
 mod processor;
 mod query;
 mod save_jsonl;
@@ -21,7 +23,40 @@ mod stats;
 mod upload;
 mod upsert;
 
+/// `bfb upload --file config.yaml`: YAML-config-driven upload.
+async fn run_upload(args: Args, upload_args: args::UploadArgs, stopped: Arc<AtomicBool>) -> Result<()> {
+    let config = config::load(&upload_args.file)?;
+
+    // The config owns the collection name and (optional) custom shard key; the
+    // upsert/wait-index paths read these off `Args`.
+    let mut args = args;
+    args.collection_name = config.collection.name.clone();
+    if let Some(sharding) = &config.collection.sharding {
+        args.shard_key = Some(sharding.key.clone());
+    }
+
+    if !args.skip_create && !args.skip_setup {
+        collection::recreate_collection_from_config(&config, &args, stopped.clone()).await?;
+    }
+
+    if !args.skip_upload && !args.skip_setup {
+        upload::upload_with_config(&args, &config, stopped.clone()).await?;
+    }
+
+    if !args.skip_wait_index && !args.skip_setup {
+        println!("Waiting for index to be ready...");
+        let wait_time = collection::wait_index(&args, stopped.clone()).await?;
+        println!("Index ready in {wait_time} seconds");
+    }
+
+    Ok(())
+}
+
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    if let Some(Command::Upload(upload_args)) = args.command.clone() {
+        return run_upload(args, upload_args, stopped).await;
+    }
+
     if args.search_quality && args.search_exact {
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
@@ -93,10 +128,11 @@ fn main() {
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(args.threads)
         .enable_all()
-        .build();
+        .build()
+        .expect("Failed to build Tokio runtime");
 
-    runtime
-        .unwrap()
-        .block_on(run_benchmark(args, stopped))
-        .unwrap();
+    if let Err(err) = runtime.block_on(run_benchmark(args, stopped)) {
+        eprintln!("Error: {err:?}");
+        std::process::exit(1);
+    }
 }

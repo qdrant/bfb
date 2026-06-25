@@ -16,7 +16,7 @@ use qdrant_client::qdrant::{
     QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
     SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
     TurboQuantBitSize, TurboQuantizationBuilder, UuidIndexParamsBuilder, VectorParams,
-    VectorParamsMap, VectorsConfig,
+    VectorParamsMap, VectorsConfig, quantization_config,
 };
 use tokio::time::sleep;
 
@@ -25,6 +25,10 @@ use crate::client::random_client;
 use crate::common::{
     BOOL_PAYLOAD_KEY, FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY,
     KEYWORD_PAYLOAD_KEY, TEXT_PAYLOAD_KEY, UUID_PAYLOAD_KEY, payload_prefixes,
+};
+use crate::config::{
+    ComparatorKind, DatatypeKind, DistanceKind, PayloadType, QuantKind, TokenizerKind, UploadConfig,
+    VectorConfig,
 };
 
 pub async fn wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<f64> {
@@ -445,6 +449,347 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
             )
             .await
             .unwrap();
+    }
+
+    Ok(())
+}
+
+// ----------------------- YAML-config-driven creation ---------------------
+
+fn distance_to_i32(distance: DistanceKind) -> i32 {
+    match distance {
+        DistanceKind::Cosine => Distance::Cosine.into(),
+        DistanceKind::Dot => Distance::Dot.into(),
+        DistanceKind::Euclid => Distance::Euclid.into(),
+        DistanceKind::Manhattan => Distance::Manhattan.into(),
+    }
+}
+
+fn datatype_to_i32(datatype: DatatypeKind) -> i32 {
+    match datatype {
+        DatatypeKind::Float32 => Datatype::Float32.into(),
+        DatatypeKind::Float16 => Datatype::Float16.into(),
+        DatatypeKind::Uint8 => Datatype::Uint8.into(),
+    }
+}
+
+fn build_quantization_config(
+    kind: QuantKind,
+    always_ram: bool,
+) -> Option<quantization_config::Quantization> {
+    let config: quantization_config::Quantization = match kind {
+        QuantKind::None => return None,
+        QuantKind::Scalar => ScalarQuantizationBuilder::default()
+            .r#type(QuantizationType::Int8.into())
+            .quantile(0.99)
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::Binary => BinaryQuantizationBuilder::new(always_ram).into(),
+        QuantKind::Binary2bit => BinaryQuantizationBuilder::new(always_ram)
+            .encoding(BinaryQuantizationEncoding::TwoBits)
+            .into(),
+        QuantKind::Binary15bit => BinaryQuantizationBuilder::new(always_ram)
+            .encoding(BinaryQuantizationEncoding::OneAndHalfBits)
+            .into(),
+        QuantKind::Turbo1bit => TurboQuantizationBuilder::new()
+            .bits(TurboQuantBitSize::Bits1)
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::Turbo15bit => TurboQuantizationBuilder::new()
+            .bits(TurboQuantBitSize::Bits15)
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::Turbo2bit => TurboQuantizationBuilder::new()
+            .bits(TurboQuantBitSize::Bits2)
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::Turbo4bit => TurboQuantizationBuilder::new()
+            .bits(TurboQuantBitSize::Bits4)
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::ProductX4 => ProductQuantizationBuilder::new(CompressionRatio::X4.into())
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::ProductX8 => ProductQuantizationBuilder::new(CompressionRatio::X8.into())
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::ProductX16 => ProductQuantizationBuilder::new(CompressionRatio::X16.into())
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::ProductX32 => ProductQuantizationBuilder::new(CompressionRatio::X32.into())
+            .always_ram(always_ram)
+            .into(),
+        QuantKind::ProductX64 => ProductQuantizationBuilder::new(CompressionRatio::X64.into())
+            .always_ram(always_ram)
+            .into(),
+    };
+    Some(config)
+}
+
+fn build_vector_params(vc: &VectorConfig) -> VectorParams {
+    VectorParams {
+        size: vc.size,
+        distance: distance_to_i32(vc.distance),
+        on_disk: vc.on_disk,
+        multivector_config: vc.multivector.as_ref().map(|mv| {
+            let comparator = match mv.comparator {
+                ComparatorKind::MaxSim => MultiVectorComparator::MaxSim,
+            };
+            MultiVectorConfigBuilder::new(comparator).build()
+        }),
+        datatype: Some(datatype_to_i32(vc.datatype)),
+        quantization_config: vc
+            .quantization
+            .as_ref()
+            .and_then(|q| build_quantization_config(q.kind, q.always_ram))
+            .map(Into::into),
+        ..Default::default()
+    }
+}
+
+pub async fn recreate_collection_from_config(
+    config: &UploadConfig,
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
+    let client = random_client(args)?;
+    let collection = &config.collection;
+
+    if args.create_if_missing && client.collection_exists(&collection.name).await? {
+        println!("Collection {} already exists", collection.name);
+        return Ok(());
+    }
+
+    match client.delete_collection(&collection.name).await {
+        Ok(_) => println!("Deleted collection: {}", collection.name),
+        Err(e) => println!("Failed to delete collection: {e:?}"),
+    }
+
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    sleep(Duration::from_secs(1)).await;
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
+    // Dense vectors config: a single unnamed vector uses `Params`, otherwise a
+    // named `ParamsMap` (the unnamed default vector, if any, keyed by "").
+    let mut params_map: HashMap<String, VectorParams> = HashMap::new();
+    let mut default_param: Option<VectorParams> = None;
+    for vc in &collection.vectors {
+        let params = build_vector_params(vc);
+        match &vc.name {
+            Some(name) => {
+                params_map.insert(name.clone(), params);
+            }
+            None => default_param = Some(params),
+        }
+    }
+    let vectors_config: Option<VectorsConfig> = if params_map.is_empty() {
+        default_param.map(|p| Config::Params(p).into())
+    } else {
+        if let Some(p) = default_param {
+            params_map.insert("".to_string(), p);
+        }
+        Some(Config::ParamsMap(VectorParamsMap { map: params_map }).into())
+    };
+
+    // Sparse vectors config.
+    let sparse_vectors_config = if collection.sparse_vectors.is_empty() {
+        None
+    } else {
+        let params: HashMap<_, _> = collection
+            .sparse_vectors
+            .iter()
+            .map(|sc| {
+                let index_builder = SparseIndexConfigBuilder::default()
+                    .on_disk(sc.on_disk)
+                    .datatype(datatype_to_i32(sc.datatype));
+                (
+                    sc.name.clone(),
+                    SparseVectorParamsBuilder::default()
+                        .index(index_builder)
+                        .build(),
+                )
+            })
+            .collect();
+        Some(SparseVectorConfig::from(params))
+    };
+
+    let mut create_collection_builder = CreateCollectionBuilder::new(collection.name.clone())
+        .on_disk_payload(collection.on_disk_payload)
+        .replication_factor(collection.replication_factor)
+        .write_consistency_factor(collection.write_consistency_factor);
+
+    if let Some(vectors_config) = vectors_config {
+        create_collection_builder = create_collection_builder.vectors_config(vectors_config);
+    }
+    if let Some(sparse_vectors_config) = sparse_vectors_config {
+        create_collection_builder =
+            create_collection_builder.sparse_vectors_config(sparse_vectors_config);
+    }
+    if let Some(shard_number) = collection.shard_number {
+        create_collection_builder = create_collection_builder.shard_number(shard_number);
+    }
+
+    if let Some(hnsw) = &collection.hnsw {
+        let mut hnsw_config = HnswConfigDiffBuilder::default()
+            .on_disk(hnsw.on_disk)
+            .inline_storage(hnsw.inline_storage);
+        if let Some(m) = hnsw.m {
+            hnsw_config = hnsw_config.m(m);
+        }
+        if let Some(payload_m) = hnsw.payload_m {
+            hnsw_config = hnsw_config.payload_m(payload_m);
+        }
+        if let Some(ef_construct) = hnsw.ef_construct {
+            hnsw_config = hnsw_config.ef_construct(ef_construct);
+        }
+        if let Some(fst) = hnsw.full_scan_threshold {
+            hnsw_config = hnsw_config.full_scan_threshold(fst);
+        }
+        create_collection_builder = create_collection_builder.hnsw_config(hnsw_config);
+    }
+
+    if let Some(opt) = &collection.optimizers {
+        let mut optimizers_config = OptimizersConfigDiffBuilder::default();
+        if let Some(n) = opt.default_segment_number {
+            optimizers_config = optimizers_config.default_segment_number(n);
+        }
+        if let Some(t) = opt.memmap_threshold {
+            optimizers_config = optimizers_config.memmap_threshold(t);
+        }
+        if let Some(t) = opt.indexing_threshold {
+            optimizers_config = optimizers_config.indexing_threshold(t);
+        }
+        if let Some(s) = opt.max_segment_size {
+            optimizers_config = optimizers_config.max_segment_size(s);
+        }
+        if opt.prevent_unoptimized {
+            optimizers_config = optimizers_config.prevent_unoptimized(true);
+        }
+        create_collection_builder = create_collection_builder.optimizers_config(optimizers_config);
+    }
+
+    if let Some(quant) = &collection.quantization
+        && let Some(quant_config) = build_quantization_config(quant.kind, quant.always_ram)
+    {
+        create_collection_builder = create_collection_builder.quantization_config(quant_config);
+    }
+
+    if collection.sharding.is_some() {
+        create_collection_builder =
+            create_collection_builder.sharding_method(ShardingMethod::Custom.into());
+    }
+
+    client.create_collection(create_collection_builder).await?;
+    println!("Created collection: {}", collection.name);
+
+    if stopped.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    sleep(Duration::from_secs(1)).await;
+
+    if !args.skip_field_indices {
+        create_field_indices_from_config(config, &client).await?;
+    }
+
+    if let Some(sharding) = &collection.sharding {
+        let mut builder = CreateShardKeyBuilder::default()
+            .shard_key(Key::Keyword(sharding.key.clone()))
+            .replication_factor(collection.replication_factor);
+        if let Some(shards) = collection.shard_number {
+            builder = builder.shards_number(shards);
+        }
+        client
+            .create_shard_key(
+                CreateShardKeyRequestBuilder::new(collection.name.clone()).request(builder),
+            )
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn create_field_indices_from_config(
+    config: &UploadConfig,
+    client: &qdrant_client::Qdrant,
+) -> Result<()> {
+    for pc in &config.collection.payloads {
+        if !pc.index {
+            continue;
+        }
+
+        let name = config.collection.name.clone();
+        let field = pc.name.clone();
+
+        let builder = match pc.kind {
+            PayloadType::Keyword => CreateFieldIndexCollectionBuilder::new(
+                name,
+                field,
+                FieldType::Keyword,
+            )
+            .field_index_params(
+                KeywordIndexParamsBuilder::default()
+                    .on_disk(pc.on_disk)
+                    .is_tenant(pc.is_tenant),
+            ),
+            PayloadType::Integer => {
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Integer)
+                    .field_index_params(
+                        IntegerIndexParamsBuilder::new(true, pc.range_index)
+                            .on_disk(pc.on_disk)
+                            .is_principal(pc.is_principal),
+                    )
+            }
+            PayloadType::Float => {
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Float)
+                    .field_index_params(
+                        FloatIndexParamsBuilder::default()
+                            .on_disk(pc.on_disk)
+                            .is_principal(pc.is_principal),
+                    )
+            }
+            PayloadType::Bool => {
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Bool)
+                    .field_index_params(BoolIndexParamsBuilder::default().on_disk(pc.on_disk))
+            }
+            PayloadType::Uuid => {
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Uuid)
+                    .field_index_params(
+                        UuidIndexParamsBuilder::default()
+                            .is_tenant(pc.is_tenant)
+                            .on_disk(pc.on_disk),
+                    )
+            }
+            PayloadType::Geo => {
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Geo)
+                    .field_index_params(GeoIndexParamsBuilder::new().on_disk(pc.on_disk))
+            }
+            PayloadType::Datetime => {
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Datetime)
+                    .field_index_params(
+                        DatetimeIndexParamsBuilder::default()
+                            .on_disk(pc.on_disk)
+                            .is_principal(pc.is_principal),
+                    )
+            }
+            PayloadType::Text => {
+                let tokenizer = match pc.tokenizer.unwrap_or(TokenizerKind::Word) {
+                    TokenizerKind::Word => TokenizerType::Word,
+                    TokenizerKind::Whitespace => TokenizerType::Whitespace,
+                    TokenizerKind::Prefix => TokenizerType::Prefix,
+                    TokenizerKind::Multilingual => TokenizerType::Multilingual,
+                };
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Text)
+                    .field_index_params(
+                        TextIndexParamsBuilder::new(tokenizer).on_disk(pc.on_disk),
+                    )
+            }
+        };
+
+        client.create_field_index(builder.wait(true)).await?;
     }
 
     Ok(())

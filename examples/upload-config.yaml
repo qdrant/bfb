@@ -1,0 +1,92 @@
+# Example bfb upload config.
+#
+#   bfb upload --file examples/upload-config.yaml -n 1M -b 256 -p 16 -t 8 \
+#       --uri http://localhost:6334
+#
+# The YAML describes the *shape* of the data; the CLI flags above control *how*
+# it is uploaded (count, batch size, parallelism, threads, target).
+
+collection:
+  name: benchmark
+  id: integer                 # integer | uuid
+  on_disk_payload: false
+
+  hnsw:
+    m: 16
+    ef_construct: 100
+    on_disk: true
+
+  optimizers:
+    default_segment_number: 2
+    indexing_threshold: 20000
+
+  quantization:
+    type: scalar              # none|scalar|binary|binary-2bit|binary-1.5bit|
+                              # turbo-1bit|turbo-1.5bit|turbo-2bit|turbo-4bit|
+                              # product-x4|x8|x16|x32|x64
+    always_ram: true
+
+  vectors:
+    - name: image
+      size: 1024
+      distance: cosine        # cosine | dot | euclid | manhattan
+      datatype: float32       # float32 | float16 | uint8
+      source: random
+    - name: text-emb
+      size: 384
+      source: random
+      # Load real vectors from an .fbin file instead:
+      # source:
+      #   type: file
+      #   path: /data/text-emb.fbin
+      #   strategy: random-sample   # random-sample | from-start
+
+  sparse_vectors:
+    - name: bm25
+      source:
+        type: random
+        dim: 100000
+        sparsity: 0.01
+        distribution: zipf        # uniform | zipf
+
+  payloads:
+    - name: color
+      type: keyword
+      source:
+        type: random
+        cardinality: 100
+        values_per_point: 1
+    - name: price
+      type: integer
+      range_index: true
+      source: { type: random, min: 0, max: 1000000 }
+    - name: score
+      type: float
+      source: { type: random, min: -1.0, max: 1.0 }
+    - name: location
+      type: geo
+      source:
+        type: random-clusters
+        clusters: 10
+    - name: enabled
+      type: bool
+      source: { type: random, true_ratio: 0.7 }
+    - name: created_at
+      type: datetime
+      is_principal: true
+      source: { type: now }
+    - name: abstract
+      type: text
+      on_disk: true
+      tokenizer: word
+      source:
+        type: random
+        vocab_size: 100000
+        min_length: 10
+        max_length: 100
+        distribution: zipf
+    # Unindexed filler payload (no field index built).
+    - name: blob
+      type: text
+      index: false
+      source: { type: random, vocab_size: 1000, min_length: 200, max_length: 512 }
