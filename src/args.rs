@@ -1,6 +1,6 @@
 use std::{fmt, str};
 
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, Subcommand};
 use qdrant_client::qdrant;
 
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
@@ -31,8 +31,12 @@ pub enum QuantizationArg {
    e.g., `--num-vectors 100k --offset 1_000_000`.\
 ")]
 pub struct Args {
+    /// Optional subcommand. When omitted, runs the legacy flag-driven benchmark.
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
     /// Qdrant service URI
-    #[clap(long, default_value = "http://localhost:6334")]
+    #[clap(long, default_value = "http://localhost:6334", global = true)]
     pub uri: Vec<String>,
 
     /// Source of data to upload - fbin file. Random if not specified
@@ -40,18 +44,18 @@ pub struct Args {
     pub fbin: Option<String>,
 
     /// Number of points to upload
-    #[clap(short, long, default_value = "100_000", value_parser = parse_number)]
+    #[clap(short, long, default_value = "100_000", value_parser = parse_number, global = true)]
     pub num_vectors: usize,
 
     /// Number of named dense vectors per point
     #[clap(long, default_value_t = 1, value_parser = parse_number)]
     pub vectors_per_point: usize,
 
-    #[clap(short, long, default_value_t = 0, value_parser = parse_number)]
+    #[clap(short, long, default_value_t = 0, value_parser = parse_number, global = true)]
     pub offset: usize,
 
     /// If set, will randomly upsert/override vector ids within range [offset, max_id)
-    #[clap(short, long, value_parser = parse_number)]
+    #[clap(short, long, value_parser = parse_number, global = true)]
     pub max_id: Option<usize>,
 
     /// Number of dimensions in each dense vector or max dimension for sparse vectors
@@ -59,25 +63,25 @@ pub struct Args {
     pub dim: usize,
 
     /// Number of worker threads to use
-    #[clap(short, long, default_value_t = 2, value_parser = parse_number)]
+    #[clap(short, long, default_value_t = 2, value_parser = parse_number, global = true)]
     pub threads: usize,
 
     /// Number of parallel requests to send (ignored when --rps is set)
-    #[clap(short, long, default_value_t = 2, value_parser = parse_number)]
+    #[clap(short, long, default_value_t = 2, value_parser = parse_number, global = true)]
     pub parallel: usize,
 
     /// Target requests per second. When set, requests are sent at a fixed rate
     /// regardless of how many are currently in-flight (simulates real user traffic).
     /// This overrides --parallel for concurrency control.
-    #[clap(long, value_name = "RATE")]
+    #[clap(long, value_name = "RATE", global = true)]
     pub rps: Option<f64>,
 
     /// Number of connections to open from the client to the server
-    #[clap(short, long, default_value_t = 1, value_parser = parse_number)]
+    #[clap(short, long, default_value_t = 1, value_parser = parse_number, global = true)]
     pub connections: usize,
 
     /// Batch size for updates, in number of points. [default=100]
-    #[clap(short, long, value_name = "POINTS", default_value_t = 100, value_parser = parse_number)]
+    #[clap(short, long, value_name = "POINTS", default_value_t = 100, value_parser = parse_number, global = true)]
     pub batch_size: usize,
 
     /// Batch size for searches, in number of queries per batch.
@@ -85,28 +89,28 @@ pub struct Args {
     pub search_batch_size: usize,
 
     /// Throttle updates and searches, in batches/searches per second. [default=no throttling]
-    #[clap(long, short = 'T', value_name = "RPS")]
+    #[clap(long, short = 'T', value_name = "RPS", global = true)]
     pub throttle: Option<f32>,
 
     /// Skip creating a collection
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub skip_create: bool,
 
     /// Create if not exists. Avoid re-creating collection
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub create_if_missing: bool,
 
     /// Skip wait until collection is indexed after upload
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub skip_wait_index: bool,
 
     /// Skip uploading new points
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub skip_upload: bool,
 
     /// Skip setting up collections.
     /// Implies --skip-create --skip-upload --skip-wait-index
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub skip_setup: bool,
 
     /// Perform search
@@ -182,7 +186,7 @@ pub struct Args {
     pub on_disk_vectors: Option<bool>,
 
     /// Log requests if the take longer than this
-    #[clap(long, default_value_t = 0.1)]
+    #[clap(long, default_value_t = 0.1, global = true)]
     pub timing_threshold: f64,
 
     /// Use UUIDs instead of sequential ids
@@ -190,7 +194,7 @@ pub struct Args {
     pub uuids: bool,
 
     /// Skip field indices creation if payloads are not empty
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub skip_field_indices: bool,
 
     /// Use keyword payloads. Defines how many different keywords there are in the payload
@@ -255,7 +259,7 @@ pub struct Args {
     pub timestamp_payload: bool,
 
     /// Use separate request to set payload on just upserted points
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub set_payload: bool,
 
     /// `hnsw_ef_construct` parameter used during index
@@ -287,7 +291,7 @@ pub struct Args {
     pub search_with_vectors: bool,
 
     /// Wait on upsert
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub wait_on_upsert: bool,
 
     /// Prevent unoptimized segments from being used for search
@@ -307,7 +311,7 @@ pub struct Args {
     pub write_consistency_factor: usize,
 
     /// Write ordering parameter to use for all write requests
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub write_ordering: Option<WriteOrdering>,
 
     /// Read consistency parameter to use for all read requests
@@ -315,19 +319,19 @@ pub struct Args {
     pub read_consistency: Option<ReadConsistency>,
 
     /// Timeout for requests in seconds (applied as both the client channel deadline and the server-side request timeout where supported).
-    #[clap(long, value_parser = parse_number)]
+    #[clap(long, value_parser = parse_number, global = true)]
     pub timeout: Option<usize>,
 
     /// Number of retries for each URI on error, 0 for no retries
-    #[clap(long = "retry", default_value_t = 0, value_parser = parse_number)]
+    #[clap(long = "retry", default_value_t = 0, value_parser = parse_number, global = true)]
     pub retries: usize,
 
     /// Number of seconds between each retry.
-    #[clap(long, default_value_t = 0.0, value_name = "SECONDS")]
+    #[clap(long, default_value_t = 0.0, value_name = "SECONDS", global = true)]
     pub retry_interval: f32,
 
     /// Keep going on search error
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub ignore_errors: bool,
 
     #[clap(long)]
@@ -346,7 +350,7 @@ pub struct Args {
     pub quantization_oversampling: Option<f64>,
 
     /// Delay between requests in milliseconds
-    #[clap(long, value_parser = parse_number)]
+    #[clap(long, value_parser = parse_number, global = true)]
     pub delay: Option<usize>,
 
     /// Skip un-indexed segments during search
@@ -371,7 +375,7 @@ pub struct Args {
 
     /// Path to the jsonl file to save update timings
     /// TIP: Use `qdrant/mri` to visualize the timings
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub jsonl_updates: Option<String>,
 
     /// Path to the jsonl file to save search timings
@@ -386,7 +390,7 @@ pub struct Args {
 
     /// Use timestamp instead of relative time in jsonl
     /// Default is relative time
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub absolute_time: Option<bool>,
 
     /// Use custom sharding for collection and upsert points to the specified sharding key
@@ -408,6 +412,24 @@ pub struct Args {
     /// Set a custom full-scan threshold.
     #[clap(long)]
     pub full_scan_threshold: Option<usize>,
+}
+
+/// Subcommands. Absent ⇒ legacy flag-driven benchmark.
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+    /// Upload data described by a YAML collection-shape config file.
+    ///
+    /// The YAML file defines the *shape* of the data (collection params + how
+    /// each field is generated); the runtime flags (`-n`, `-b`, `-p`, `-t`,
+    /// `--uri`, …) still control *how* it is uploaded.
+    Upload(UploadArgs),
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct UploadArgs {
+    /// Path to the YAML collection-shape config file
+    #[clap(long)]
+    pub file: String,
 }
 
 impl Args {

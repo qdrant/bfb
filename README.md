@@ -4,6 +4,51 @@ Benchmarking tool for the [Qdrant](https://github.com/qdrant/qdrant) project
 
 ## Usage
 
+### `upload` — YAML-driven collection shape
+
+For collection shapes that are awkward to express as flat flags (per-vector
+datatype/distance, multiple named vectors with different sources, mixed payload
+types, unindexed filler payload, …), use a YAML config file:
+
+```bash
+bfb upload --file config.yaml -n 1M -b 256 -p 16 -t 8 --uri http://localhost:6334
+```
+
+The YAML file describes only the *shape* of the data (collection params + how
+each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
+`--rps`, `--offset`, …) still control *how* it is uploaded. See
+[`examples/upload-config.yaml`](examples/upload-config.yaml) for the full schema.
+
+#### Searching a YAML-built collection with the legacy search path
+
+`upload` only ingests data. To query the resulting collection with the legacy
+`--search`/`--scroll` path, run it as a separate invocation and make the YAML
+shape line up with the search flags — legacy search derives its queries from
+flags, so the two must describe the same vectors and payload field names:
+
+```bash
+bfb upload --file config.yaml -n 1M --uri http://localhost:6334
+bfb --skip-create --skip-upload --search \
+    --collection-name benchmark -d 128 --uri http://localhost:6334
+```
+
+| In the YAML (`collection:`) | Set the search flag to match |
+|---|---|
+| `name: benchmark` | `--collection-name benchmark` |
+| one unnamed dense `vectors[].size: 128` | `-d 128` |
+| `N` dense vectors named `"0"`, `"1"`, … (each `size: 128`) | `-d 128 --vectors-per-point N` |
+| `datatype: uint8` | `--datatype Uint8` |
+| sparse vectors named `0_sparse`, `1_sparse`, … | `--sparse-vectors <sparsity> --sparse-dim <dim>` |
+
+To also exercise filters, name the payload fields with the keys legacy search
+filters on and pass the matching flag: keyword → `a` (`--keywords <n>`),
+float → `b` (`--float-payloads`), integer → `c` (`--int-payloads <n>`),
+bool → `e` (`--bool-payloads`), geo → `g` (`--geo-payloads`), text → `t`
+(`--text-payloads`). For the *k*-th keyword/int/float field beyond the first,
+prefix the key with `payload_<k>_`.
+
+### Legacy flag-driven mode
+
 The main command runs without any subcommands, just options:
 
 ```bash
