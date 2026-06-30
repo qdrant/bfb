@@ -17,6 +17,7 @@ mod generator;
 mod processor;
 mod query;
 mod save_jsonl;
+mod schema;
 mod scroll;
 mod search;
 mod stats;
@@ -120,6 +121,12 @@ fn parse_args() -> Args {
 
 fn main() {
     let args = parse_args();
+
+    // Pure print commands that need no network / Tokio runtime.
+    if let Some(Command::Schema) = args.command {
+        schema::print_schema();
+        return;
+    }
 
     let stopped = Arc::new(AtomicBool::new(false));
     let r = stopped.clone();
