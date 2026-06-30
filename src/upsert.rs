@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -8,20 +7,14 @@ use futures::TryFutureExt;
 use indicatif::ProgressBar;
 use qdrant_client::qdrant::point_id::PointIdOptions;
 use qdrant_client::qdrant::shard_key::Key;
-use qdrant_client::qdrant::vectors::VectorsOptions;
-use qdrant_client::qdrant::{
-    PointId, PointStruct, SetPayloadPointsBuilder, UpsertPointsBuilder, Vector, Vectors,
-};
+use qdrant_client::qdrant::{PointStruct, SetPayloadPointsBuilder, UpsertPointsBuilder};
 use qdrant_client::{Qdrant, QdrantError};
 use rand::RngExt;
 use tokio::time::sleep;
 
 use crate::args::Args;
-use crate::common::{
-    DEFAULT_VOCAB_SIZE, Timing, create_zipf, random_payload, random_sparse_vector, random_vector,
-    retry_with_clients,
-};
-use crate::fbin_reader::FBinReader;
+use crate::common::{Timing, retry_with_clients};
+use crate::generator::PointGenerator;
 use crate::save_jsonl::save_timings_as_jsonl;
 
 fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError + use<'_> {
@@ -49,11 +42,10 @@ pub struct UpsertProcessor {
     stopped: Arc<AtomicBool>,
     clients: Vec<Qdrant>,
     progress_bar: Arc<ProgressBar>,
-    reader: Option<FBinReader>,
+    generator: Arc<dyn PointGenerator>,
     start_timestamp_millis: f64,
     start_time: std::time::Instant,
     timings: Mutex<Vec<Timing>>,
-    zipf: Option<rand_distr::Zipf<f64>>,
 }
 
 impl UpsertProcessor {
@@ -62,25 +54,20 @@ impl UpsertProcessor {
         stopped: Arc<AtomicBool>,
         clients: Vec<Qdrant>,
         progress_bar: Arc<ProgressBar>,
-        reader: Option<FBinReader>,
+        generator: Arc<dyn PointGenerator>,
     ) -> Self {
-        let zipf = args
-            .text_payloads
-            .then(|| create_zipf(args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE)));
-
         UpsertProcessor {
             args,
             stopped,
             clients,
             progress_bar,
-            reader,
+            generator,
             start_timestamp_millis: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as f64,
             start_time: std::time::Instant::now(),
             timings: Mutex::new(Vec::new()),
-            zipf,
         }
     }
 
@@ -105,68 +92,12 @@ impl UpsertProcessor {
                 self.args.offset as u64 + (batch_id as u64 * self.args.batch_size as u64 + i as u64)
             };
 
-            let point_id: PointId = PointId {
-                point_id_options: Some(if self.args.uuids {
-                    let random_uuid = uuid::Uuid::new_v4();
-                    PointIdOptions::Uuid(random_uuid.to_string())
-                } else {
-                    PointIdOptions::Num(idx)
-                }),
-            };
+            let point = self.generator.make_point(idx);
 
-            batch_ids.push(point_id.clone());
-
-            let vectors: Vectors = if let Some(reader) = &self.reader {
-                reader.read_vector(idx as usize).to_vec().into()
-            } else if self.args.vectors_per_point != 1 {
-                let vectors_map: HashMap<_, _> = (0..self.args.vectors_per_point)
-                    .map(|i| {
-                        let vector_name = format!("{i}");
-                        let vector = random_vector(&mut rng, &self.args);
-                        (vector_name, vector)
-                    })
-                    .collect();
-                vectors_map.into()
-            } else {
-                random_vector(&mut rng, &self.args).into()
-            };
-
-            let vectors: Vectors = if let Some(sparsity) = self.args.sparse_vectors {
-                let mut vectors_map: HashMap<_, _> = Default::default();
-
-                for i in 0..self.args.sparse_vectors_per_point {
-                    let vector_name = format!("{i}_sparse");
-                    let vector = Vector::from(random_sparse_vector(
-                        &mut rng,
-                        self.args.sparse_dim.unwrap_or(self.args.dim),
-                        sparsity,
-                    ));
-                    vectors_map.insert(vector_name, vector);
-                }
-
-                match vectors.vectors_options {
-                    None => {}
-                    Some(vectors) => match vectors {
-                        VectorsOptions::Vector(vector) => {
-                            vectors_map.insert("".to_string(), vector);
-                        }
-                        VectorsOptions::Vectors(vectors) => {
-                            for (name, vector) in vectors.vectors.into_iter() {
-                                vectors_map.insert(name, vector);
-                            }
-                        }
-                    },
-                }
-                vectors_map.into()
-            } else {
-                vectors
-            };
-
-            points.push(PointStruct::new(
-                point_id,
-                vectors,
-                random_payload(&mut rng, &self.args, self.zipf.as_ref()),
-            ));
+            if let Some(point_id) = point.id.clone() {
+                batch_ids.push(point_id);
+            }
+            points.push(point);
         }
 
         if self.stopped.load(Ordering::Relaxed) {
@@ -204,7 +135,7 @@ impl UpsertProcessor {
         if self.args.set_payload {
             let mut request_builder = SetPayloadPointsBuilder::new(
                 self.args.collection_name.clone(),
-                random_payload(&mut rng, &self.args, self.zipf.as_ref()),
+                self.generator.make_payload(),
             )
             .points_selector(batch_ids)
             .wait(self.args.wait_on_upsert);

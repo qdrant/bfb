@@ -11,10 +11,36 @@ use tokio::join;
 use crate::args::Args;
 use crate::client::get_config;
 use crate::common::throttler;
+use crate::config::UploadConfig;
 use crate::fbin_reader::FBinReader;
+use crate::generator::{ConfigGenerator, LegacyGenerator, PointGenerator};
 use crate::upsert::UpsertProcessor;
 
+/// Legacy flag-driven upload.
 pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    let reader = args
+        .fbin
+        .as_ref()
+        .map(|path| FBinReader::new(Path::new(path)));
+    let generator = Arc::new(LegacyGenerator::new(args.clone(), reader));
+    run_upload(args, stopped, generator).await
+}
+
+/// YAML-config-driven upload (`bfb upload --file config.yaml`).
+pub async fn upload_with_config(
+    args: &Args,
+    config: &UploadConfig,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
+    let generator = Arc::new(ConfigGenerator::new(config)?);
+    run_upload(args, stopped, generator).await
+}
+
+async fn run_upload(
+    args: &Args,
+    stopped: Arc<AtomicBool>,
+    generator: Arc<dyn PointGenerator>,
+) -> Result<()> {
     let mut clients = Vec::new();
     for config in get_config(args) {
         clients.push(qdrant_client::Qdrant::new(config)?);
@@ -40,17 +66,12 @@ pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
 
     let sent_bar_arc = Arc::new(sent_bar);
 
-    let reader = if let Some(path) = &args.fbin.as_ref() {
-        FBinReader::new(Path::new(path)).into()
-    } else {
-        None
-    };
     let upserter = UpsertProcessor::new(
         args.clone(),
         stopped.clone(),
         clients,
         sent_bar_arc.clone(),
-        reader,
+        generator,
     );
 
     let num_batches = args.num_vectors.div_ceil(args.batch_size);
