@@ -19,6 +19,18 @@ each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
 `--rps`, `--offset`, …) still control *how* it is uploaded. See
 [`examples/upload-config.yaml`](examples/upload-config.yaml) for the full schema.
 
+### `schema` — print the upload-config file schema
+
+Print an annotated YAML reference enumerating every option accepted by an
+upload-config file, with its type, default, and allowed values:
+
+```bash
+bfb schema
+```
+
+The output is itself valid YAML, so it doubles as a copy-paste starting
+template for your own config.
+
 #### Searching a YAML-built collection with the legacy search path
 
 `upload` only ingests data. To query the resulting collection with the legacy
