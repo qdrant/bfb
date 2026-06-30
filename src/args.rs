@@ -423,6 +423,10 @@ pub enum Command {
     /// each field is generated); the runtime flags (`-n`, `-b`, `-p`, `-t`,
     /// `--uri`, …) still control *how* it is uploaded.
     Upload(UploadArgs),
+
+    /// Print the upload-config file schema: every option, its type, default,
+    /// and allowed values, as an annotated YAML reference.
+    Schema,
 }
 
 #[derive(clap::Args, Debug, Clone)]

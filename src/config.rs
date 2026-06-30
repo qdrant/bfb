@@ -13,16 +13,16 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use serde::de::{self, MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Top-level document: `{ collection: { ... } }`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UploadConfig {
     pub collection: CollectionConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CollectionConfig {
     #[serde(default = "default_collection_name")]
@@ -48,7 +48,7 @@ pub struct CollectionConfig {
     pub payloads: Vec<PayloadConfig>,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum IdType {
     #[default]
@@ -56,7 +56,7 @@ pub enum IdType {
     Uuid,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShardingConfig {
     #[serde(default = "default_custom")]
@@ -64,7 +64,7 @@ pub struct ShardingConfig {
     pub key: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HnswConfig {
     pub m: Option<u64>,
@@ -77,7 +77,7 @@ pub struct HnswConfig {
     pub inline_storage: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OptimizersConfig {
     pub default_segment_number: Option<u64>,
@@ -88,7 +88,7 @@ pub struct OptimizersConfig {
     pub prevent_unoptimized: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuantizationConfig {
     #[serde(rename = "type")]
@@ -97,7 +97,7 @@ pub struct QuantizationConfig {
     pub always_ram: bool,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum QuantKind {
     None,
@@ -129,7 +129,7 @@ pub enum QuantKind {
 
 // ----------------------------- Dense vectors -----------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VectorConfig {
     /// Vector name. Omit for the unnamed default vector.
@@ -147,7 +147,7 @@ pub struct VectorConfig {
     pub source: VectorSource,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DistanceKind {
     #[default]
@@ -157,7 +157,7 @@ pub enum DistanceKind {
     Manhattan,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum DatatypeKind {
     #[default]
@@ -166,7 +166,7 @@ pub enum DatatypeKind {
     Uint8,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MultivectorConfig {
     #[serde(default)]
@@ -175,14 +175,14 @@ pub struct MultivectorConfig {
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComparatorKind {
     #[default]
     MaxSim,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum VectorSource {
     #[default]
@@ -206,7 +206,7 @@ impl FromStr for VectorSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FileStrategy {
     #[default]
@@ -216,7 +216,7 @@ pub enum FileStrategy {
 
 // ----------------------------- Sparse vectors ----------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SparseVectorConfig {
     pub name: String,
@@ -228,7 +228,7 @@ pub struct SparseVectorConfig {
     pub source: SparseSource,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SparseSource {
     /// Accepted for schema symmetry / `type: random`; only `random` is supported.
@@ -266,14 +266,14 @@ impl FromStr for SparseSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SparseKind {
     #[default]
     Random,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum DistributionKind {
     #[default]
@@ -283,7 +283,7 @@ pub enum DistributionKind {
 
 // -------------------------------- Payloads -------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PayloadConfig {
     pub name: String,
@@ -307,7 +307,7 @@ pub struct PayloadConfig {
     pub source: PayloadSource,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PayloadType {
     Keyword,
@@ -320,7 +320,7 @@ pub enum PayloadType {
     Datetime,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenizerKind {
     Word,
@@ -331,7 +331,7 @@ pub enum TokenizerKind {
 
 /// All payload value-generation parameters. Which keys apply depends on the
 /// payload `type`; irrelevant keys are ignored.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PayloadSource {
     #[serde(default, rename = "type")]
@@ -372,7 +372,7 @@ impl FromStr for PayloadSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PayloadSourceKind {
     #[default]

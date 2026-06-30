@@ -1,0 +1,269 @@
+//! Human-readable schema reference for the upload-config file
+//! (`bfb upload --file config.yaml`). Printed by the `bfb schema` subcommand.
+//!
+//! The prose/annotations are hand-written, but completeness is enforced: the
+//! `reference_covers_every_field` test builds a fully-populated
+//! [`UploadConfig`](crate::config::UploadConfig) from explicit struct literals
+//! (so adding/renaming a field is a compile error there), serializes it, and
+//! asserts every real field name appears in the text below — so the reference
+//! cannot silently fall out of sync with the structs in `config.rs`.
+
+/// Print the annotated YAML schema reference to stdout.
+pub fn print_schema() {
+    print!("{SCHEMA_REFERENCE}");
+}
+
+const SCHEMA_REFERENCE: &str = r#"# bfb upload-config file schema (`bfb upload --file <config.yaml>`)
+#
+# The file describes only the *shape* of the data: collection parameters plus
+# how each field's values are generated. The *how* of uploading (number of
+# points `-n`, batch size `-b`, parallelism `-p`, threads `-t`, `--uri`, …)
+# stays on the CLI.
+#
+# Legend:  <type>  default=<value>  [allowed | values]   (Option ⇒ optional)
+# Unknown fields are rejected. At least one dense or sparse vector is required.
+
+collection:
+  name: benchmark                # string         default="benchmark"  collection name
+  id: integer                    # enum           default=integer      [integer | uuid] point-id type
+  on_disk_payload: true          # bool           default=true         store payload on disk
+  shard_number: null             # uint32         optional             number of shards
+  replication_factor: 1          # uint32         default=1
+  write_consistency_factor: 1    # uint32         default=1
+
+  # Custom sharding (optional). Only the `custom` method is supported.
+  sharding:
+    method: custom               # string         default="custom"     [custom]
+    key: my_key                  # string         required             payload field used as shard key
+
+  # HNSW index parameters (optional). Omitted fields fall back to server defaults.
+  hnsw:
+    m: null                      # uint64         optional             edges per node
+    payload_m: null              # uint64         optional             edges per node for payload subgraph
+    ef_construct: null           # uint64         optional             beam size at construction
+    full_scan_threshold: null    # uint64         optional
+    on_disk: false               # bool           default=false        store HNSW graph on disk
+    inline_storage: false        # bool           default=false
+
+  # Optimizer parameters (optional).
+  optimizers:
+    default_segment_number: null # uint64         optional
+    indexing_threshold: null     # uint64         optional
+    memmap_threshold: null       # uint64         optional
+    max_segment_size: null       # uint64         optional
+    prevent_unoptimized: false   # bool           default=false        wait for a fully optimized collection
+
+  # Collection-wide quantization (optional). Also settable per dense vector.
+  quantization:
+    type: scalar                 # enum           required             [none | scalar | binary |
+                                 #   binary-2bit | binary-1.5bit | turbo-1bit | turbo-1.5bit |
+                                 #   turbo-2bit | turbo-4bit | product-x4 | product-x8 |
+                                 #   product-x16 | product-x32 | product-x64]
+    always_ram: false            # bool           default=false        keep quantized vectors in RAM
+
+  # Dense vectors. At most one may omit `name` (the unnamed default vector);
+  # otherwise every entry must have a unique `name`.
+  vectors:
+    - name: image                # string         optional             omit for the unnamed default vector
+      size: 512                  # uint64         required             dimensionality
+      distance: cosine           # enum           default=cosine       [cosine | dot | euclid | manhattan]
+      datatype: float32          # enum           default=float32      [float32 | float16 | uint8]
+      on_disk: null              # bool           optional             store vectors on disk
+      quantization: null         # map            optional             same shape as `collection.quantization`
+      # Multivectors (optional): generate several sub-vectors per point.
+      multivector:
+        comparator: max_sim      # enum           default=max_sim      [max_sim]
+        count: 4                 # uint           required             sub-vectors per point
+      # Value source. Shorthand string `random`, or a map:
+      source: random             # default=random
+      # source:
+      #   type: file             # enum           [random | file]
+      #   path: ./vectors.fbin   # string         required for file (local path, http(s)://, or s3://)
+      #   strategy: random-sample # enum          default=random-sample  [random-sample | from-start]
+
+  # Sparse vectors (optional). Names must be unique across all vectors.
+  sparse_vectors:
+    - name: bm25                 # string         required
+      datatype: float32          # enum           default=float32      [float32 | float16 | uint8]
+      on_disk: false             # bool           default=false
+      # Value source. Shorthand string `random`, or a map:
+      source:
+        type: random             # enum           default=random       [random]
+        dim: 1000                # uint           default=1000         vocabulary size
+        sparsity: 0.1            # float          default=0.1          fraction of non-zero dims, in [0, 1]
+        distribution: uniform    # enum           default=uniform      [uniform | zipf]
+
+  # Payload fields (optional). Names must be unique.
+  payloads:
+    - name: color                # string         required
+      type: keyword              # enum           required             [keyword | integer | float |
+                                 #   bool | uuid | geo | text | datetime]
+      index: true                # bool           default=true         build a field index (false ⇒ filler)
+      on_disk: false             # bool           default=false        store the index on disk
+      is_tenant: false           # bool           default=false        tenant-isolating index
+      is_principal: false        # bool           default=false        principal (primary) index
+      range_index: true          # bool           default=true         integer payloads: also build a range index
+      tokenizer: null            # enum           optional (text)      [word | whitespace | prefix | multilingual]
+      # Value source. Shorthand string `random` / `random-clusters` / `now`, or a map.
+      # Which keys apply depends on the payload `type`; irrelevant keys are ignored.
+      source:
+        type: random             # enum           default=random       [random | random-clusters | now]
+        cardinality: null        # uint           optional (keyword)   number of distinct values
+        length_multiplier: null  # uint           optional (keyword)   value-length multiplier
+        values_per_point: null   # uint           optional (keyword/integer)  multivalue count per point
+        min: null                # float          optional (integer/float/datetime range)
+        max: null                # float          optional (integer/float/datetime range)
+        true_ratio: null         # float          optional (bool)      fraction of `true` values
+        clusters: null           # uint           optional (geo)       number of geo clusters (> 0)
+        vocab_size: null         # uint           optional (text)
+        min_length: null         # uint           optional (text)
+        max_length: null         # uint           optional (text)
+        distribution: uniform    # enum           default=uniform      [uniform | zipf]
+"#;
+
+#[cfg(test)]
+mod tests {
+    use crate::config::*;
+
+    /// A fully-populated config touching *every* field of *every* config
+    /// struct. Built from explicit struct literals on purpose: adding,
+    /// removing, or renaming a field anywhere in `config.rs` turns this into a
+    /// compile error, forcing a conscious update of the schema reference.
+    fn reference_example() -> UploadConfig {
+        UploadConfig {
+            collection: CollectionConfig {
+                name: "benchmark".to_string(),
+                id: IdType::Uuid,
+                on_disk_payload: true,
+                shard_number: Some(1),
+                replication_factor: 1,
+                write_consistency_factor: 1,
+                sharding: Some(ShardingConfig {
+                    method: "custom".to_string(),
+                    key: "my_key".to_string(),
+                }),
+                hnsw: Some(HnswConfig {
+                    m: Some(16),
+                    payload_m: Some(16),
+                    ef_construct: Some(100),
+                    full_scan_threshold: Some(10000),
+                    on_disk: false,
+                    inline_storage: false,
+                }),
+                optimizers: Some(OptimizersConfig {
+                    default_segment_number: Some(2),
+                    indexing_threshold: Some(20000),
+                    memmap_threshold: Some(20000),
+                    max_segment_size: Some(200000),
+                    prevent_unoptimized: false,
+                }),
+                quantization: Some(QuantizationConfig {
+                    kind: QuantKind::Scalar,
+                    always_ram: false,
+                }),
+                vectors: vec![VectorConfig {
+                    name: Some("image".to_string()),
+                    size: 512,
+                    distance: DistanceKind::Cosine,
+                    datatype: DatatypeKind::Float32,
+                    on_disk: Some(false),
+                    multivector: Some(MultivectorConfig {
+                        comparator: ComparatorKind::MaxSim,
+                        count: 4,
+                    }),
+                    quantization: Some(QuantizationConfig {
+                        kind: QuantKind::Scalar,
+                        always_ram: false,
+                    }),
+                    // File source so `path`/`strategy` are exercised too;
+                    // a remote path keeps `validate()` from checking existence.
+                    source: VectorSource::File {
+                        path: "s3://bucket/vectors.fbin".to_string(),
+                        strategy: FileStrategy::RandomSample,
+                    },
+                }],
+                sparse_vectors: vec![SparseVectorConfig {
+                    name: "bm25".to_string(),
+                    datatype: DatatypeKind::Float32,
+                    on_disk: false,
+                    source: SparseSource {
+                        kind: SparseKind::Random,
+                        dim: 1000,
+                        sparsity: 0.1,
+                        distribution: DistributionKind::Uniform,
+                    },
+                }],
+                payloads: vec![PayloadConfig {
+                    name: "color".to_string(),
+                    kind: PayloadType::Keyword,
+                    index: true,
+                    on_disk: false,
+                    is_tenant: false,
+                    is_principal: false,
+                    range_index: true,
+                    tokenizer: Some(TokenizerKind::Word),
+                    source: PayloadSource {
+                        kind: PayloadSourceKind::Random,
+                        cardinality: Some(100),
+                        length_multiplier: Some(1),
+                        values_per_point: Some(1),
+                        min: Some(0.0),
+                        max: Some(1.0),
+                        true_ratio: Some(0.5),
+                        clusters: Some(10),
+                        vocab_size: Some(1000),
+                        min_length: Some(1),
+                        max_length: Some(10),
+                        distribution: DistributionKind::Uniform,
+                    },
+                }],
+            },
+        }
+    }
+
+    /// Recursively collect every mapping key from a YAML value.
+    fn collect_keys(value: &serde_yaml::Value, out: &mut std::collections::HashSet<String>) {
+        match value {
+            serde_yaml::Value::Mapping(map) => {
+                for (k, v) in map {
+                    if let serde_yaml::Value::String(s) = k {
+                        out.insert(s.clone());
+                    }
+                    collect_keys(v, out);
+                }
+            }
+            serde_yaml::Value::Sequence(seq) => {
+                for v in seq {
+                    collect_keys(v, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The hand-written reference must mention every real config field, so it
+    /// can't drift out of sync with the structs. `reference_example` (compile-
+    /// checked) is the source of field names.
+    #[test]
+    fn reference_covers_every_field() {
+        let example = reference_example();
+        // Sanity: the example itself is a valid, parseable config.
+        example.validate().unwrap();
+        let yaml = serde_yaml::to_string(&example).unwrap();
+        let value: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let _: UploadConfig = serde_yaml::from_str(&yaml).unwrap();
+
+        let mut keys = std::collections::HashSet::new();
+        collect_keys(&value, &mut keys);
+
+        let missing: Vec<_> = keys
+            .iter()
+            .filter(|k| !super::SCHEMA_REFERENCE.contains(k.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "`bfb schema` reference is missing fields: {missing:?}\n\
+             Add them to SCHEMA_REFERENCE in src/schema.rs."
+        );
+    }
+}
