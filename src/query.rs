@@ -10,7 +10,9 @@ use crate::args::Args;
 use crate::client::create_clients;
 use crate::common::UUID_PAYLOAD_KEY;
 use crate::scroll::ScrollProcessor;
+use crate::search::ConfigSearchProcessor;
 use crate::search::SearchProcessor;
+use crate::search_config::SearchConfig;
 use crate::stats::process;
 
 pub async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
@@ -18,6 +20,17 @@ pub async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let uuids = get_uuids(args, &clients[0]).await?;
 
     let searcher = SearchProcessor::new(args.clone(), stopped.clone(), clients, uuids);
+    process(args, stopped, searcher).await
+}
+
+/// YAML-config-driven search (`bfb search --file config.yaml`).
+pub async fn search_with_config(
+    args: &Args,
+    config: &SearchConfig,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
+    let clients = create_clients(args)?;
+    let searcher = ConfigSearchProcessor::new(args.clone(), config, stopped.clone(), clients)?;
     process(args, stopped, searcher).await
 }
 

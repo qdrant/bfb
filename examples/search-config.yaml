@@ -1,0 +1,52 @@
+# Example bfb search config.
+#
+#   bfb search --file examples/search-config.yaml -n 50k -p 8 -t 4 \
+#       --search-batch-size 4 --uri http://localhost:6334
+#
+# The YAML describes the *shape* of search requests; the CLI flags above
+# control *how* the benchmark runs (query count, batch size, parallelism, …).
+#
+# Pair this with examples/upload-config.yaml: upload first, then search the
+# same collection without re-aligning legacy flags.
+
+collection:
+  name: benchmark
+
+requests:
+  # Dense search against the `image` named vector (1024-d, from upload config).
+  - kind: dense
+    using: image
+    size: 1024
+    datatype: float32
+    source: random
+
+  # Sparse search against the `bm25` sparse vector.
+  - kind: sparse
+    using: bm25
+    source:
+      type: random
+      dim: 100000
+      sparsity: 0.01
+      distribution: zipf
+
+  # Dense search with a keyword filter on the `color` payload field.
+  - kind: dense
+    using: text-emb
+    size: 384
+    source: random
+    filters:
+      - name: color
+        type: keyword
+        source:
+          type: random
+          cardinality: 100
+
+  # Filtered search using an integer range on `price`.
+  - kind: dense
+    using: image
+    size: 1024
+    source: random
+    filters:
+      - name: price
+        type: integer
+        source: { type: random, min: 0, max: 1000000 }

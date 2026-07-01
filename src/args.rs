@@ -85,7 +85,7 @@ pub struct Args {
     pub batch_size: usize,
 
     /// Batch size for searches, in number of queries per batch.
-    #[clap(long, value_name = "QUERIES", default_value_t = 1, value_parser = parse_number)]
+    #[clap(long, value_name = "QUERIES", default_value_t = 1, value_parser = parse_number, global = true)]
     pub search_batch_size: usize,
 
     /// Throttle updates and searches, in batches/searches per second. [default=no throttling]
@@ -118,11 +118,11 @@ pub struct Args {
     pub search: bool,
 
     /// Perform search without approximation
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub search_exact: bool,
 
     /// Prefetch search
-    #[clap(long, value_parser = parse_number)]
+    #[clap(long, value_parser = parse_number, global = true)]
     pub prefetch: Option<usize>,
 
     /// Perform scroll
@@ -130,15 +130,15 @@ pub struct Args {
     pub scroll: bool,
 
     /// Search limit
-    #[clap(long, default_value_t = 10, value_parser = parse_number)]
+    #[clap(long, default_value_t = 10, value_parser = parse_number, global = true)]
     pub search_limit: usize,
 
     /// Store results to csv
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub json: Option<String>,
 
     /// Number of 9 digits to show in p99* results
-    #[clap(long, long, default_value_t = 2, value_parser = parse_number)]
+    #[clap(long, long, default_value_t = 2, value_parser = parse_number, global = true)]
     pub p9: usize,
 
     /// Name of the collection to use
@@ -275,7 +275,7 @@ pub struct Args {
     pub hnsw_payload_m: Option<usize>,
 
     /// `hnsw_ef` parameter used during search
-    #[clap(long, value_parser = parse_number)]
+    #[clap(long, value_parser = parse_number, global = true)]
     pub search_hnsw_ef: Option<usize>,
 
     /// Store HNSW links inline with vectors (hnsw_config.inline_storage)
@@ -283,11 +283,11 @@ pub struct Args {
     pub hnsw_inline_storage: bool,
 
     /// Whether to request payload in search results
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub search_with_payload: bool,
 
     /// Whether to request vectors in search results
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, global = true)]
     pub search_with_vectors: bool,
 
     /// Wait on upsert
@@ -315,7 +315,7 @@ pub struct Args {
     pub write_ordering: Option<WriteOrdering>,
 
     /// Read consistency parameter to use for all read requests
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub read_consistency: Option<ReadConsistency>,
 
     /// Timeout for requests in seconds (applied as both the client channel deadline and the server-side request timeout where supported).
@@ -342,11 +342,11 @@ pub struct Args {
     pub quantization_in_ram: Option<bool>,
 
     /// Enable quantization re-score during search
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub quantization_rescore: Option<bool>,
 
     /// Quantization oversampling factor
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub quantization_oversampling: Option<f64>,
 
     /// Delay between requests in milliseconds
@@ -354,7 +354,7 @@ pub struct Args {
     pub delay: Option<usize>,
 
     /// Skip un-indexed segments during search
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub indexed_only: Option<bool>,
 
     /// Whether to use sparse vectors and with how much sparsity
@@ -380,12 +380,12 @@ pub struct Args {
 
     /// Path to the jsonl file to save search timings
     /// TIP: Use `qdrant/mri` to visualize the timings
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub jsonl_searches: Option<String>,
 
     /// Path to the jsonl file to save rps timings
     /// TIP: Use `qdrant/mri` to visualize the timings
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub jsonl_rps: Option<String>,
 
     /// Use timestamp instead of relative time in jsonl
@@ -402,11 +402,11 @@ pub struct Args {
     pub tenants: Option<bool>,
 
     /// Use a custom UUID as filter when searching.
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub uuid_query: Option<String>,
 
     /// Bench for search quality / accurracy too.
-    #[clap(long)]
+    #[clap(long, global = true)]
     pub search_quality: bool,
 
     /// Set a custom full-scan threshold.
@@ -424,9 +424,23 @@ pub enum Command {
     /// `--uri`, …) still control *how* it is uploaded.
     Upload(UploadArgs),
 
+    /// Run searches described by a YAML search-request config file.
+    ///
+    /// The YAML file defines the *shape* of search requests (which vectors to
+    /// query, optional payload filters); the runtime flags (`-n`, `--parallel`,
+    /// `--search-batch-size`, `--uri`, …) still control *how* the benchmark runs.
+    Search(SearchArgs),
+
     /// Print the upload-config file schema: every option, its type, default,
     /// and allowed values, as an annotated YAML reference.
     Schema,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct SearchArgs {
+    /// Path to the YAML search-request config file
+    #[clap(long)]
+    pub file: String,
 }
 
 #[derive(clap::Args, Debug, Clone)]

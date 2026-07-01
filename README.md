@@ -19,6 +19,33 @@ each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
 `--rps`, `--offset`, …) still control *how* it is uploaded. See
 [`examples/upload-config.yaml`](examples/upload-config.yaml) for the full schema.
 
+### `search` — YAML-driven search requests
+
+For search workloads that mirror a YAML-uploaded collection (named vectors,
+sparse vectors, payload filters with the same field names), use a search config
+file:
+
+```bash
+bfb upload --file examples/upload-config.yaml -n 1M --uri http://localhost:6334
+bfb search --file examples/search-config.yaml -n 50k -p 8 --uri http://localhost:6334
+```
+
+The YAML file describes only the *shape* of search requests (which vectors to
+query, optional payload filters). The runtime flags (`-n`, `--parallel`,
+`--search-batch-size`, `--uri`, `--rps`, …) still control *how* the benchmark
+runs. See [`examples/search-config.yaml`](examples/search-config.yaml).
+
+Each entry under `requests:` is a search template; one is picked at random per
+batch. Supported kinds:
+
+| `kind` | Fields | Notes |
+|--------|--------|-------|
+| `dense` | `size`, optional `using`, `source`, `filters` | Query a dense vector |
+| `sparse` | `using`, `source`, `filters` | Query a named sparse vector |
+
+Filter entries reuse the same payload `type` / `source` vocabulary as the
+upload config.
+
 ### `schema` — print the upload-config file schema
 
 Print an annotated YAML reference enumerating every option accepted by an
@@ -31,33 +58,18 @@ bfb schema
 The output is itself valid YAML, so it doubles as a copy-paste starting
 template for your own config.
 
-#### Searching a YAML-built collection with the legacy search path
+#### Searching a YAML-built collection
 
-`upload` only ingests data. To query the resulting collection with the legacy
-`--search`/`--scroll` path, run it as a separate invocation and make the YAML
-shape line up with the search flags — legacy search derives its queries from
-flags, so the two must describe the same vectors and payload field names:
+Use the `search` subcommand with a matching search config — no need to align
+legacy `--search` flags with the upload YAML:
 
 ```bash
 bfb upload --file config.yaml -n 1M --uri http://localhost:6334
-bfb --skip-create --skip-upload --search \
-    --collection-name benchmark -d 128 --uri http://localhost:6334
+bfb search --file search-config.yaml -n 50k -p 8 --uri http://localhost:6334
 ```
 
-| In the YAML (`collection:`) | Set the search flag to match |
-|---|---|
-| `name: benchmark` | `--collection-name benchmark` |
-| one unnamed dense `vectors[].size: 128` | `-d 128` |
-| `N` dense vectors named `"0"`, `"1"`, … (each `size: 128`) | `-d 128 --vectors-per-point N` |
-| `datatype: uint8` | `--datatype Uint8` |
-| sparse vectors named `0_sparse`, `1_sparse`, … | `--sparse-vectors <sparsity> --sparse-dim <dim>` |
-
-To also exercise filters, name the payload fields with the keys legacy search
-filters on and pass the matching flag: keyword → `a` (`--keywords <n>`),
-float → `b` (`--float-payloads`), integer → `c` (`--int-payloads <n>`),
-bool → `e` (`--bool-payloads`), geo → `g` (`--geo-payloads`), text → `t`
-(`--text-payloads`). For the *k*-th keyword/int/float field beyond the first,
-prefix the key with `payload_<k>_`.
+The legacy flag-driven search path (`bfb --skip-create --skip-upload --search …`)
+is still available when you prefer flat CLI flags over a YAML file.
 
 ### Legacy flag-driven mode
 

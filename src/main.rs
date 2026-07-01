@@ -20,9 +20,29 @@ mod save_jsonl;
 mod schema;
 mod scroll;
 mod search;
+mod search_config;
+mod search_generator;
 mod stats;
 mod upload;
 mod upsert;
+
+/// `bfb search --file config.yaml`: YAML-config-driven search.
+async fn run_search(
+    args: Args,
+    search_args: args::SearchArgs,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
+    let config = search_config::load(&search_args.file)?;
+
+    let mut args = args;
+    args.collection_name = config.collection.name.clone();
+
+    if args.search_quality && args.search_exact {
+        println!("Ignoring `exact` flag because `search_quality` is also enabled!");
+    }
+
+    query::search_with_config(&args, &config, stopped).await
+}
 
 /// `bfb upload --file config.yaml`: YAML-config-driven upload.
 async fn run_upload(
@@ -58,6 +78,10 @@ async fn run_upload(
 }
 
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
+    if let Some(Command::Search(search_args)) = args.command.clone() {
+        return run_search(args, search_args, stopped).await;
+    }
+
     if let Some(Command::Upload(upload_args)) = args.command.clone() {
         return run_upload(args, upload_args, stopped).await;
     }
