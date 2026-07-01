@@ -75,12 +75,9 @@ impl ResolvedDatasetConfig {
             .or_else(|| base.and_then(|b| b.path.clone()))
             .with_context(|| format!("dataset {:?}: missing `path`", inline.name))?;
         let link = inline.link.or_else(|| base.and_then(|b| b.link.clone()));
-        if link.is_none() && !std::path::Path::new(&path).exists() {
-            bail!(
-                "dataset {:?}: missing `link` for download (file not found at {path})",
-                inline.name
-            );
-        }
+        // Whether the file actually exists is checked by `ensure_downloaded`, which
+        // resolves `path` against the datasets dir; checking it here (relative to the
+        // cwd) would wrongly reject local datasets under a custom `BFB_DATASETS_DIR`.
         Ok(ResolvedDatasetConfig {
             name: inline.name,
             kind,
