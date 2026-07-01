@@ -25,8 +25,8 @@ requests:
     using: bm25
     source:
       type: random
-      dim: 100000
-      sparsity: 0.01
+      vocab_size: 100000
+      length: 1000
       distribution: zipf
 
   # Dense search with a keyword filter on the `color` payload field.

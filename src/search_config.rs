@@ -112,10 +112,14 @@ impl SearchRequestConfig {
                 if using.is_empty() {
                     bail!("requests[{index}]: sparse `using` must not be empty");
                 }
-                if !(0.0..=1.0).contains(&source.sparsity) {
+                if source.length == 0 {
+                    bail!("requests[{index}]: sparse `length` must be > 0");
+                }
+                if source.length > source.vocab_size {
                     bail!(
-                        "requests[{index}]: sparse sparsity must be in [0, 1], got {}",
-                        source.sparsity
+                        "requests[{index}]: sparse length ({}) must be <= vocab_size ({})",
+                        source.length,
+                        source.vocab_size
                     );
                 }
             }
@@ -156,7 +160,7 @@ requests:
     source: random
   - kind: sparse
     using: bm25
-    source: { type: random, dim: 1000, sparsity: 0.1, distribution: zipf }
+    source: { type: random, vocab_size: 1000, length: 100, distribution: zipf }
   - kind: dense
     using: image
     size: 512

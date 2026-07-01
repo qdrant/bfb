@@ -86,11 +86,9 @@ impl PointGenerator for LegacyGenerator {
 
             for i in 0..self.args.sparse_vectors_per_point {
                 let vector_name = format!("{i}_sparse");
-                let vector = Vector::from(random_sparse_vector(
-                    &mut rng,
-                    self.args.sparse_dim.unwrap_or(self.args.dim),
-                    sparsity,
-                ));
+                let vocab_size = self.args.sparse_dim.unwrap_or(self.args.dim);
+                let length = ((vocab_size as f64) * sparsity).ceil() as usize;
+                let vector = Vector::from(random_sparse_vector(&mut rng, vocab_size, length));
                 vectors_map.insert(vector_name, vector);
             }
 
@@ -217,7 +215,8 @@ impl ConfigGenerator {
             .sparse_vectors
             .iter()
             .map(|s| {
-                (s.source.distribution == DistributionKind::Zipf).then(|| create_zipf(s.source.dim))
+                (s.source.distribution == DistributionKind::Zipf)
+                    .then(|| create_zipf(s.source.vocab_size))
             })
             .collect();
 
@@ -279,8 +278,8 @@ impl ConfigGenerator {
         }
         match &self.sparse_zipf[i] {
             Some(zipf) => {
-                // Zipf-distributed indices: sample ~dim*sparsity dims, dedup.
-                let target = ((sc.source.dim as f64) * sc.source.sparsity).ceil() as usize;
+                // Zipf-distributed indices: sample `length` dims, dedup.
+                let target = sc.source.length;
                 let mut seen = std::collections::HashSet::new();
                 let mut pairs = Vec::with_capacity(target);
                 let mut attempts = 0;
@@ -293,7 +292,11 @@ impl ConfigGenerator {
                 }
                 Vector::from(pairs)
             }
-            None => Vector::from(random_sparse_vector(rng, sc.source.dim, sc.source.sparsity)),
+            None => Vector::from(random_sparse_vector(
+                rng,
+                sc.source.vocab_size,
+                sc.source.length,
+            )),
         }
     }
 
@@ -512,7 +515,7 @@ mod tests {
       size: 8
   sparse_vectors:
     - name: bm25
-      source: { type: random, dim: 100, sparsity: 0.2 }
+      source: { type: random, vocab_size: 100, length: 20 }
 ",
         );
         let point = g.make_point(1);
