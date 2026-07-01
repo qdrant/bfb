@@ -61,7 +61,7 @@ impl ConfigSearchGenerator {
                 } => (
                     match source {
                         VectorSource::File { path, .. } => Some(FBinReader::new(Path::new(path))),
-                        VectorSource::Random => None,
+                        VectorSource::Random | VectorSource::Dataset { .. } => None,
                     },
                     None,
                     filters,

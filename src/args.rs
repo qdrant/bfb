@@ -43,9 +43,10 @@ pub struct Args {
     #[clap(long)]
     pub fbin: Option<String>,
 
-    /// Number of points to upload
-    #[clap(short, long, default_value = "100_000", value_parser = parse_number, global = true)]
-    pub num_vectors: usize,
+    /// Number of points to upload. When dataset sources are used and omitted,
+    /// the full dataset is uploaded (capped by the smallest source).
+    #[clap(short, long, value_parser = parse_number, global = true)]
+    pub num_vectors: Option<usize>,
 
     /// Number of named dense vectors per point
     #[clap(long, default_value_t = 1, value_parser = parse_number)]
@@ -455,6 +456,11 @@ impl Args {
         self.datatype
             .as_ref()
             .is_some_and(|x| x == qdrant::Datatype::Uint8.as_str_name())
+    }
+
+    /// Effective point count for legacy mode (no dataset sources).
+    pub fn num_vectors_or_default(&self) -> usize {
+        self.num_vectors.unwrap_or(100_000)
     }
 }
 

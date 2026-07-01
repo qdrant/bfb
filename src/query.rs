@@ -57,7 +57,7 @@ async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
     // Retrieve existing UUIDs
     let mut scroll_builder = ScrollPointsBuilder::new(&args.collection_name)
         .with_payload(true)
-        .limit(args.num_vectors as u32);
+        .limit(args.num_vectors_or_default() as u32);
     if let Some(timeout) = args.timeout {
         scroll_builder = scroll_builder.timeout(timeout as u64);
     }

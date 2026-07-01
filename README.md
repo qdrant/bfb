@@ -19,6 +19,33 @@ each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
 `--rps`, `--offset`, …) still control *how* it is uploaded. See
 [`examples/upload-config.yaml`](examples/upload-config.yaml) for the full schema.
 
+#### vector-db-benchmark datasets
+
+Upload configs can source dense vectors, sparse vectors, and payloads from
+[datasets/datasets.json](datasets/datasets.json) — the same format used by
+[vector-db-benchmark](https://github.com/qdrant/vector-db-benchmark). Supported
+dataset types are `h5` (HDF5), `tar` (`.tgz` with `vectors.npy` + optional
+`payloads.jsonl`), and `sparse` (CSR matrices).
+
+Datasets are downloaded on first use into `./datasets/` (override with
+`BFB_DATASETS_DIR`). Omit `-n` to upload the full dataset; when multiple dataset
+sources are configured, upload stops at the smallest source size (like Python's
+`zip`).
+
+```bash
+bfb upload --file examples/upload-dataset-config.yaml -b 256 -p 16 --uri http://localhost:6334
+```
+
+Example vector source in YAML:
+
+```yaml
+source:
+  type: dataset
+  name: glove-100-angular
+```
+
+See [`examples/upload-dataset-config.yaml`](examples/upload-dataset-config.yaml).
+
 ### `search` — YAML-driven search requests
 
 For search workloads that mirror a YAML-uploaded collection (named vectors,

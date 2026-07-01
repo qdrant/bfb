@@ -64,7 +64,7 @@ RUN case "$BUILDPLATFORM" in \
 ARG TARGETPLATFORM
 ENV TARGETPLATFORM=${TARGETPLATFORM:-linux/amd64}
 
-RUN xx-apt-get install -y pkg-config gcc g++ libssl-dev
+RUN xx-apt-get install -y pkg-config gcc g++ libssl-dev libhdf5-dev
 
 # Select Cargo profile (e.g., `release` or `dev`)
 ARG PROFILE=release
@@ -103,13 +103,14 @@ RUN PKG_CONFIG="/usr/bin/$(xx-info)-pkg-config" \
 FROM debian:12-slim AS bfb
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates tzdata \
+    && apt-get install -y ca-certificates tzdata libhdf5-103-1t64 \
     && rm -rf /var/lib/apt/lists/*
 
 ARG APP=/bfb
 
 RUN mkdir -p ${APP}
 COPY --from=builder /bfb/bfb ${APP}/bfb
+COPY datasets ${APP}/datasets
 WORKDIR ${APP}
 
 # USER 1000

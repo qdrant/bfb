@@ -15,6 +15,8 @@ use anyhow::{Context, Result, bail};
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::dataset::DatasetConfig;
+
 /// Top-level document: `{ collection: { ... } }`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -192,6 +194,11 @@ pub enum VectorSource {
         #[serde(default)]
         strategy: FileStrategy,
     },
+    /// vector-db-benchmark dataset (`datasets/datasets.json` format).
+    Dataset {
+        #[serde(flatten)]
+        dataset: DatasetConfig,
+    },
 }
 
 impl FromStr for VectorSource {
@@ -200,7 +207,7 @@ impl FromStr for VectorSource {
         match s {
             "random" => Ok(VectorSource::Random),
             other => Err(format!(
-                "unknown vector source {other:?}; expected \"random\" or a map with `type: file`"
+                "unknown vector source {other:?}; expected \"random\" or a map with `type: file|dataset`"
             )),
         }
     }
@@ -231,9 +238,7 @@ pub struct SparseVectorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SparseSource {
-    /// Accepted for schema symmetry / `type: random`; only `random` is supported.
     #[serde(default, rename = "type")]
-    #[allow(dead_code)]
     pub kind: SparseKind,
     #[serde(default = "default_sparse_dim")]
     pub dim: usize,
@@ -241,6 +246,9 @@ pub struct SparseSource {
     pub sparsity: f64,
     #[serde(default)]
     pub distribution: DistributionKind,
+    /// vector-db-benchmark dataset (`datasets/datasets.json` format).
+    #[serde(default)]
+    pub dataset: Option<DatasetConfig>,
 }
 
 impl Default for SparseSource {
@@ -250,6 +258,7 @@ impl Default for SparseSource {
             dim: default_sparse_dim(),
             sparsity: default_sparsity(),
             distribution: DistributionKind::default(),
+            dataset: None,
         }
     }
 }
@@ -271,6 +280,7 @@ impl FromStr for SparseSource {
 pub enum SparseKind {
     #[default]
     Random,
+    Dataset,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
@@ -336,6 +346,12 @@ pub enum TokenizerKind {
 pub struct PayloadSource {
     #[serde(default, rename = "type")]
     pub kind: PayloadSourceKind,
+    /// vector-db-benchmark dataset for payload values (`type: dataset`).
+    #[serde(default)]
+    pub dataset: Option<DatasetConfig>,
+    /// Payload field name inside the dataset schema / `payloads.jsonl`.
+    #[serde(default)]
+    pub field: Option<String>,
     // keyword
     pub cardinality: Option<usize>,
     pub length_multiplier: Option<usize>,
@@ -379,6 +395,7 @@ pub enum PayloadSourceKind {
     Random,
     RandomClusters,
     Now,
+    Dataset,
 }
 
 // ------------------------------ Loading / validation ---------------------
@@ -418,12 +435,18 @@ impl UploadConfig {
             {
                 bail!("duplicate vector name {n:?}");
             }
-            if let VectorSource::File { path, .. } = &v.source
-                && !path.starts_with("s3://")
-                && !path.starts_with("http")
-                && !Path::new(path).exists()
-            {
-                bail!("vector source file not found: {path}");
+            match &v.source {
+                VectorSource::File { path, .. }
+                    if !path.starts_with("s3://")
+                        && !path.starts_with("http")
+                        && !Path::new(path).exists() =>
+                {
+                    bail!("vector source file not found: {path}");
+                }
+                VectorSource::Dataset { dataset } if dataset.name.is_empty() => {
+                    bail!("vector dataset source requires `name`");
+                }
+                _ => {}
             }
             if let Some(mv) = &v.multivector
                 && mv.count == 0
@@ -438,11 +461,17 @@ impl UploadConfig {
                     s.name
                 );
             }
-            if !(0.0..=1.0).contains(&s.source.sparsity) {
-                bail!(
-                    "sparse sparsity must be in [0, 1], got {}",
-                    s.source.sparsity
-                );
+            match s.source.kind {
+                SparseKind::Random if !(0.0..=1.0).contains(&s.source.sparsity) => {
+                    bail!(
+                        "sparse sparsity must be in [0, 1], got {}",
+                        s.source.sparsity
+                    );
+                }
+                SparseKind::Dataset if s.source.dataset.is_none() => {
+                    bail!("sparse dataset source requires inline dataset fields or `name`");
+                }
+                _ => {}
             }
         }
 
@@ -455,6 +484,17 @@ impl UploadConfig {
                 && c == 0
             {
                 bail!("payload {:?}: clusters must be > 0", p.name);
+            }
+            if p.source.kind == PayloadSourceKind::Dataset {
+                if p.source.dataset.is_none() {
+                    bail!("payload {:?}: dataset source requires inline dataset fields or `name`", p.name);
+                }
+                if p.source.field.as_deref().unwrap_or("").is_empty() {
+                    bail!(
+                        "payload {:?}: dataset source requires `field` (schema field name)",
+                        p.name
+                    );
+                }
             }
         }
 
@@ -615,6 +655,24 @@ collection:
             cfg.collection.payloads[2].source.kind,
             PayloadSourceKind::RandomClusters
         );
+    }
+
+    #[test]
+    fn parses_dataset_vector_source() {
+        let yaml = r#"
+collection:
+  vectors:
+    - size: 100
+      source:
+        type: dataset
+        name: glove-100-angular
+"#;
+        let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
+        cfg.validate().unwrap();
+        assert!(matches!(
+            cfg.collection.vectors[0].source,
+            VectorSource::Dataset { .. }
+        ));
     }
 
     #[test]

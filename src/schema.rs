@@ -77,9 +77,12 @@ collection:
       # Value source. Shorthand string `random`, or a map:
       source: random             # default=random
       # source:
-      #   type: file             # enum           [random | file]
+      #   type: file             # enum           [random | file | dataset]
       #   path: ./vectors.fbin   # string         required for file (local path, http(s)://, or s3://)
       #   strategy: random-sample # enum          default=random-sample  [random-sample | from-start]
+      # source:
+      #   type: dataset          # vector-db-benchmark dataset (see datasets/datasets.json)
+      #   name: glove-100-angular
 
   # Sparse vectors (optional). Names must be unique across all vectors.
   sparse_vectors:
@@ -88,10 +91,13 @@ collection:
       on_disk: false             # bool           default=false
       # Value source. Shorthand string `random`, or a map:
       source:
-        type: random             # enum           default=random       [random]
+        type: random             # enum           default=random       [random | dataset]
         dim: 1000                # uint           default=1000         vocabulary size
         sparsity: 0.1            # float          default=0.1          fraction of non-zero dims, in [0, 1]
         distribution: uniform    # enum           default=uniform      [uniform | zipf]
+      # source:
+      #   type: dataset
+      #   name: msmarco-sparse-100K
 
   # Payload fields (optional). Names must be unique.
   payloads:
@@ -107,7 +113,7 @@ collection:
       # Value source. Shorthand string `random` / `random-clusters` / `now`, or a map.
       # Which keys apply depends on the payload `type`; irrelevant keys are ignored.
       source:
-        type: random             # enum           default=random       [random | random-clusters | now]
+        type: random             # enum           default=random       [random | random-clusters | now | dataset]
         cardinality: null        # uint           optional (keyword)   number of distinct values
         length_multiplier: null  # uint           optional (keyword)   value-length multiplier
         values_per_point: null   # uint           optional (keyword/integer)  multivalue count per point
@@ -191,6 +197,7 @@ mod tests {
                         dim: 1000,
                         sparsity: 0.1,
                         distribution: DistributionKind::Uniform,
+                        dataset: None,
                     },
                 }],
                 payloads: vec![PayloadConfig {
@@ -204,6 +211,8 @@ mod tests {
                     tokenizer: Some(TokenizerKind::Word),
                     source: PayloadSource {
                         kind: PayloadSourceKind::Random,
+                        dataset: None,
+                        field: None,
                         cardinality: Some(100),
                         length_multiplier: Some(1),
                         values_per_point: Some(1),

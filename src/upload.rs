@@ -54,7 +54,7 @@ async fn run_upload(
         .try_init()
         .unwrap();
 
-    let sent_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
+    let sent_bar = multiprogress.add(ProgressBar::new(args.num_vectors_or_default() as u64));
 
     let progress_style = ProgressStyle::default_bar()
         .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
@@ -74,7 +74,7 @@ async fn run_upload(
         generator,
     );
 
-    let num_batches = args.num_vectors.div_ceil(args.batch_size);
+    let num_batches = args.num_vectors_or_default().div_ceil(args.batch_size);
 
     if stopped.load(Ordering::Relaxed) {
         sent_bar_arc.abandon();
