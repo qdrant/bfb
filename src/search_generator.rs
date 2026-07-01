@@ -12,7 +12,10 @@ use rand::RngExt;
 use rand::distr::Distribution;
 use rand::seq::IndexedRandom;
 
-use crate::common::{DEFAULT_VOCAB_SIZE, create_zipf, random_dense_vector, random_keyword, random_sparse_vector, random_text};
+use crate::common::{
+    DEFAULT_VOCAB_SIZE, create_zipf, random_dense_vector, random_keyword, random_sparse_vector,
+    random_text,
+};
 use crate::config::{
     DatatypeKind, DistributionKind, FileStrategy, PayloadSourceKind, PayloadType, VectorSource,
 };
@@ -53,17 +56,19 @@ impl ConfigSearchGenerator {
 
         for req in &config.requests {
             let (dense_reader, sparse_zipf, filters) = match req {
-                SearchRequestConfig::Dense { source, filters, .. } => (
+                SearchRequestConfig::Dense {
+                    source, filters, ..
+                } => (
                     match source {
-                        VectorSource::File { path, .. } => {
-                            Some(FBinReader::new(Path::new(path)))
-                        }
+                        VectorSource::File { path, .. } => Some(FBinReader::new(Path::new(path))),
                         VectorSource::Random => None,
                     },
                     None,
                     filters,
                 ),
-                SearchRequestConfig::Sparse { source, filters, .. } => (
+                SearchRequestConfig::Sparse {
+                    source, filters, ..
+                } => (
                     None,
                     (source.distribution == DistributionKind::Zipf)
                         .then(|| create_zipf(source.dim)),
@@ -71,10 +76,7 @@ impl ConfigSearchGenerator {
                 ),
             };
 
-            let text_zipf = filters
-                .iter()
-                .map(|f| Self::maybe_text_zipf(f))
-                .collect();
+            let text_zipf = filters.iter().map(Self::maybe_text_zipf).collect();
             let geo_clusters = filters
                 .iter()
                 .map(|f| Self::maybe_geo_clusters(f, &mut rng))
@@ -338,7 +340,9 @@ impl ConfigSearchGenerator {
                             .map(|_| {
                                 format!(
                                     "word_{}",
-                                    rng.random_range(0..src.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE))
+                                    rng.random_range(
+                                        0..src.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE)
+                                    )
                                 )
                             })
                             .collect::<Vec<_>>()
