@@ -65,10 +65,10 @@ pub async fn process<P: Processor + Sync>(
     processor: P,
 ) -> Result<()> {
     let batch_size = processor.get_batch_size();
-    let batch_count = args.num_vectors.div_ceil(batch_size);
+    let batch_count = args.num_vectors_or_default().div_ceil(batch_size);
 
     let multiprogress = MultiProgress::new();
-    let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors as u64));
+    let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors_or_default() as u64));
     let progress_style = ProgressStyle::default_bar()
         .template("{msg} [{elapsed_precise}] {wide_bar} [{per_sec:>3}] {pos}/{len} (eta:{eta})")
         .expect("Failed to create progress style");

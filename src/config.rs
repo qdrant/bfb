@@ -15,6 +15,8 @@ use anyhow::{Context, Result, bail};
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::dataset::DatasetConfig;
+
 /// Top-level document: `{ collection: { ... } }`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -192,6 +194,11 @@ pub enum VectorSource {
         #[serde(default)]
         strategy: FileStrategy,
     },
+    /// vector-db-benchmark dataset (specified inline in the source definition).
+    Dataset {
+        #[serde(flatten)]
+        dataset: DatasetConfig,
+    },
 }
 
 impl FromStr for VectorSource {
@@ -200,7 +207,7 @@ impl FromStr for VectorSource {
         match s {
             "random" => Ok(VectorSource::Random),
             other => Err(format!(
-                "unknown vector source {other:?}; expected \"random\" or a map with `type: file`"
+                "unknown vector source {other:?}; expected \"random\" or a map with `type: file|dataset`"
             )),
         }
     }
@@ -231,9 +238,7 @@ pub struct SparseVectorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SparseSource {
-    /// Accepted for schema symmetry / `type: random`; only `random` is supported.
     #[serde(default, rename = "type")]
-    #[allow(dead_code)]
     pub kind: SparseKind,
     #[serde(default = "default_vocab_size")]
     pub vocab_size: usize,
@@ -241,6 +246,9 @@ pub struct SparseSource {
     pub length: usize,
     #[serde(default)]
     pub distribution: DistributionKind,
+    /// vector-db-benchmark dataset (specified inline under `dataset`).
+    #[serde(default)]
+    pub dataset: Option<DatasetConfig>,
 }
 
 impl Default for SparseSource {
@@ -250,6 +258,7 @@ impl Default for SparseSource {
             vocab_size: default_vocab_size(),
             length: default_sparse_length(),
             distribution: DistributionKind::default(),
+            dataset: None,
         }
     }
 }
@@ -271,6 +280,7 @@ impl FromStr for SparseSource {
 pub enum SparseKind {
     #[default]
     Random,
+    Dataset,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
@@ -336,6 +346,12 @@ pub enum TokenizerKind {
 pub struct PayloadSource {
     #[serde(default, rename = "type")]
     pub kind: PayloadSourceKind,
+    /// vector-db-benchmark dataset for payload values (`type: dataset`).
+    #[serde(default)]
+    pub dataset: Option<DatasetConfig>,
+    /// Payload field name inside the dataset schema / `payloads.jsonl`.
+    #[serde(default)]
+    pub field: Option<String>,
     // keyword
     pub cardinality: Option<usize>,
     pub length_multiplier: Option<usize>,
@@ -379,6 +395,7 @@ pub enum PayloadSourceKind {
     Random,
     RandomClusters,
     Now,
+    Dataset,
 }
 
 // ------------------------------ Loading / validation ---------------------
@@ -418,12 +435,16 @@ impl UploadConfig {
             {
                 bail!("duplicate vector name {n:?}");
             }
-            if let VectorSource::File { path, .. } = &v.source
-                && !path.starts_with("s3://")
-                && !path.starts_with("http")
-                && !Path::new(path).exists()
-            {
-                bail!("vector source file not found: {path}");
+            match &v.source {
+                VectorSource::File { path, .. }
+                    if !path.starts_with("s3://")
+                        && !path.starts_with("http")
+                        && !Path::new(path).exists() =>
+                {
+                    bail!("vector source file not found: {path}");
+                }
+                VectorSource::Dataset { dataset } => dataset.validate_inline()?,
+                _ => {}
             }
             if let Some(mv) = &v.multivector
                 && mv.count == 0
@@ -438,16 +459,28 @@ impl UploadConfig {
                     s.name
                 );
             }
-            if s.source.length == 0 {
-                bail!("sparse vector {:?}: length must be > 0", s.name);
-            }
-            if s.source.length > s.source.vocab_size {
-                bail!(
-                    "sparse vector {:?}: length ({}) must be <= vocab_size ({})",
-                    s.name,
-                    s.source.length,
-                    s.source.vocab_size
-                );
+            match s.source.kind {
+                SparseKind::Random => {
+                    if s.source.length == 0 {
+                        bail!("sparse vector {:?}: length must be > 0", s.name);
+                    }
+                    if s.source.length > s.source.vocab_size {
+                        bail!(
+                            "sparse vector {:?}: length ({}) must be <= vocab_size ({})",
+                            s.name,
+                            s.source.length,
+                            s.source.vocab_size
+                        );
+                    }
+                }
+                SparseKind::Dataset => {
+                    let dataset = s
+                        .source
+                        .dataset
+                        .as_ref()
+                        .context("sparse dataset source is missing dataset fields")?;
+                    dataset.validate_inline()?;
+                }
             }
         }
 
@@ -460,6 +493,20 @@ impl UploadConfig {
                 && c == 0
             {
                 bail!("payload {:?}: clusters must be > 0", p.name);
+            }
+            if p.source.kind == PayloadSourceKind::Dataset {
+                let dataset = p
+                    .source
+                    .dataset
+                    .as_ref()
+                    .context("payload dataset source is missing dataset fields")?;
+                dataset.validate_inline()?;
+                if p.source.field.as_deref().unwrap_or("").is_empty() {
+                    bail!(
+                        "payload {:?}: dataset source requires `field` (schema field name)",
+                        p.name
+                    );
+                }
             }
         }
 
@@ -620,6 +667,27 @@ collection:
             cfg.collection.payloads[2].source.kind,
             PayloadSourceKind::RandomClusters
         );
+    }
+
+    #[test]
+    fn parses_dataset_vector_source() {
+        let yaml = r#"
+collection:
+  vectors:
+    - size: 25
+      source:
+        type: dataset
+        name: glove-25-angular
+        format: h5
+        path: glove-25-angular/glove-25-angular.hdf5
+        link: http://ann-benchmarks.com/glove-25-angular.hdf5
+"#;
+        let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
+        cfg.validate().unwrap();
+        assert!(matches!(
+            cfg.collection.vectors[0].source,
+            VectorSource::Dataset { .. }
+        ));
     }
 
     #[test]

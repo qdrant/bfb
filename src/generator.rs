@@ -26,6 +26,7 @@ use crate::config::{
     DatatypeKind, DistributionKind, FileStrategy, IdType, PayloadSourceKind, PayloadType,
     UploadConfig, VectorConfig, VectorSource,
 };
+use crate::dataset::{UploadDatasetSources, default_datasets_dir};
 use crate::fbin_reader::FBinReader;
 
 /// Produces the per-point data (id, vectors, payload). The runtime layer owns
@@ -129,6 +130,8 @@ pub struct ConfigGenerator {
     config: UploadConfig,
     /// File readers aligned with `config.collection.vectors` (`None` = random).
     readers: Vec<Option<FBinReader>>,
+    /// Dataset readers for vectors, sparse vectors, and payloads.
+    datasets: UploadDatasetSources,
     /// Zipf distributions aligned with `config.collection.payloads` (text only).
     text_zipf: Vec<Option<rand_distr::Zipf<f64>>>,
     /// Cluster centers aligned with `config.collection.payloads` (geo clusters).
@@ -154,6 +157,13 @@ const GEO_CLUSTER_JITTER_DEG: f64 = 0.02;
 
 impl ConfigGenerator {
     pub fn new(config: &UploadConfig) -> anyhow::Result<Self> {
+        Self::new_with_datasets_dir(config, &default_datasets_dir())
+    }
+
+    pub fn new_with_datasets_dir(
+        config: &UploadConfig,
+        datasets_dir: &std::path::Path,
+    ) -> anyhow::Result<Self> {
         let mut rng = rand::rng();
 
         let readers = config
@@ -162,9 +172,11 @@ impl ConfigGenerator {
             .iter()
             .map(|v| match &v.source {
                 VectorSource::File { path, .. } => Some(FBinReader::new(Path::new(path))),
-                VectorSource::Random => None,
+                _ => None,
             })
             .collect();
+
+        let datasets = UploadDatasetSources::open(config, datasets_dir)?;
 
         let text_zipf = config
             .collection
@@ -211,6 +223,7 @@ impl ConfigGenerator {
         Ok(ConfigGenerator {
             config: config.clone(),
             readers,
+            datasets,
             text_zipf,
             geo_clusters,
             sparse_zipf,
@@ -221,9 +234,15 @@ impl ConfigGenerator {
         &self,
         vc: &VectorConfig,
         reader: &Option<FBinReader>,
+        slot: usize,
         idx: u64,
         rng: &mut impl Rng,
     ) -> Vec<f32> {
+        if let VectorSource::Dataset { .. } = &vc.source
+            && let Some(vector) = self.datasets.dense_vector(slot, idx)
+        {
+            return vector;
+        }
         match (&vc.source, reader) {
             (VectorSource::File { strategy, .. }, Some(reader)) => {
                 let n = reader.num_vectors.max(1) as usize;
@@ -244,16 +263,19 @@ impl ConfigGenerator {
         let reader = &self.readers[i];
         if let Some(mv) = &vc.multivector {
             let multi: Vec<_> = (0..mv.count)
-                .map(|_| self.gen_one_vector(vc, reader, idx, rng))
+                .map(|_| self.gen_one_vector(vc, reader, i, idx, rng))
                 .collect();
             Vector::new_multi(multi)
         } else {
-            self.gen_one_vector(vc, reader, idx, rng).into()
+            self.gen_one_vector(vc, reader, i, idx, rng).into()
         }
     }
 
-    fn gen_sparse(&self, i: usize, rng: &mut impl Rng) -> Vector {
+    fn gen_sparse(&self, i: usize, idx: u64, rng: &mut impl Rng) -> Vector {
         let sc = &self.config.collection.sparse_vectors[i];
+        if let Some(pairs) = self.datasets.sparse_vector(i, idx) {
+            return Vector::from(pairs);
+        }
         match &self.sparse_zipf[i] {
             Some(zipf) => {
                 // Zipf-distributed indices: sample `length` dims, dedup.
@@ -278,10 +300,15 @@ impl ConfigGenerator {
         }
     }
 
-    fn gen_payload(&self, rng: &mut impl Rng) -> Payload {
+    fn gen_payload(&self, idx: u64, rng: &mut impl Rng) -> Payload {
         let mut payload = Payload::with_capacity(self.config.collection.payloads.len());
 
         for (i, pc) in self.config.collection.payloads.iter().enumerate() {
+            if let Some(value) = self.datasets.payload_value(i, idx) {
+                payload.insert(pc.name.clone(), value);
+                continue;
+            }
+
             let src = &pc.source;
             match pc.kind {
                 PayloadType::Keyword => {
@@ -367,7 +394,6 @@ impl ConfigGenerator {
                     let value = match src.kind {
                         PayloadSourceKind::Now => chrono::Utc::now(),
                         _ => {
-                            // Random within the last year.
                             let secs = rng.random_range(0..365 * 24 * 3600i64);
                             chrono::Utc::now() - chrono::Duration::seconds(secs)
                         }
@@ -407,7 +433,7 @@ impl PointGenerator for ConfigGenerator {
         }
 
         for (i, sc) in collection.sparse_vectors.iter().enumerate() {
-            named.insert(sc.name.clone(), self.gen_sparse(i, &mut rng));
+            named.insert(sc.name.clone(), self.gen_sparse(i, idx, &mut rng));
         }
 
         let vectors: Vectors = if named.is_empty() {
@@ -419,12 +445,12 @@ impl PointGenerator for ConfigGenerator {
             named.into()
         };
 
-        PointStruct::new(point_id, vectors, self.gen_payload(&mut rng))
+        PointStruct::new(point_id, vectors, self.gen_payload(idx, &mut rng))
     }
 
     fn make_payload(&self) -> Payload {
         let mut rng = rand::rng();
-        self.gen_payload(&mut rng)
+        self.gen_payload(0, &mut rng)
     }
 }
 

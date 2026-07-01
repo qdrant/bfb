@@ -12,6 +12,7 @@ mod client;
 mod collection;
 mod common;
 mod config;
+mod dataset;
 mod fbin_reader;
 mod generator;
 mod processor;
@@ -52,9 +53,12 @@ async fn run_upload(
 ) -> Result<()> {
     let config = config::load(&upload_args.file)?;
 
-    // The config owns the collection name and (optional) custom shard key; the
-    // upsert/wait-index paths read these off `Args`.
     let mut args = args;
+    args.num_vectors = Some(dataset::resolve_num_vectors(
+        args.num_vectors,
+        &config,
+        &dataset::default_datasets_dir(),
+    )?);
     args.collection_name = config.collection.name.clone();
     if let Some(sharding) = &config.collection.sharding {
         args.shard_key = Some(sharding.key.clone());
