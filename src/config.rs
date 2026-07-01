@@ -439,10 +439,7 @@ impl UploadConfig {
                 );
             }
             if s.source.length == 0 {
-                bail!(
-                    "sparse vector {:?}: length must be > 0",
-                    s.name
-                );
+                bail!("sparse vector {:?}: length must be > 0", s.name);
             }
             if s.source.length > s.source.vocab_size {
                 bail!(

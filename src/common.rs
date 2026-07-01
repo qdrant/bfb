@@ -527,7 +527,10 @@ mod tests {
         assert_eq!(pairs.len(), 20);
         for &(idx, val) in &pairs {
             assert!(idx >= 1, "sparse index should be >= 1, got {idx}");
-            assert!(idx <= 100, "sparse index should be <= vocab_size, got {idx}");
+            assert!(
+                idx <= 100,
+                "sparse index should be <= vocab_size, got {idx}"
+            );
             assert!(val >= 0.0, "sparse value should be non-negative, got {val}");
         }
     }

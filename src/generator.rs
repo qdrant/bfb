@@ -87,11 +87,7 @@ impl PointGenerator for LegacyGenerator {
                 let vector_name = format!("{i}_sparse");
                 let vocab_size = self.args.sparse_dim.unwrap_or(self.args.dim);
                 let length = ((vocab_size as f64) * sparsity).ceil() as usize;
-                let vector = Vector::from(random_sparse_vector(
-                    &mut rng,
-                    vocab_size,
-                    length,
-                ));
+                let vector = Vector::from(random_sparse_vector(&mut rng, vocab_size, length));
                 vectors_map.insert(vector_name, vector);
             }
 
