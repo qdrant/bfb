@@ -1,0 +1,40 @@
+# Example upload config for the `laion-small-clip` dataset.
+#
+# In addition to the dense vectors, this uploads a `similarity` payload from the
+# dataset and builds a float field index on it (matching the dataset's
+# `"schema": { "similarity": "float" }` in vector-db-benchmark).
+#
+#   bfb upload --file examples/upload-laion-small-clip.yaml -b 256 -p 16 -t 8 \
+#       --uri http://localhost:6334
+#
+# Omit `-n` to upload the full dataset (capped by the smallest configured source).
+# Datasets are downloaded on first use into `./datasets/` (override with BFB_DATASETS_DIR).
+# The `.tgz` is extracted into `datasets/laion-small-clip/laion-small-clip/`
+# (containing `vectors.npy` and `payloads.jsonl`).
+
+collection:
+  name: laion-small-clip
+  vectors:
+    - size: 512
+      distance: cosine
+      source:
+        type: dataset
+        name: laion-small-clip
+        format: tar
+        path: laion-small-clip/laion-small-clip
+        link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz
+  payloads:
+    # Uploads the `similarity` field from the dataset's payloads and builds a
+    # float field index on it. `name` is the payload key written to each point
+    # and the indexed field; `source.field` is the field read from the dataset.
+    - name: similarity
+      type: float
+      index: true
+      source:
+        type: dataset
+        field: similarity
+        dataset:
+          name: laion-small-clip
+          format: tar
+          path: laion-small-clip/laion-small-clip
+          link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz
