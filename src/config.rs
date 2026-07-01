@@ -691,6 +691,24 @@ collection:
     }
 
     #[test]
+    fn parses_laion_small_clip_example() {
+        let cfg = super::load("examples/upload-laion-small-clip.yaml").unwrap();
+        // Dense vectors come from the tar dataset.
+        assert!(matches!(
+            cfg.collection.vectors[0].source,
+            VectorSource::Dataset { .. }
+        ));
+        // The `similarity` payload is read from the dataset and float-indexed.
+        let p = &cfg.collection.payloads[0];
+        assert_eq!(p.name, "similarity");
+        assert_eq!(p.kind, PayloadType::Float);
+        assert!(p.index);
+        assert_eq!(p.source.kind, PayloadSourceKind::Dataset);
+        assert_eq!(p.source.field.as_deref(), Some("similarity"));
+        assert!(p.source.dataset.is_some());
+    }
+
+    #[test]
     fn rejects_unknown_field() {
         let yaml = r#"
 collection:
