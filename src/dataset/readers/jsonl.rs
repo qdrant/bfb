@@ -13,7 +13,8 @@ pub struct JsonlStore {
 
 impl JsonlStore {
     pub fn open(path: &Path) -> Result<Self> {
-        let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+        let file =
+            File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
         let mut reader = BufReader::new(file);
         let mut offsets = Vec::new();
         let mut offset = 0u64;

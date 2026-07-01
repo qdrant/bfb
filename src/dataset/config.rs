@@ -27,7 +27,10 @@ pub struct DatasetConfig {
 
 impl DatasetConfig {
     /// Resolved config with required fields populated.
-    pub fn resolved(self, registry: &HashMap<String, DatasetConfig>) -> Result<ResolvedDatasetConfig> {
+    pub fn resolved(
+        self,
+        registry: &HashMap<String, DatasetConfig>,
+    ) -> Result<ResolvedDatasetConfig> {
         ResolvedDatasetConfig::from_inline(self, registry)
     }
 }
@@ -48,7 +51,10 @@ pub struct ResolvedDatasetConfig {
 }
 
 impl ResolvedDatasetConfig {
-    fn from_inline(inline: DatasetConfig, registry: &HashMap<String, DatasetConfig>) -> Result<Self> {
+    fn from_inline(
+        inline: DatasetConfig,
+        registry: &HashMap<String, DatasetConfig>,
+    ) -> Result<Self> {
         let base = registry.get(&inline.name);
         let kind = inline
             .kind
@@ -70,9 +76,15 @@ impl ResolvedDatasetConfig {
             kind,
             path,
             link,
-            vector_size: inline.vector_size.or_else(|| base.and_then(|b| b.vector_size)),
-            distance: inline.distance.or_else(|| base.and_then(|b| b.distance.clone())),
-            schema: inline.schema.or_else(|| base.and_then(|b| b.schema.clone())),
+            vector_size: inline
+                .vector_size
+                .or_else(|| base.and_then(|b| b.vector_size)),
+            distance: inline
+                .distance
+                .or_else(|| base.and_then(|b| b.distance.clone())),
+            schema: inline
+                .schema
+                .or_else(|| base.and_then(|b| b.schema.clone())),
         })
     }
 }
@@ -87,7 +99,10 @@ pub enum DatasetKind {
 
 impl DatasetConfig {
     /// Merge a partial inline definition with a registry entry looked up by `name`.
-    pub fn resolve(inline: Self, registry: &HashMap<String, DatasetConfig>) -> Result<ResolvedDatasetConfig> {
+    pub fn resolve(
+        inline: Self,
+        registry: &HashMap<String, DatasetConfig>,
+    ) -> Result<ResolvedDatasetConfig> {
         inline.resolved(registry)
     }
 }
@@ -123,10 +138,7 @@ mod tests {
         };
 
         let resolved = DatasetConfig::resolve(inline, &registry).unwrap();
-        assert_eq!(
-            resolved.path,
-            "glove-100-angular/glove-100-angular.hdf5"
-        );
+        assert_eq!(resolved.path, "glove-100-angular/glove-100-angular.hdf5");
         assert_eq!(resolved.vector_size, Some(100));
         assert!(resolved.link.is_some());
     }

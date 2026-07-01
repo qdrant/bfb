@@ -36,9 +36,11 @@ struct CsrMatrix {
 
 impl CsrMatrix {
     fn open(path: &Path) -> Result<Self> {
-        let mut file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+        let mut file =
+            File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
         let mut header = [0u8; 24];
-        file.read_exact(&mut header).context("failed to read csr header")?;
+        file.read_exact(&mut header)
+            .context("failed to read csr header")?;
         let sizes: [i64; 3] = [
             i64::from_le_bytes(header[0..8].try_into().unwrap()),
             i64::from_le_bytes(header[8..16].try_into().unwrap()),

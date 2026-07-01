@@ -5,9 +5,7 @@ use std::path::Path;
 use anyhow::Context;
 use serde_json::Value;
 
-use crate::config::{
-    PayloadSourceKind, SparseKind, UploadConfig, VectorSource,
-};
+use crate::config::{PayloadSourceKind, SparseKind, UploadConfig, VectorSource};
 
 use super::payload::json_to_payload_value;
 use super::reader::DatasetReader;

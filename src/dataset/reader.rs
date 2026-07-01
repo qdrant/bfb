@@ -42,10 +42,7 @@ impl DatasetReader {
                 (DatasetReaderInner::Sparse(reader), n)
             }
         };
-        Ok(DatasetReader {
-            inner,
-            num_points,
-        })
+        Ok(DatasetReader { inner, num_points })
     }
 
     pub fn dense_vector(&self, idx: usize) -> Result<Vec<f32>> {

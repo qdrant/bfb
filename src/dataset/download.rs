@@ -15,10 +15,13 @@ pub fn ensure_downloaded(datasets_dir: &Path, config: &ResolvedDatasetConfig) ->
         return Ok(target);
     }
 
-    let link = config
-        .link
-        .as_deref()
-        .with_context(|| format!("dataset {:?} is missing at {}", config.name, target.display()))?;
+    let link = config.link.as_deref().with_context(|| {
+        format!(
+            "dataset {:?} is missing at {}",
+            config.name,
+            target.display()
+        )
+    })?;
 
     println!("Downloading dataset {:?} from {link}...", config.name);
     let tmp = download_to_temp(link)?;
@@ -46,7 +49,8 @@ fn download_to_temp(url: &str) -> Result<PathBuf> {
 
 fn install_download(tmp: &Path, target: &Path, link: &str, kind: DatasetKind) -> Result<()> {
     if link.ends_with(".tgz") || link.ends_with(".tar.gz") {
-        fs::create_dir_all(target).with_context(|| format!("failed to create {}", target.display()))?;
+        fs::create_dir_all(target)
+            .with_context(|| format!("failed to create {}", target.display()))?;
         let file = File::open(tmp).with_context(|| format!("failed to open {}", tmp.display()))?;
         let decoder = GzDecoder::new(file);
         let mut archive = Archive::new(decoder);

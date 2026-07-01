@@ -24,8 +24,9 @@ impl TarReader {
         let vectors = ArrayView2::<f32>::view_npy(&mmap)
             .with_context(|| format!("failed to parse {}", vectors_path.display()))?;
         // SAFETY: mmap lives in `_vector_mmap` on the same struct.
-        let vectors =
-            unsafe { std::mem::transmute::<ArrayView2<'_, f32>, ArrayView2<'static, f32>>(vectors) };
+        let vectors = unsafe {
+            std::mem::transmute::<ArrayView2<'_, f32>, ArrayView2<'static, f32>>(vectors)
+        };
 
         let payloads_path = path.join("payloads.jsonl");
         let payloads = if payloads_path.exists() {

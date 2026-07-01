@@ -494,7 +494,10 @@ impl UploadConfig {
             }
             if p.source.kind == PayloadSourceKind::Dataset {
                 if p.source.dataset.is_none() {
-                    bail!("payload {:?}: dataset source requires inline dataset fields or `name`", p.name);
+                    bail!(
+                        "payload {:?}: dataset source requires inline dataset fields or `name`",
+                        p.name
+                    );
                 }
                 if p.source.field.as_deref().unwrap_or("").is_empty() {
                     bail!(

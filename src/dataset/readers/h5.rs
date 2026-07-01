@@ -12,7 +12,8 @@ pub struct H5Reader {
 
 impl H5Reader {
     pub fn open(path: &Path) -> Result<Self> {
-        let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+        let file =
+            File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
         let ds = file
             .dataset("train")
             .context("h5 dataset is missing `train` dataset")?;
@@ -35,7 +36,10 @@ impl H5Reader {
 
     pub fn vector_at(&self, idx: usize) -> Result<Vec<f32>> {
         if idx >= self.num_points {
-            bail!("index {idx} out of range (dataset has {} points)", self.num_points);
+            bail!(
+                "index {idx} out of range (dataset has {} points)",
+                self.num_points
+            );
         }
         let file = self.file.lock().expect("h5 file mutex poisoned");
         let ds = file
