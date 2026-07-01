@@ -1,11 +1,11 @@
 use std::path::Path;
-use std::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
 use hdf5_pure_rust::File;
 
 pub struct H5Reader {
-    file: Mutex<File>,
+    /// Full `train` matrix in row-major order (`num_points` × `dim`).
+    data: Vec<f32>,
     dim: usize,
     num_points: usize,
 }
@@ -23,8 +23,22 @@ impl H5Reader {
         }
         let num_points = shape[0] as usize;
         let dim = shape[1] as usize;
+        // Read the whole dataset once. ann-benchmarks `train` datasets are
+        // chunked+gzipped, so a per-row read re-decompresses the enclosing chunk
+        // on every access; a single sequential read decompresses each chunk once
+        // and lets `vector_at` serve rows lock-free from memory.
+        let data = ds
+            .read::<f32>()
+            .context("failed to read `train` dataset")?;
+        if data.len() != num_points * dim {
+            bail!(
+                "`train` has {} elements, expected {} ({num_points}×{dim})",
+                data.len(),
+                num_points * dim
+            );
+        }
         Ok(H5Reader {
-            file: Mutex::new(file),
+            data,
             dim,
             num_points,
         })
@@ -41,14 +55,8 @@ impl H5Reader {
                 self.num_points
             );
         }
-        let file = self.file.lock().expect("h5 file mutex poisoned");
-        let ds = file
-            .dataset("train")
-            .context("h5 dataset is missing `train` dataset")?;
-        let mut row = vec![0f32; self.dim];
-        ds.read_slice_into::<f32, _>((idx..idx + 1, ..), &mut row)
-            .with_context(|| format!("failed to read vector {idx}"))?;
-        Ok(row)
+        let start = idx * self.dim;
+        Ok(self.data[start..start + self.dim].to_vec())
     }
 }
 
