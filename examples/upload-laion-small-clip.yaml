@@ -1,7 +1,7 @@
 # Example upload config for the `laion-small-clip` dataset.
 #
-# In addition to the dense vectors, this uploads a `similarity` payload from the
-# dataset and builds a float field index on it (matching the dataset's
+# In addition to the dense vectors, this uploads the dataset's payload objects
+# and builds a float field index on `similarity` (matching the dataset's
 # `"schema": { "similarity": "float" }` in vector-db-benchmark).
 #
 #   bfb upload --file examples/upload-laion-small-clip.yaml -b 256 -p 16 -t 8 \
@@ -23,18 +23,20 @@ collection:
         format: tar
         path: laion-small-clip/laion-small-clip
         link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz
+
+  # Whole-payload source: every point's entire payload object is loaded from the
+  # dataset's `payloads.jsonl`. Fields not listed under `payloads` are still
+  # uploaded — just left unindexed.
+  source:
+    type: dataset
+    dataset:
+      name: laion-small-clip
+      format: tar
+      path: laion-small-clip/laion-small-clip
+      link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz
+
   payloads:
-    # Uploads the `similarity` field from the dataset's payloads and builds a
-    # float field index on it. `name` is the payload key written to each point
-    # and the indexed field; `source.field` is the field read from the dataset.
+    # Index-only declaration: the value comes from `collection.source` above, so
+    # no per-field `source` is needed — this just builds the float index.
     - name: similarity
       type: float
-      index: true
-      source:
-        type: dataset
-        field: similarity
-        dataset:
-          name: laion-small-clip
-          format: tar
-          path: laion-small-clip/laion-small-clip
-          link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz

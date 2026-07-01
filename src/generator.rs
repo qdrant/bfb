@@ -23,8 +23,8 @@ use crate::common::{
     random_sparse_vector, random_text, random_vector,
 };
 use crate::config::{
-    DatatypeKind, DistributionKind, FileStrategy, IdType, PayloadSourceKind, PayloadType,
-    UploadConfig, VectorConfig, VectorSource,
+    DatatypeKind, DistributionKind, FileStrategy, IdType, PayloadSource, PayloadSourceKind,
+    PayloadType, UploadConfig, VectorConfig, VectorSource,
 };
 use crate::dataset::{UploadDatasetSources, default_datasets_dir};
 use crate::fbin_reader::FBinReader;
@@ -183,8 +183,15 @@ impl ConfigGenerator {
             .payloads
             .iter()
             .map(|p| {
-                (p.kind == PayloadType::Text && p.source.distribution == DistributionKind::Zipf)
-                    .then(|| create_zipf(p.source.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE)))
+                let src = p.source.as_ref();
+                (p.kind == PayloadType::Text
+                    && src.map(|s| s.distribution) == Some(DistributionKind::Zipf))
+                .then(|| {
+                    create_zipf(
+                        src.and_then(|s| s.vocab_size)
+                            .unwrap_or(DEFAULT_VOCAB_SIZE),
+                    )
+                })
             })
             .collect();
 
@@ -193,9 +200,11 @@ impl ConfigGenerator {
             .payloads
             .iter()
             .map(|p| {
-                (p.kind == PayloadType::Geo && p.source.kind == PayloadSourceKind::RandomClusters)
-                    .then(|| {
-                        let count = p.source.clusters.unwrap_or(10);
+                let src = p.source.as_ref();
+                (p.kind == PayloadType::Geo
+                    && src.map(|s| s.kind) == Some(PayloadSourceKind::RandomClusters))
+                .then(|| {
+                    let count = src.and_then(|s| s.clusters).unwrap_or(10);
                         (0..count)
                             .map(|_| {
                                 (
@@ -303,13 +312,31 @@ impl ConfigGenerator {
     fn gen_payload(&self, idx: u64, rng: &mut impl Rng) -> Payload {
         let mut payload = Payload::with_capacity(self.config.collection.payloads.len());
 
+        // Collection-level whole-payload source: insert every field of the point's
+        // payload object. Per-field sources below may override individual keys.
+        let has_object = if let Some(fields) = self.datasets.payload_object(idx) {
+            for (key, value) in fields {
+                payload.insert(key, value);
+            }
+            true
+        } else {
+            false
+        };
+
+        let default_src = PayloadSource::default();
         for (i, pc) in self.config.collection.payloads.iter().enumerate() {
             if let Some(value) = self.datasets.payload_value(i, idx) {
                 payload.insert(pc.name.clone(), value);
                 continue;
             }
 
-            let src = &pc.source;
+            let src = match &pc.source {
+                Some(src) => src,
+                // Index-only field: its value comes from the whole-payload object.
+                None if has_object => continue,
+                // No source and no object: fall back to random generation.
+                None => &default_src,
+            };
             match pc.kind {
                 PayloadType::Keyword => {
                     let card = src.cardinality.unwrap_or(100);

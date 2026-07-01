@@ -46,6 +46,12 @@ pub struct CollectionConfig {
     pub vectors: Vec<VectorConfig>,
     #[serde(default)]
     pub sparse_vectors: Vec<SparseVectorConfig>,
+    /// Whole-payload source: when set (to `type: dataset`), every point's entire
+    /// payload object is loaded from the dataset's `payloads.jsonl`. Individual
+    /// `payloads` entries then only need to declare which fields to index (they
+    /// may omit their own `source`); fields not listed are uploaded unindexed.
+    #[serde(default)]
+    pub source: Option<PayloadSource>,
     #[serde(default)]
     pub payloads: Vec<PayloadConfig>,
 }
@@ -313,8 +319,10 @@ pub struct PayloadConfig {
     pub range_index: bool,
     /// Text payloads: tokenizer.
     pub tokenizer: Option<TokenizerKind>,
-    #[serde(default, deserialize_with = "string_or_struct")]
-    pub source: PayloadSource,
+    /// Per-field value source. May be omitted when `collection.source` provides
+    /// the payload object — the entry is then index-only.
+    #[serde(default, deserialize_with = "option_string_or_struct")]
+    pub source: Option<PayloadSource>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -484,24 +492,44 @@ impl UploadConfig {
             }
         }
 
+        // Collection-level whole-payload source: only a dataset makes sense, and
+        // it provides the whole object (no per-field `field`).
+        if let Some(src) = &c.source {
+            if src.kind != PayloadSourceKind::Dataset {
+                bail!("collection `source` must be `type: dataset`");
+            }
+            let dataset = src
+                .dataset
+                .as_ref()
+                .context("collection `source` is missing dataset fields")?;
+            dataset.validate_inline()?;
+            if src.field.is_some() {
+                bail!("collection `source` must not set `field` (it loads the whole payload)");
+            }
+        }
+
         let mut payload_names = std::collections::HashSet::new();
         for p in &c.payloads {
             if !payload_names.insert(p.name.clone()) {
                 bail!("duplicate payload name {:?}", p.name);
             }
-            if let Some(c) = p.source.clusters
+            let Some(src) = &p.source else {
+                // No per-field source: values come from `collection.source` (or,
+                // absent that, are randomly generated). Nothing to validate.
+                continue;
+            };
+            if let Some(c) = src.clusters
                 && c == 0
             {
                 bail!("payload {:?}: clusters must be > 0", p.name);
             }
-            if p.source.kind == PayloadSourceKind::Dataset {
-                let dataset = p
-                    .source
+            if src.kind == PayloadSourceKind::Dataset {
+                let dataset = src
                     .dataset
                     .as_ref()
                     .context("payload dataset source is missing dataset fields")?;
                 dataset.validate_inline()?;
-                if p.source.field.as_deref().unwrap_or("").is_empty() {
+                if src.field.as_deref().unwrap_or("").is_empty() {
                     bail!(
                         "payload {:?}: dataset source requires `field` (schema field name)",
                         p.name
@@ -525,35 +553,71 @@ impl UploadConfig {
 
 // --------------------------- serde helpers -------------------------------
 
-/// Deserialize a value that may be either a bare string (shorthand, parsed via
+/// Visitor for a value that may be either a bare string (shorthand, parsed via
 /// `FromStr`) or a full map (parsed via `Deserialize`). Standard serde idiom.
+struct StringOrStruct<T>(PhantomData<fn() -> T>);
+
+impl<'de, T> Visitor<'de> for StringOrStruct<T>
+where
+    T: Deserialize<'de> + FromStr<Err = String>,
+{
+    type Value = T;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a string or a map")
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<T, E> {
+        FromStr::from_str(value).map_err(de::Error::custom)
+    }
+
+    fn visit_map<M: MapAccess<'de>>(self, map: M) -> Result<T, M::Error> {
+        Deserialize::deserialize(de::value::MapAccessDeserializer::new(map))
+    }
+}
+
+/// Deserialize a string-or-map value (see [`StringOrStruct`]).
 pub(crate) fn string_or_struct<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where
     T: Deserialize<'de> + FromStr<Err = String>,
     D: Deserializer<'de>,
 {
-    struct StringOrStruct<T>(PhantomData<fn() -> T>);
+    deserializer.deserialize_any(StringOrStruct(PhantomData))
+}
 
-    impl<'de, T> Visitor<'de> for StringOrStruct<T>
+/// Like [`string_or_struct`], but for an optional field: `null`/absent ⇒ `None`,
+/// otherwise a string or map ⇒ `Some`.
+pub(crate) fn option_string_or_struct<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de> + FromStr<Err = String>,
+    D: Deserializer<'de>,
+{
+    struct OptVisitor<T>(PhantomData<fn() -> T>);
+
+    impl<'de, T> Visitor<'de> for OptVisitor<T>
     where
         T: Deserialize<'de> + FromStr<Err = String>,
     {
-        type Value = T;
+        type Value = Option<T>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a string or a map")
+            formatter.write_str("null, a string, or a map")
         }
 
-        fn visit_str<E: de::Error>(self, value: &str) -> Result<T, E> {
-            FromStr::from_str(value).map_err(de::Error::custom)
+        fn visit_none<E: de::Error>(self) -> Result<Option<T>, E> {
+            Ok(None)
         }
 
-        fn visit_map<M: MapAccess<'de>>(self, map: M) -> Result<T, M::Error> {
-            Deserialize::deserialize(de::value::MapAccessDeserializer::new(map))
+        fn visit_unit<E: de::Error>(self) -> Result<Option<T>, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D2: Deserializer<'de>>(self, d: D2) -> Result<Option<T>, D2::Error> {
+            d.deserialize_any(StringOrStruct(PhantomData)).map(Some)
         }
     }
 
-    deserializer.deserialize_any(StringOrStruct(PhantomData))
+    deserializer.deserialize_option(OptVisitor(PhantomData))
 }
 
 fn default_true() -> bool {
@@ -661,12 +725,67 @@ collection:
             QuantKind::Turbo4bit
         );
         assert_eq!(cfg.collection.payloads.len(), 3);
-        assert_eq!(cfg.collection.payloads[0].source.cardinality, Some(100));
+        assert_eq!(
+            cfg.collection.payloads[0].source.as_ref().unwrap().cardinality,
+            Some(100)
+        );
         assert!(!cfg.collection.payloads[1].index);
         assert_eq!(
-            cfg.collection.payloads[2].source.kind,
+            cfg.collection.payloads[2].source.as_ref().unwrap().kind,
             PayloadSourceKind::RandomClusters
         );
+    }
+
+    #[test]
+    fn whole_payload_source_allows_index_only_fields() {
+        let yaml = r#"
+collection:
+  vectors:
+    - size: 8
+  source:
+    type: dataset
+    dataset:
+      name: laion-small-clip
+      format: tar
+      path: laion-small-clip/laion-small-clip
+      link: https://example.com/laion-small-clip.tgz
+  payloads:
+    - name: similarity
+      type: float
+"#;
+        let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
+        cfg.validate().unwrap();
+        assert!(cfg.collection.source.is_some());
+        assert!(cfg.collection.payloads[0].source.is_none());
+    }
+
+    #[test]
+    fn collection_source_must_be_dataset_without_field() {
+        let with_field = r#"
+collection:
+  vectors:
+    - size: 8
+  source:
+    type: dataset
+    field: similarity
+    dataset:
+      name: d
+      format: tar
+      path: d/d
+      link: https://example.com/d.tgz
+"#;
+        let cfg: UploadConfig = serde_yaml::from_str(with_field).unwrap();
+        assert!(cfg.validate().is_err());
+
+        let not_dataset = r#"
+collection:
+  vectors:
+    - size: 8
+  source:
+    type: random
+"#;
+        let cfg: UploadConfig = serde_yaml::from_str(not_dataset).unwrap();
+        assert!(cfg.validate().is_err());
     }
 
     #[test]
@@ -698,14 +817,16 @@ collection:
             cfg.collection.vectors[0].source,
             VectorSource::Dataset { .. }
         ));
-        // The `similarity` payload is read from the dataset and float-indexed.
+        // Whole payload comes from the collection-level dataset source.
+        let src = cfg.collection.source.as_ref().unwrap();
+        assert_eq!(src.kind, PayloadSourceKind::Dataset);
+        assert!(src.dataset.is_some());
+        // The `similarity` payload is an index-only declaration (no per-field source).
         let p = &cfg.collection.payloads[0];
         assert_eq!(p.name, "similarity");
         assert_eq!(p.kind, PayloadType::Float);
         assert!(p.index);
-        assert_eq!(p.source.kind, PayloadSourceKind::Dataset);
-        assert_eq!(p.source.field.as_deref(), Some("similarity"));
-        assert!(p.source.dataset.is_some());
+        assert!(p.source.is_none());
     }
 
     #[test]

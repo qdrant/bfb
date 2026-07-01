@@ -15,6 +15,8 @@ pub struct UploadDatasetSources {
     vector: Vec<Option<DatasetReader>>,
     sparse: Vec<Option<DatasetReader>>,
     payload: Vec<Option<(DatasetReader, String)>>,
+    /// Collection-level whole-payload source (`collection.source`).
+    payload_object: Option<DatasetReader>,
 }
 
 impl UploadDatasetSources {
@@ -54,14 +56,15 @@ impl UploadDatasetSources {
             .payloads
             .iter()
             .map(|p| {
-                if p.source.kind == PayloadSourceKind::Dataset {
-                    let dataset = p
-                        .source
+                let Some(source) = &p.source else {
+                    return Ok(None);
+                };
+                if source.kind == PayloadSourceKind::Dataset {
+                    let dataset = source
                         .dataset
                         .as_ref()
                         .context("payload dataset source is missing dataset fields")?;
-                    let field = p
-                        .source
+                    let field = source
                         .field
                         .clone()
                         .context("payload dataset source is missing `field`")?;
@@ -72,10 +75,23 @@ impl UploadDatasetSources {
             })
             .collect::<anyhow::Result<_>>()?;
 
+        // Collection-level whole-payload source.
+        let payload_object = match &config.collection.source {
+            Some(source) if source.kind == PayloadSourceKind::Dataset => {
+                let dataset = source
+                    .dataset
+                    .as_ref()
+                    .context("collection `source` is missing dataset fields")?;
+                Some(DatasetReader::open(datasets_dir, dataset)?)
+            }
+            _ => None,
+        };
+
         Ok(Self {
             vector,
             sparse,
             payload,
+            payload_object,
         })
     }
 
@@ -104,5 +120,23 @@ impl UploadDatasetSources {
             .unwrap_or_else(|e| panic!("failed to read payload field {field} at {idx}: {e}"))
             .unwrap_or_else(|| panic!("payload field {field} missing at index {idx} in dataset"));
         Some(json_to_payload_value(value))
+    }
+
+    /// Whole payload object for a point, from the collection-level source.
+    /// Returns the object's fields (values passed through unchanged).
+    pub fn payload_object(&self, idx: u64) -> Option<Vec<(String, Value)>> {
+        let reader = self.payload_object.as_ref()?;
+        let value = reader
+            .payload_object(idx as usize)
+            .unwrap_or_else(|e| panic!("failed to read payload object at {idx}: {e}"))
+            .unwrap_or_else(|| panic!("payload object missing at index {idx} in dataset"));
+        match value {
+            Value::Object(map) => Some(
+                map.into_iter()
+                    .map(|(k, v)| (k, json_to_payload_value(v)))
+                    .collect(),
+            ),
+            other => panic!("payload object at {idx} is not a JSON object: {other}"),
+        }
     }
 }
