@@ -66,4 +66,11 @@ impl DatasetReader {
             _ => bail!("dataset does not contain payloads"),
         }
     }
+
+    pub fn payload_object(&self, idx: usize) -> Result<Option<Value>> {
+        match &self.inner {
+            DatasetReaderInner::Tar(r) => r.payload_object(idx),
+            _ => bail!("dataset does not contain payloads"),
+        }
+    }
 }

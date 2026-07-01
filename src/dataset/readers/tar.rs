@@ -65,4 +65,12 @@ impl TarReader {
             .with_context(|| format!("payload index {idx} out of range"))?;
         Ok(line.get(field).cloned())
     }
+
+    /// The whole payload object for a point (the full `payloads.jsonl` line).
+    pub fn payload_object(&self, idx: usize) -> Result<Option<Value>> {
+        let Some(store) = &self.payloads else {
+            return Ok(None);
+        };
+        store.value_at(idx)
+    }
 }
