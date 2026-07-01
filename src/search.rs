@@ -79,11 +79,10 @@ impl SearchProcessor {
 
             (0..self.args.search_batch_size)
                 .map(|_| {
-                    let sparse_vector_tuples = random_sparse_vector(
-                        rng,
-                        self.args.sparse_dim.unwrap_or(self.args.dim),
-                        sparsity,
-                    );
+                    let vocab_size = self.args.sparse_dim.unwrap_or(self.args.dim);
+                    let length = ((vocab_size as f64) * sparsity).ceil() as usize;
+                    let sparse_vector_tuples =
+                        random_sparse_vector(rng, vocab_size, length);
                     let (indices, values): (Vec<_>, Vec<_>) =
                         sparse_vector_tuples.into_iter().unzip();
                     let sparse_indices = SparseIndices { data: indices };

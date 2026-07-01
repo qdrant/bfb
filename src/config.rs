@@ -235,10 +235,10 @@ pub struct SparseSource {
     #[serde(default, rename = "type")]
     #[allow(dead_code)]
     pub kind: SparseKind,
-    #[serde(default = "default_sparse_dim")]
-    pub dim: usize,
-    #[serde(default = "default_sparsity")]
-    pub sparsity: f64,
+    #[serde(default = "default_vocab_size")]
+    pub vocab_size: usize,
+    #[serde(default = "default_sparse_length")]
+    pub length: usize,
     #[serde(default)]
     pub distribution: DistributionKind,
 }
@@ -247,8 +247,8 @@ impl Default for SparseSource {
     fn default() -> Self {
         SparseSource {
             kind: SparseKind::Random,
-            dim: default_sparse_dim(),
-            sparsity: default_sparsity(),
+            vocab_size: default_vocab_size(),
+            length: default_sparse_length(),
             distribution: DistributionKind::default(),
         }
     }
@@ -438,10 +438,18 @@ impl UploadConfig {
                     s.name
                 );
             }
-            if !(0.0..=1.0).contains(&s.source.sparsity) {
+            if s.source.length == 0 {
                 bail!(
-                    "sparse sparsity must be in [0, 1], got {}",
-                    s.source.sparsity
+                    "sparse vector {:?}: length must be > 0",
+                    s.name
+                );
+            }
+            if s.source.length > s.source.vocab_size {
+                bail!(
+                    "sparse vector {:?}: length ({}) must be <= vocab_size ({})",
+                    s.name,
+                    s.source.length,
+                    s.source.vocab_size
                 );
             }
         }
@@ -516,11 +524,11 @@ pub(crate) fn default_collection_name() -> String {
 fn default_custom() -> String {
     "custom".to_string()
 }
-fn default_sparse_dim() -> usize {
+fn default_vocab_size() -> usize {
     1000
 }
-fn default_sparsity() -> f64 {
-    0.1
+fn default_sparse_length() -> usize {
+    100
 }
 
 #[cfg(test)]

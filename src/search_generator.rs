@@ -71,7 +71,7 @@ impl ConfigSearchGenerator {
                 } => (
                     None,
                     (source.distribution == DistributionKind::Zipf)
-                        .then(|| create_zipf(source.dim)),
+                        .then(|| create_zipf(source.vocab_size)),
                     filters,
                 ),
             };
@@ -209,7 +209,7 @@ impl ConfigSearchGenerator {
     ) -> (Vec<f32>, SparseIndices) {
         match zipf {
             Some(zipf) => {
-                let target = ((source.dim as f64) * source.sparsity).ceil() as usize;
+                let target = source.length;
                 let mut seen = HashSet::new();
                 let mut pairs = Vec::with_capacity(target);
                 let mut attempts = 0;
@@ -224,7 +224,7 @@ impl ConfigSearchGenerator {
                 (values, SparseIndices { data: indices })
             }
             None => {
-                let pairs = random_sparse_vector(rng, source.dim, source.sparsity);
+                let pairs = random_sparse_vector(rng, source.vocab_size, source.length);
                 let (indices, values): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
                 (values, SparseIndices { data: indices })
             }
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn generates_dense_and_sparse_queries() {
         let generator = build_gen(
-            "collection:\n  name: x\nrequests:\n  - kind: dense\n    size: 8\n  - kind: sparse\n    using: bm25\n    source: { dim: 32, sparsity: 0.2 }\n",
+            "collection:\n  name: x\nrequests:\n  - kind: dense\n    size: 8\n  - kind: sparse\n    using: bm25\n    source: { vocab_size: 32, length: 6 }\n",
         );
         let mut rng = rand::rng();
 

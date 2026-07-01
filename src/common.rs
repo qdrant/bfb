@@ -303,21 +303,29 @@ pub fn random_vector(rng: &mut impl Rng, args: &Args) -> Vector {
     }
 }
 
-/// Generate random sparse vector with random size and random values.
-/// - `max_size` - maximum size of vector
-/// - `sparsity` - how many non-zero values should be in vector
-pub fn random_sparse_vector(rng: &mut impl Rng, max_size: usize, sparsity: f64) -> Vec<(u32, f32)> {
-    let size = rng.random_range(1..max_size);
-    // (index, value)
-    let mut pairs = Vec::with_capacity(size);
-    for i in 1..=size {
-        // probability of skipping a dimension to make the vectors sparse
-        let skip = !rng.random_bool(sparsity);
-        if skip {
-            continue;
+/// Generate a random sparse vector with `length` non-zero entries.
+/// Indices are drawn uniformly from `1..=vocab_size` (inclusive).
+pub fn random_sparse_vector(
+    rng: &mut impl Rng,
+    vocab_size: usize,
+    length: usize,
+) -> Vec<(u32, f32)> {
+    let vocab_size = vocab_size.max(1);
+    let length = length.min(vocab_size);
+    if length == 0 {
+        return Vec::new();
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    let mut pairs = Vec::with_capacity(length);
+    let mut attempts = 0;
+    while pairs.len() < length && attempts < length * 8 {
+        attempts += 1;
+        let idx = rng.random_range(1..=vocab_size) as u32;
+        if seen.insert(idx) {
+            // Only positive values are generated to make sure to hit the pruning path.
+            pairs.push((idx, rng.random_range(0.0..10.0) as f32));
         }
-        // Only positive values are generated to make sure to hit the pruning path.
-        pairs.push((i as u32, rng.random_range(0.0..10.0) as f32));
     }
     pairs
 }
@@ -515,18 +523,19 @@ mod tests {
     #[test]
     fn test_random_sparse_vector_bounds() {
         let mut rng = seeded_rng();
-        let pairs = random_sparse_vector(&mut rng, 100, 0.5);
+        let pairs = random_sparse_vector(&mut rng, 100, 20);
+        assert_eq!(pairs.len(), 20);
         for &(idx, val) in &pairs {
             assert!(idx >= 1, "sparse index should be >= 1, got {idx}");
-            assert!(idx <= 100, "sparse index should be <= max_size, got {idx}");
+            assert!(idx <= 100, "sparse index should be <= vocab_size, got {idx}");
             assert!(val >= 0.0, "sparse value should be non-negative, got {val}");
         }
     }
 
     #[test]
-    fn test_random_sparse_vector_empty_with_zero_sparsity() {
+    fn test_random_sparse_vector_empty_with_zero_length() {
         let mut rng = seeded_rng();
-        let pairs = random_sparse_vector(&mut rng, 100, 0.0);
+        let pairs = random_sparse_vector(&mut rng, 100, 0);
         assert!(pairs.is_empty());
     }
 }
