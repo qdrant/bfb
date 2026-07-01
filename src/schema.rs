@@ -89,8 +89,8 @@ collection:
       # Value source. Shorthand string `random`, or a map:
       source:
         type: random             # enum           default=random       [random]
-        dim: 1000                # uint           default=1000         vocabulary size
-        sparsity: 0.1            # float          default=0.1          fraction of non-zero dims, in [0, 1]
+        vocab_size: 1000            # uint           default=1000         vocabulary size (max sparse index)
+        length: 100                 # uint           default=100          number of non-zero entries
         distribution: uniform    # enum           default=uniform      [uniform | zipf]
 
   # Payload fields (optional). Names must be unique.
@@ -188,8 +188,8 @@ mod tests {
                     on_disk: false,
                     source: SparseSource {
                         kind: SparseKind::Random,
-                        dim: 1000,
-                        sparsity: 0.1,
+                        vocab_size: 1000,
+                        length: 100,
                         distribution: DistributionKind::Uniform,
                     },
                 }],

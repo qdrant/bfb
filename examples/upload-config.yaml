@@ -45,8 +45,8 @@ collection:
     - name: bm25
       source:
         type: random
-        dim: 100000
-        sparsity: 0.01
+        vocab_size: 100000
+        length: 1000
         distribution: zipf        # uniform | zipf
 
   payloads:
