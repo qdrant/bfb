@@ -475,7 +475,7 @@ impl UploadConfig {
 
 /// Deserialize a value that may be either a bare string (shorthand, parsed via
 /// `FromStr`) or a full map (parsed via `Deserialize`). Standard serde idiom.
-fn string_or_struct<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+pub(crate) fn string_or_struct<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where
     T: Deserialize<'de> + FromStr<Err = String>,
     D: Deserializer<'de>,
@@ -510,7 +510,7 @@ fn default_true() -> bool {
 fn default_one() -> u32 {
     1
 }
-fn default_collection_name() -> String {
+pub(crate) fn default_collection_name() -> String {
     "benchmark".to_string()
 }
 fn default_custom() -> String {
