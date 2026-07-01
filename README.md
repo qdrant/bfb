@@ -24,8 +24,9 @@ each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
 Upload configs can source dense vectors, sparse vectors, and payloads from
 [datasets/datasets.json](datasets/datasets.json) — the same format used by
 [vector-db-benchmark](https://github.com/qdrant/vector-db-benchmark). Supported
-dataset types are `h5` (HDF5), `tar` (`.tgz` with `vectors.npy` + optional
-`payloads.jsonl`), and `sparse` (CSR matrices).
+dataset types are `h5` (HDF5, pure-Rust reader — no system libraries), `tar`
+(`.tgz` with `vectors.npy` + optional `payloads.jsonl`), and `sparse` (CSR
+matrices).
 
 Datasets are downloaded on first use into `./datasets/` (override with
 `BFB_DATASETS_DIR`). Omit `-n` to upload the full dataset; when multiple dataset
