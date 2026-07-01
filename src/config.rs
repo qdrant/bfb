@@ -46,14 +46,24 @@ pub struct CollectionConfig {
     pub vectors: Vec<VectorConfig>,
     #[serde(default)]
     pub sparse_vectors: Vec<SparseVectorConfig>,
+    /// Payload-wide settings, notably the whole-payload `source`.
+    #[serde(default)]
+    pub payload: PayloadSection,
+    /// Payload field declarations: value generation and/or which fields to index.
+    #[serde(default)]
+    pub fields: Vec<PayloadConfig>,
+}
+
+/// Payload-wide settings (`collection.payload`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PayloadSection {
     /// Whole-payload source: when set (to `type: dataset`), every point's entire
-    /// payload object is loaded from the dataset's `payloads.jsonl`. Individual
-    /// `payloads` entries then only need to declare which fields to index (they
-    /// may omit their own `source`); fields not listed are uploaded unindexed.
+    /// payload object is loaded from the dataset's `payloads.jsonl`. `fields`
+    /// entries then only need to declare which fields to index (they may omit
+    /// their own `source`); fields not listed are uploaded but left unindexed.
     #[serde(default)]
     pub source: Option<PayloadSource>,
-    #[serde(default)]
-    pub payloads: Vec<PayloadConfig>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
@@ -319,8 +329,8 @@ pub struct PayloadConfig {
     pub range_index: bool,
     /// Text payloads: tokenizer.
     pub tokenizer: Option<TokenizerKind>,
-    /// Per-field value source. May be omitted when `collection.source` provides
-    /// the payload object — the entry is then index-only.
+    /// Per-field value source. May be omitted when `collection.payload.source`
+    /// provides the payload object — the entry is then index-only.
     #[serde(default, deserialize_with = "option_string_or_struct")]
     pub source: Option<PayloadSource>,
 }
@@ -492,29 +502,29 @@ impl UploadConfig {
             }
         }
 
-        // Collection-level whole-payload source: only a dataset makes sense, and
+        // Whole-payload source (`payload.source`): only a dataset makes sense, and
         // it provides the whole object (no per-field `field`).
-        if let Some(src) = &c.source {
+        if let Some(src) = &c.payload.source {
             if src.kind != PayloadSourceKind::Dataset {
-                bail!("collection `source` must be `type: dataset`");
+                bail!("`payload.source` must be `type: dataset`");
             }
             let dataset = src
                 .dataset
                 .as_ref()
-                .context("collection `source` is missing dataset fields")?;
+                .context("`payload.source` is missing dataset fields")?;
             dataset.validate_inline()?;
             if src.field.is_some() {
-                bail!("collection `source` must not set `field` (it loads the whole payload)");
+                bail!("`payload.source` must not set `field` (it loads the whole payload)");
             }
         }
 
         let mut payload_names = std::collections::HashSet::new();
-        for p in &c.payloads {
+        for p in &c.fields {
             if !payload_names.insert(p.name.clone()) {
-                bail!("duplicate payload name {:?}", p.name);
+                bail!("duplicate payload field name {:?}", p.name);
             }
             let Some(src) = &p.source else {
-                // No per-field source: values come from `collection.source` (or,
+                // No per-field source: values come from `payload.source` (or,
                 // absent that, are randomly generated). Nothing to validate.
                 continue;
             };
@@ -701,7 +711,7 @@ collection:
     always_ram: true
   vectors:
     - size: 256
-  payloads:
+  fields:
     - name: color
       type: keyword
       source:
@@ -724,14 +734,14 @@ collection:
             cfg.collection.quantization.as_ref().unwrap().kind,
             QuantKind::Turbo4bit
         );
-        assert_eq!(cfg.collection.payloads.len(), 3);
+        assert_eq!(cfg.collection.fields.len(), 3);
         assert_eq!(
-            cfg.collection.payloads[0].source.as_ref().unwrap().cardinality,
+            cfg.collection.fields[0].source.as_ref().unwrap().cardinality,
             Some(100)
         );
-        assert!(!cfg.collection.payloads[1].index);
+        assert!(!cfg.collection.fields[1].index);
         assert_eq!(
-            cfg.collection.payloads[2].source.as_ref().unwrap().kind,
+            cfg.collection.fields[2].source.as_ref().unwrap().kind,
             PayloadSourceKind::RandomClusters
         );
     }
@@ -742,37 +752,39 @@ collection:
 collection:
   vectors:
     - size: 8
-  source:
-    type: dataset
-    dataset:
-      name: laion-small-clip
-      format: tar
-      path: laion-small-clip/laion-small-clip
-      link: https://example.com/laion-small-clip.tgz
-  payloads:
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: laion-small-clip
+        format: tar
+        path: laion-small-clip/laion-small-clip
+        link: https://example.com/laion-small-clip.tgz
+  fields:
     - name: similarity
       type: float
 "#;
         let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
         cfg.validate().unwrap();
-        assert!(cfg.collection.source.is_some());
-        assert!(cfg.collection.payloads[0].source.is_none());
+        assert!(cfg.collection.payload.source.is_some());
+        assert!(cfg.collection.fields[0].source.is_none());
     }
 
     #[test]
-    fn collection_source_must_be_dataset_without_field() {
+    fn payload_source_must_be_dataset_without_field() {
         let with_field = r#"
 collection:
   vectors:
     - size: 8
-  source:
-    type: dataset
-    field: similarity
-    dataset:
-      name: d
-      format: tar
-      path: d/d
-      link: https://example.com/d.tgz
+  payload:
+    source:
+      type: dataset
+      field: similarity
+      dataset:
+        name: d
+        format: tar
+        path: d/d
+        link: https://example.com/d.tgz
 "#;
         let cfg: UploadConfig = serde_yaml::from_str(with_field).unwrap();
         assert!(cfg.validate().is_err());
@@ -781,8 +793,9 @@ collection:
 collection:
   vectors:
     - size: 8
-  source:
-    type: random
+  payload:
+    source:
+      type: random
 "#;
         let cfg: UploadConfig = serde_yaml::from_str(not_dataset).unwrap();
         assert!(cfg.validate().is_err());
@@ -817,12 +830,12 @@ collection:
             cfg.collection.vectors[0].source,
             VectorSource::Dataset { .. }
         ));
-        // Whole payload comes from the collection-level dataset source.
-        let src = cfg.collection.source.as_ref().unwrap();
+        // Whole payload comes from the `payload.source` dataset.
+        let src = cfg.collection.payload.source.as_ref().unwrap();
         assert_eq!(src.kind, PayloadSourceKind::Dataset);
         assert!(src.dataset.is_some());
-        // The `similarity` payload is an index-only declaration (no per-field source).
-        let p = &cfg.collection.payloads[0];
+        // The `similarity` field is an index-only declaration (no per-field source).
+        let p = &cfg.collection.fields[0];
         assert_eq!(p.name, "similarity");
         assert_eq!(p.kind, PayloadType::Float);
         assert!(p.index);

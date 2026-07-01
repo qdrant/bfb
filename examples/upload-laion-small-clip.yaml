@@ -25,18 +25,19 @@ collection:
         link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz
 
   # Whole-payload source: every point's entire payload object is loaded from the
-  # dataset's `payloads.jsonl`. Fields not listed under `payloads` are still
+  # dataset's `payloads.jsonl`. Fields not listed under `fields` are still
   # uploaded — just left unindexed.
-  source:
-    type: dataset
-    dataset:
-      name: laion-small-clip
-      format: tar
-      path: laion-small-clip/laion-small-clip
-      link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: laion-small-clip
+        format: tar
+        path: laion-small-clip/laion-small-clip
+        link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/laion-small-clip.tgz
 
-  payloads:
-    # Index-only declaration: the value comes from `collection.source` above, so
-    # no per-field `source` is needed — this just builds the float index.
+  fields:
+    # Index-only declaration: the value comes from `payload.source` above, so no
+    # per-field `source` is needed — this just builds the float index.
     - name: similarity
       type: float

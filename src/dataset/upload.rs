@@ -20,13 +20,14 @@ pub fn collect_dataset_configs(config: &UploadConfig) -> Vec<DatasetConfig> {
             out.push(dataset.clone());
         }
     }
-    for payload in &config.collection.payloads {
-        if let Some(dataset) = payload.source.as_ref().and_then(|s| s.dataset.as_ref()) {
+    for field in &config.collection.fields {
+        if let Some(dataset) = field.source.as_ref().and_then(|s| s.dataset.as_ref()) {
             out.push(dataset.clone());
         }
     }
     if let Some(dataset) = config
         .collection
+        .payload
         .source
         .as_ref()
         .and_then(|s| s.dataset.as_ref())

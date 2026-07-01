@@ -108,20 +108,23 @@ collection:
       #     path: msmarco-sparse-100K/data.csr
       #     link: https://example.com/msmarco-sparse-100K.tgz
 
-  # Whole-payload source (optional). When set to `type: dataset`, each point's
-  # entire payload object is loaded from the dataset's `payloads.jsonl`. The
-  # `payloads` entries below then only declare which fields to index (and may
-  # omit their own `source`); fields not listed are uploaded but left unindexed.
-  # source:
-  #   type: dataset
-  #   dataset:
-  #     name: laion-small-clip
-  #     format: tar
-  #     path: laion-small-clip/laion-small-clip
-  #     link: https://example.com/laion-small-clip.tgz
+  # Payload-wide settings (optional). `payload.source` is a whole-payload source:
+  # when set to `type: dataset`, each point's entire payload object is loaded from
+  # the dataset's `payloads.jsonl`. The `fields` below then only declare which
+  # fields to index (and may omit their own `source`); fields present in the
+  # object but not listed are uploaded but left unindexed.
+  payload:
+    source: null                 # optional            whole-payload dataset source, e.g.:
+    #   type: dataset
+    #   dataset:
+    #     name: laion-small-clip
+    #     format: tar
+    #     path: laion-small-clip/laion-small-clip
+    #     link: https://example.com/laion-small-clip.tgz
 
-  # Payload fields (optional). Names must be unique.
-  payloads:
+  # Payload field declarations (optional). Names must be unique. Each entry
+  # generates a value and/or declares a field index.
+  fields:
     - name: color                # string         required
       type: keyword              # enum           required             [keyword | integer | float |
                                  #   bool | uuid | geo | text | datetime]
@@ -131,9 +134,9 @@ collection:
       is_principal: false        # bool           default=false        principal (primary) index
       range_index: true          # bool           default=true         integer payloads: also build a range index
       tokenizer: null            # enum           optional (text)      [word | whitespace | prefix | multilingual]
-      # Value source (optional when `collection.source` is set — then the entry
-      # is index-only). Shorthand string `random` / `random-clusters` / `now`,
-      # or a map. Which keys apply depends on the payload `type`; others ignored.
+      # Value source (optional when `payload.source` is set — then the entry is
+      # index-only). Shorthand string `random` / `random-clusters` / `now`, or a
+      # map. Which keys apply depends on the payload `type`; others ignored.
       source:
         type: random             # enum           default=random       [random | random-clusters | now | dataset]
         cardinality: null        # uint           optional (keyword)   number of distinct values
@@ -222,8 +225,8 @@ mod tests {
                         dataset: None,
                     },
                 }],
-                source: None,
-                payloads: vec![PayloadConfig {
+                payload: PayloadSection { source: None },
+                fields: vec![PayloadConfig {
                     name: "color".to_string(),
                     kind: PayloadType::Keyword,
                     index: true,

@@ -716,7 +716,7 @@ async fn create_field_indices_from_config(
     config: &UploadConfig,
     client: &qdrant_client::Qdrant,
 ) -> Result<()> {
-    for pc in &config.collection.payloads {
+    for pc in &config.collection.fields {
         if !pc.index {
             continue;
         }
