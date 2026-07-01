@@ -15,7 +15,7 @@ pub struct UploadDatasetSources {
     vector: Vec<Option<DatasetReader>>,
     sparse: Vec<Option<DatasetReader>>,
     payload: Vec<Option<(DatasetReader, String)>>,
-    /// Collection-level whole-payload source (`collection.source`).
+    /// Whole-payload source (`collection.payload.source`).
     payload_object: Option<DatasetReader>,
 }
 
@@ -53,7 +53,7 @@ impl UploadDatasetSources {
 
         let payload = config
             .collection
-            .payloads
+            .fields
             .iter()
             .map(|p| {
                 let Some(source) = &p.source else {
@@ -75,8 +75,8 @@ impl UploadDatasetSources {
             })
             .collect::<anyhow::Result<_>>()?;
 
-        // Collection-level whole-payload source.
-        let payload_object = match &config.collection.source {
+        // Whole-payload source (`payload.source`).
+        let payload_object = match &config.collection.payload.source {
             Some(source) if source.kind == PayloadSourceKind::Dataset => {
                 let dataset = source
                     .dataset

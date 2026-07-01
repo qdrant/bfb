@@ -132,9 +132,9 @@ pub struct ConfigGenerator {
     readers: Vec<Option<FBinReader>>,
     /// Dataset readers for vectors, sparse vectors, and payloads.
     datasets: UploadDatasetSources,
-    /// Zipf distributions aligned with `config.collection.payloads` (text only).
+    /// Zipf distributions aligned with `config.collection.fields` (text only).
     text_zipf: Vec<Option<rand_distr::Zipf<f64>>>,
-    /// Cluster centers aligned with `config.collection.payloads` (geo clusters).
+    /// Cluster centers aligned with `config.collection.fields` (geo clusters).
     geo_clusters: Vec<Option<Vec<(f64, f64)>>>,
     /// Zipf distributions aligned with `config.collection.sparse_vectors`.
     sparse_zipf: Vec<Option<rand_distr::Zipf<f64>>>,
@@ -180,7 +180,7 @@ impl ConfigGenerator {
 
         let text_zipf = config
             .collection
-            .payloads
+            .fields
             .iter()
             .map(|p| {
                 let src = p.source.as_ref();
@@ -197,7 +197,7 @@ impl ConfigGenerator {
 
         let geo_clusters = config
             .collection
-            .payloads
+            .fields
             .iter()
             .map(|p| {
                 let src = p.source.as_ref();
@@ -310,7 +310,7 @@ impl ConfigGenerator {
     }
 
     fn gen_payload(&self, idx: u64, rng: &mut impl Rng) -> Payload {
-        let mut payload = Payload::with_capacity(self.config.collection.payloads.len());
+        let mut payload = Payload::with_capacity(self.config.collection.fields.len());
 
         // Collection-level whole-payload source: insert every field of the point's
         // payload object. Per-field sources below may override individual keys.
@@ -324,7 +324,7 @@ impl ConfigGenerator {
         };
 
         let default_src = PayloadSource::default();
-        for (i, pc) in self.config.collection.payloads.iter().enumerate() {
+        for (i, pc) in self.config.collection.fields.iter().enumerate() {
             if let Some(value) = self.datasets.payload_value(i, idx) {
                 payload.insert(pc.name.clone(), value);
                 continue;
@@ -581,7 +581,7 @@ mod tests {
             "collection:
   vectors:
     - size: 4
-  payloads:
+  fields:
     - name: color
       type: keyword
       source: { type: random, cardinality: 10 }
@@ -609,7 +609,7 @@ mod tests {
     fn keyword_uses_configured_cardinality() {
         // 100 points × low cardinality ⇒ all values fall in keyword_0..keyword_5.
         let g = build_gen(
-            "collection:\n  vectors:\n    - size: 4\n  payloads:\n    - name: c\n      type: keyword\n      source: { type: random, cardinality: 5 }\n",
+            "collection:\n  vectors:\n    - size: 4\n  fields:\n    - name: c\n      type: keyword\n      source: { type: random, cardinality: 5 }\n",
         );
         for _ in 0..100 {
             let value = g.make_payload().deserialize::<serde_json::Value>().unwrap();
