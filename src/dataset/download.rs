@@ -44,7 +44,11 @@ fn download_to_temp(url: &str) -> Result<PathBuf> {
     let mut reader = response.into_body().into_reader();
     let mut tmp = tempfile::NamedTempFile::new().context("failed to create temp file")?;
     io::copy(&mut reader, tmp.as_file_mut()).context("failed to write download")?;
-    Ok(tmp.into_temp_path().to_path_buf())
+    // `keep()` disables auto-deletion so the file survives until `ensure_downloaded`
+    // installs it and removes it explicitly; otherwise the `TempPath` would drop and
+    // unlink the file the moment this function returns.
+    let (_, path) = tmp.keep().context("failed to persist temp download")?;
+    Ok(path)
 }
 
 fn install_download(tmp: &Path, target: &Path, link: &str, kind: DatasetKind) -> Result<()> {
