@@ -110,7 +110,6 @@ ARG APP=/bfb
 
 RUN mkdir -p ${APP}
 COPY --from=builder /bfb/bfb ${APP}/bfb
-COPY datasets ${APP}/datasets
 WORKDIR ${APP}
 
 # USER 1000

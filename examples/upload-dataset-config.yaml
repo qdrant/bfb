@@ -1,4 +1,4 @@
-# Example upload config using vector-db-benchmark datasets.
+# Example upload config with an inline dataset definition.
 #
 #   bfb upload --file examples/upload-dataset-config.yaml -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
@@ -7,10 +7,13 @@
 # Datasets are downloaded on first use into `./datasets/` (override with BFB_DATASETS_DIR).
 
 collection:
-  name: glove-100-angular
+  name: glove-25-angular
   vectors:
-    - size: 100
+    - size: 25
       distance: cosine
       source:
         type: dataset
-        name: glove-100-angular
+        name: glove-25-angular
+        format: h5
+        path: glove-25-angular/glove-25-angular.hdf5
+        link: http://ann-benchmarks.com/glove-25-angular.hdf5

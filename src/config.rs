@@ -194,7 +194,7 @@ pub enum VectorSource {
         #[serde(default)]
         strategy: FileStrategy,
     },
-    /// vector-db-benchmark dataset (`datasets/datasets.json` format).
+    /// vector-db-benchmark dataset (specified inline in the source definition).
     Dataset {
         #[serde(flatten)]
         dataset: DatasetConfig,
@@ -246,7 +246,7 @@ pub struct SparseSource {
     pub length: usize,
     #[serde(default)]
     pub distribution: DistributionKind,
-    /// vector-db-benchmark dataset (`datasets/datasets.json` format).
+    /// vector-db-benchmark dataset (specified inline under `dataset`).
     #[serde(default)]
     pub dataset: Option<DatasetConfig>,
 }
@@ -443,9 +443,7 @@ impl UploadConfig {
                 {
                     bail!("vector source file not found: {path}");
                 }
-                VectorSource::Dataset { dataset } if dataset.name.is_empty() => {
-                    bail!("vector dataset source requires `name`");
-                }
+                VectorSource::Dataset { dataset } => dataset.validate_inline()?,
                 _ => {}
             }
             if let Some(mv) = &v.multivector
@@ -475,10 +473,14 @@ impl UploadConfig {
                         );
                     }
                 }
-                SparseKind::Dataset if s.source.dataset.is_none() => {
-                    bail!("sparse dataset source requires inline dataset fields or `name`");
+                SparseKind::Dataset => {
+                    let dataset = s
+                        .source
+                        .dataset
+                        .as_ref()
+                        .context("sparse dataset source is missing dataset fields")?;
+                    dataset.validate_inline()?;
                 }
-                _ => {}
             }
         }
 
@@ -493,12 +495,12 @@ impl UploadConfig {
                 bail!("payload {:?}: clusters must be > 0", p.name);
             }
             if p.source.kind == PayloadSourceKind::Dataset {
-                if p.source.dataset.is_none() {
-                    bail!(
-                        "payload {:?}: dataset source requires inline dataset fields or `name`",
-                        p.name
-                    );
-                }
+                let dataset = p
+                    .source
+                    .dataset
+                    .as_ref()
+                    .context("payload dataset source is missing dataset fields")?;
+                dataset.validate_inline()?;
                 if p.source.field.as_deref().unwrap_or("").is_empty() {
                     bail!(
                         "payload {:?}: dataset source requires `field` (schema field name)",
@@ -672,10 +674,13 @@ collection:
         let yaml = r#"
 collection:
   vectors:
-    - size: 100
+    - size: 25
       source:
         type: dataset
-        name: glove-100-angular
+        name: glove-25-angular
+        format: h5
+        path: glove-25-angular/glove-25-angular.hdf5
+        link: http://ann-benchmarks.com/glove-25-angular.hdf5
 "#;
         let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
         cfg.validate().unwrap();

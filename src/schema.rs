@@ -81,8 +81,13 @@ collection:
       #   path: ./vectors.fbin   # string         required for file (local path, http(s)://, or s3://)
       #   strategy: random-sample # enum          default=random-sample  [random-sample | from-start]
       # source:
-      #   type: dataset          # vector-db-benchmark dataset (see datasets/datasets.json)
-      #   name: glove-100-angular
+      #   type: dataset          # inline dataset definition (vector-db-benchmark format)
+      #   name: glove-25-angular
+      #   format: h5             # h5 | tar | sparse  (`type` alias accepted in nested `dataset:` maps)
+      #   path: glove-25-angular/glove-25-angular.hdf5
+      #   link: http://ann-benchmarks.com/glove-25-angular.hdf5
+      #   vector_size: 25
+      #   distance: cosine
 
   # Sparse vectors (optional). Names must be unique across all vectors.
   sparse_vectors:
@@ -97,7 +102,11 @@ collection:
         distribution: uniform    # enum           default=uniform      [uniform | zipf]
       # source:
       #   type: dataset
-      #   name: msmarco-sparse-100K
+      #   dataset:
+      #     name: msmarco-sparse-100K
+      #     format: sparse
+      #     path: msmarco-sparse-100K/data.csr
+      #     link: https://example.com/msmarco-sparse-100K.tgz
 
   # Payload fields (optional). Names must be unique.
   payloads:
