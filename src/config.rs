@@ -736,7 +736,11 @@ collection:
         );
         assert_eq!(cfg.collection.fields.len(), 3);
         assert_eq!(
-            cfg.collection.fields[0].source.as_ref().unwrap().cardinality,
+            cfg.collection.fields[0]
+                .source
+                .as_ref()
+                .unwrap()
+                .cardinality,
             Some(100)
         );
         assert!(!cfg.collection.fields[1].index);

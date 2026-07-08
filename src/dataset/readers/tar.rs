@@ -290,7 +290,7 @@ mod tests {
         // Pad with spaces so the total (magic + version + len field + header)
         // is a multiple of 64, and terminate with a newline.
         let unpadded = 10 + header.len() + 1;
-        header.extend(std::iter::repeat(b' ').take((64 - unpadded % 64) % 64));
+        header.extend(std::iter::repeat_n(b' ', (64 - unpadded % 64) % 64));
         header.push(b'\n');
 
         let mut out = Vec::new();
