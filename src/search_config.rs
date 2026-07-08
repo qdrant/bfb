@@ -10,8 +10,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    DatatypeKind, PayloadSource, PayloadType, SparseSource, VectorSource, default_collection_name,
-    string_or_struct,
+    DatatypeKind, PayloadSource, PayloadType, SparseKind, SparseSource, VectorSource,
+    default_collection_name, string_or_struct,
 };
 
 /// Top-level document: `{ collection: { name }, requests: [ … ] }`.
@@ -39,6 +39,9 @@ pub enum SearchRequestConfig {
         /// Named dense vector to query. Omit for the unnamed default vector.
         #[serde(default)]
         using: Option<String>,
+        /// Vector dimension. Required for generated (`random`) queries; ignored
+        /// when queries come from a dataset (the dataset defines the dimension).
+        #[serde(default)]
         size: u64,
         #[serde(default)]
         datatype: DatatypeKind,
@@ -97,30 +100,45 @@ impl SearchRequestConfig {
     fn validate(&self, index: usize) -> Result<()> {
         match self {
             SearchRequestConfig::Dense { size, source, .. } => {
-                if *size == 0 {
-                    bail!("requests[{index}]: dense `size` must be > 0");
-                }
-                if let VectorSource::File { path, .. } = source
-                    && !path.starts_with("s3://")
-                    && !path.starts_with("http")
-                    && !Path::new(path).exists()
-                {
-                    bail!("requests[{index}]: vector source file not found: {path}");
+                match source {
+                    VectorSource::File { path, .. }
+                        if !path.starts_with("s3://")
+                            && !path.starts_with("http")
+                            && !Path::new(path).exists() =>
+                    {
+                        bail!("requests[{index}]: vector source file not found: {path}");
+                    }
+                    // A dataset query source supplies its own query vectors, so
+                    // `size` is not required to match anything here.
+                    VectorSource::Dataset { dataset } => dataset.validate_inline()?,
+                    _ => {
+                        if *size == 0 {
+                            bail!("requests[{index}]: dense `size` must be > 0");
+                        }
+                    }
                 }
             }
             SearchRequestConfig::Sparse { using, source, .. } => {
                 if using.is_empty() {
                     bail!("requests[{index}]: sparse `using` must not be empty");
                 }
-                if source.length == 0 {
-                    bail!("requests[{index}]: sparse `length` must be > 0");
-                }
-                if source.length > source.vocab_size {
-                    bail!(
-                        "requests[{index}]: sparse length ({}) must be <= vocab_size ({})",
-                        source.length,
-                        source.vocab_size
-                    );
+                if source.kind == SparseKind::Dataset {
+                    let dataset = source
+                        .dataset
+                        .as_ref()
+                        .context("sparse dataset query source is missing dataset fields")?;
+                    dataset.validate_inline()?;
+                } else {
+                    if source.length == 0 {
+                        bail!("requests[{index}]: sparse `length` must be > 0");
+                    }
+                    if source.length > source.vocab_size {
+                        bail!(
+                            "requests[{index}]: sparse length ({}) must be <= vocab_size ({})",
+                            source.length,
+                            source.vocab_size
+                        );
+                    }
                 }
             }
         }
@@ -182,6 +200,55 @@ requests:
             SearchRequestConfig::Dense { filters, .. } => assert_eq!(filters.len(), 1),
             _ => panic!("expected dense request with filters"),
         }
+    }
+
+    #[test]
+    fn parses_dataset_query_sources() {
+        let yaml = r#"
+collection:
+  name: bench
+requests:
+  - kind: dense
+    source:
+      type: dataset
+      name: glove-25-angular
+      format: h5
+      path: glove-25-angular/glove-25-angular.hdf5
+      link: http://ann-benchmarks.com/glove-25-angular.hdf5
+  - kind: sparse
+    using: bm25
+    source:
+      type: dataset
+      dataset:
+        name: my-sparse
+        format: sparse
+        path: my-sparse/my-sparse
+        link: https://example.com/my-sparse.tgz
+"#;
+        let cfg: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        cfg.validate().unwrap();
+        assert!(matches!(
+            cfg.requests[0],
+            SearchRequestConfig::Dense {
+                source: VectorSource::Dataset { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_dense_dataset_without_format() {
+        let yaml = r#"
+collection:
+  name: bench
+requests:
+  - kind: dense
+    source:
+      type: dataset
+      name: glove-25-angular
+"#;
+        let cfg: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

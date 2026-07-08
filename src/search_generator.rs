@@ -2,7 +2,9 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use anyhow::Context;
 use qdrant_client::qdrant::{
     Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, SparseIndices,
     r#match::MatchValue,
@@ -17,8 +19,10 @@ use crate::common::{
     random_text,
 };
 use crate::config::{
-    DatatypeKind, DistributionKind, FileStrategy, PayloadSourceKind, PayloadType, VectorSource,
+    DatatypeKind, DistributionKind, FileStrategy, PayloadSourceKind, PayloadType, SparseKind,
+    VectorSource,
 };
+use crate::dataset::{DatasetReader, default_datasets_dir};
 use crate::fbin_reader::FBinReader;
 use crate::search_config::{FilterPayloadConfig, SearchConfig, SearchRequestConfig};
 
@@ -34,10 +38,31 @@ pub struct GeneratedQuery {
     pub dense: Option<(Vec<f32>, Option<String>)>,
     pub sparse: Option<(Vec<f32>, SparseIndices, String)>,
     pub filter: Option<Filter>,
+    /// Ground-truth nearest-neighbor point ids for this query, present only
+    /// when the request draws queries from a reference dataset. Used to measure
+    /// search accuracy (recall) against the dataset's known answers.
+    pub expected_ids: Option<Vec<u64>>,
+}
+
+/// A reference dataset used as a query source, together with a cursor that
+/// hands out consecutive query indices so every query in the set is exercised.
+struct QueryDataset {
+    reader: DatasetReader,
+    num_queries: usize,
+    cursor: AtomicUsize,
+}
+
+impl QueryDataset {
+    /// Next query index to use, wrapping around the query set.
+    fn next_index(&self) -> usize {
+        self.cursor.fetch_add(1, Ordering::Relaxed) % self.num_queries
+    }
 }
 
 struct RequestState {
     dense_reader: Option<FBinReader>,
+    /// Reference dataset used as the query source (dense or sparse).
+    query_dataset: Option<QueryDataset>,
     sparse_zipf: Option<rand_distr::Zipf<f64>>,
     text_zipf: Vec<Option<rand_distr::Zipf<f64>>>,
     geo_clusters: Vec<Option<Vec<(f64, f64)>>>,
@@ -51,29 +76,56 @@ pub struct ConfigSearchGenerator {
 
 impl ConfigSearchGenerator {
     pub fn new(config: &SearchConfig) -> anyhow::Result<Self> {
+        Self::new_with_datasets_dir(config, &default_datasets_dir())
+    }
+
+    pub fn new_with_datasets_dir(
+        config: &SearchConfig,
+        datasets_dir: &Path,
+    ) -> anyhow::Result<Self> {
         let mut rng = rand::rng();
         let mut per_request = Vec::with_capacity(config.requests.len());
 
         for req in &config.requests {
-            let (dense_reader, sparse_zipf, filters) = match req {
+            let (dense_reader, query_dataset, sparse_zipf, filters) = match req {
                 SearchRequestConfig::Dense {
                     source, filters, ..
-                } => (
-                    match source {
-                        VectorSource::File { path, .. } => Some(FBinReader::new(Path::new(path))),
-                        VectorSource::Random | VectorSource::Dataset { .. } => None,
-                    },
-                    None,
-                    filters,
-                ),
+                } => {
+                    let (dense_reader, query_dataset) = match source {
+                        VectorSource::File { path, .. } => {
+                            (Some(FBinReader::new(Path::new(path))), None)
+                        }
+                        VectorSource::Dataset { dataset } => {
+                            (None, Some(Self::open_query_dataset(dataset, datasets_dir)?))
+                        }
+                        VectorSource::Random => (None, None),
+                    };
+                    (dense_reader, query_dataset, None, filters)
+                }
                 SearchRequestConfig::Sparse {
                     source, filters, ..
-                } => (
-                    None,
-                    (source.distribution == DistributionKind::Zipf)
-                        .then(|| create_zipf(source.vocab_size)),
-                    filters,
-                ),
+                } => {
+                    if source.kind == SparseKind::Dataset {
+                        let dataset = source
+                            .dataset
+                            .as_ref()
+                            .context("sparse dataset query source is missing dataset fields")?;
+                        (
+                            None,
+                            Some(Self::open_query_dataset(dataset, datasets_dir)?),
+                            None,
+                            filters,
+                        )
+                    } else {
+                        (
+                            None,
+                            None,
+                            (source.distribution == DistributionKind::Zipf)
+                                .then(|| create_zipf(source.vocab_size)),
+                            filters,
+                        )
+                    }
+                }
             };
 
             let text_zipf = filters.iter().map(Self::maybe_text_zipf).collect();
@@ -84,6 +136,7 @@ impl ConfigSearchGenerator {
 
             per_request.push(RequestState {
                 dense_reader,
+                query_dataset,
                 sparse_zipf,
                 text_zipf,
                 geo_clusters,
@@ -93,6 +146,28 @@ impl ConfigSearchGenerator {
         Ok(ConfigSearchGenerator {
             config: config.clone(),
             per_request,
+        })
+    }
+
+    /// Open a reference dataset as a query source, requiring it to ship a query
+    /// set (ann-benchmarks `test`/`neighbors`, or `tests.jsonl` /
+    /// `queries.csr`+`results.gt`).
+    fn open_query_dataset(
+        dataset: &crate::dataset::DatasetConfig,
+        datasets_dir: &Path,
+    ) -> anyhow::Result<QueryDataset> {
+        let reader = DatasetReader::open(datasets_dir, dataset)?;
+        let num_queries = reader.num_queries();
+        if num_queries == 0 {
+            anyhow::bail!(
+                "dataset {:?} has no query set; cannot use it as a search query source",
+                dataset.name
+            );
+        }
+        Ok(QueryDataset {
+            reader,
+            num_queries,
+            cursor: AtomicUsize::new(0),
         })
     }
 
@@ -148,18 +223,24 @@ impl ConfigSearchGenerator {
                 source,
                 filters,
             } => {
-                let vector = Self::gen_dense_vector(
-                    rng,
-                    *size as usize,
-                    *datatype,
-                    source,
-                    state.dense_reader.as_ref(),
-                    req_id,
-                );
+                let (vector, expected_ids) = if let Some(query_dataset) = &state.query_dataset {
+                    Self::read_dense_query(query_dataset)
+                } else {
+                    let vector = Self::gen_dense_vector(
+                        rng,
+                        *size as usize,
+                        *datatype,
+                        source,
+                        state.dense_reader.as_ref(),
+                        req_id,
+                    );
+                    (vector, None)
+                };
                 GeneratedQuery {
                     dense: Some((vector, using.clone())),
                     sparse: None,
                     filter: self.build_filter(rng, filters, state),
+                    expected_ids,
                 }
             }
             SearchRequestConfig::Sparse {
@@ -167,15 +248,54 @@ impl ConfigSearchGenerator {
                 source,
                 filters,
             } => {
-                let (values, indices) =
-                    Self::gen_sparse_vector(rng, source, state.sparse_zipf.as_ref());
+                let ((values, indices), expected_ids) =
+                    if let Some(query_dataset) = &state.query_dataset {
+                        Self::read_sparse_query(query_dataset)
+                    } else {
+                        (
+                            Self::gen_sparse_vector(rng, source, state.sparse_zipf.as_ref()),
+                            None,
+                        )
+                    };
                 GeneratedQuery {
                     dense: None,
                     sparse: Some((values, indices, using.clone())),
                     filter: self.build_filter(rng, filters, state),
+                    expected_ids,
                 }
             }
         }
+    }
+
+    /// Read the next dense query vector and its ground-truth ids from a dataset.
+    fn read_dense_query(query_dataset: &QueryDataset) -> (Vec<f32>, Option<Vec<u64>>) {
+        let idx = query_dataset.next_index();
+        let vector = query_dataset
+            .reader
+            .query_dense_vector(idx)
+            .unwrap_or_else(|e| panic!("failed to read dataset query vector at {idx}: {e}"));
+        let expected = query_dataset
+            .reader
+            .query_ground_truth(idx)
+            .unwrap_or_else(|e| panic!("failed to read dataset ground truth at {idx}: {e}"));
+        (vector, Some(expected))
+    }
+
+    /// Read the next sparse query vector and its ground-truth ids from a dataset.
+    fn read_sparse_query(
+        query_dataset: &QueryDataset,
+    ) -> ((Vec<f32>, SparseIndices), Option<Vec<u64>>) {
+        let idx = query_dataset.next_index();
+        let pairs = query_dataset
+            .reader
+            .query_sparse_vector(idx)
+            .unwrap_or_else(|e| panic!("failed to read dataset sparse query at {idx}: {e}"));
+        let (indices, values): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+        let expected = query_dataset
+            .reader
+            .query_ground_truth(idx)
+            .unwrap_or_else(|e| panic!("failed to read dataset ground truth at {idx}: {e}"));
+        ((values, SparseIndices { data: indices }), Some(expected))
     }
 
     fn gen_dense_vector(
@@ -383,6 +503,52 @@ mod tests {
             let q = generator.make_query(0, &mut rng);
             assert!(q.dense.is_some() ^ q.sparse.is_some());
         }
+    }
+
+    #[test]
+    fn dataset_query_source_yields_ground_truth() {
+        use hdf5_pure_rust::WritableFile;
+
+        let datasets_dir = tempfile::tempdir().unwrap();
+        let h5_path = datasets_dir.path().join("glove/glove.hdf5");
+        std::fs::create_dir_all(h5_path.parent().unwrap()).unwrap();
+        {
+            let mut wf = WritableFile::create(&h5_path).unwrap();
+            let train: Vec<f32> = (0..12).map(|x| x as f32).collect();
+            wf.new_dataset_builder("train")
+                .shape(&[3, 4])
+                .write(&train)
+                .unwrap();
+            let test: Vec<f32> = (0..8).map(|x| x as f32).collect();
+            wf.new_dataset_builder("test")
+                .shape(&[2, 4])
+                .write(&test)
+                .unwrap();
+            let neighbors: Vec<i32> = vec![0, 2, 1, 2];
+            wf.new_dataset_builder("neighbors")
+                .shape(&[2, 2])
+                .write(&neighbors)
+                .unwrap();
+            wf.close().unwrap();
+        }
+
+        let yaml = "collection:\n  name: x\nrequests:\n  - kind: dense\n    source:\n      type: dataset\n      name: glove\n      format: h5\n      path: glove/glove.hdf5\n";
+        let config: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        config.validate().unwrap();
+        let generator =
+            ConfigSearchGenerator::new_with_datasets_dir(&config, datasets_dir.path()).unwrap();
+
+        let mut rng = rand::rng();
+        // Cursor wraps over the two queries; every query carries ground truth.
+        let q0 = generator.make_query_for(0, 0, &mut rng);
+        let q1 = generator.make_query_for(0, 0, &mut rng);
+        let q2 = generator.make_query_for(0, 0, &mut rng);
+        assert_eq!(q0.dense.as_ref().unwrap().0, vec![0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(q0.expected_ids, Some(vec![0, 2]));
+        assert_eq!(q1.expected_ids, Some(vec![1, 2]));
+        // Wrapped back to the first query.
+        assert_eq!(q2.dense.as_ref().unwrap().0, vec![0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(q2.expected_ids, Some(vec![0, 2]));
     }
 
     #[test]

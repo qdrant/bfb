@@ -186,12 +186,7 @@ impl ConfigGenerator {
                 let src = p.source.as_ref();
                 (p.kind == PayloadType::Text
                     && src.map(|s| s.distribution) == Some(DistributionKind::Zipf))
-                .then(|| {
-                    create_zipf(
-                        src.and_then(|s| s.vocab_size)
-                            .unwrap_or(DEFAULT_VOCAB_SIZE),
-                    )
-                })
+                .then(|| create_zipf(src.and_then(|s| s.vocab_size).unwrap_or(DEFAULT_VOCAB_SIZE)))
             })
             .collect();
 
@@ -205,17 +200,15 @@ impl ConfigGenerator {
                     && src.map(|s| s.kind) == Some(PayloadSourceKind::RandomClusters))
                 .then(|| {
                     let count = src.and_then(|s| s.clusters).unwrap_or(10);
-                        (0..count)
-                            .map(|_| {
-                                (
-                                    GEO_CENTER_LAT
-                                        + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                                    GEO_CENTER_LON
-                                        + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                                )
-                            })
-                            .collect()
-                    })
+                    (0..count)
+                        .map(|_| {
+                            (
+                                GEO_CENTER_LAT + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                                GEO_CENTER_LON + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                            )
+                        })
+                        .collect()
+                })
             })
             .collect();
 
