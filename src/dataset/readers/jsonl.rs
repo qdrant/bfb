@@ -35,6 +35,11 @@ impl JsonlStore {
         })
     }
 
+    /// Number of lines (records) in the store.
+    pub fn len(&self) -> usize {
+        self.offsets.len()
+    }
+
     pub fn value_at(&self, idx: usize) -> Result<Option<Value>> {
         let Some(&byte_offset) = self.offsets.get(idx) else {
             return Ok(None);

@@ -73,4 +73,39 @@ impl DatasetReader {
             _ => bail!("dataset does not contain payloads"),
         }
     }
+
+    /// Number of queries available in the dataset's query set (0 if none).
+    pub fn num_queries(&self) -> usize {
+        match &self.inner {
+            DatasetReaderInner::H5(r) => r.num_queries(),
+            DatasetReaderInner::Tar(r) => r.num_queries(),
+            DatasetReaderInner::Sparse(r) => r.num_queries(),
+        }
+    }
+
+    /// A dense query vector from the dataset's query set.
+    pub fn query_dense_vector(&self, idx: usize) -> Result<Vec<f32>> {
+        match &self.inner {
+            DatasetReaderInner::H5(r) => r.query_at(idx),
+            DatasetReaderInner::Tar(r) => r.query_at(idx),
+            DatasetReaderInner::Sparse(_) => bail!("sparse dataset has no dense queries"),
+        }
+    }
+
+    /// A sparse query vector from the dataset's query set.
+    pub fn query_sparse_vector(&self, idx: usize) -> Result<Vec<(u32, f32)>> {
+        match &self.inner {
+            DatasetReaderInner::Sparse(r) => r.query_at(idx),
+            _ => bail!("dataset does not contain sparse queries"),
+        }
+    }
+
+    /// Ground-truth nearest-neighbor ids for a query (indices into the corpus).
+    pub fn query_ground_truth(&self, idx: usize) -> Result<Vec<u64>> {
+        match &self.inner {
+            DatasetReaderInner::H5(r) => r.neighbors_at(idx),
+            DatasetReaderInner::Tar(r) => r.query_ground_truth(idx),
+            DatasetReaderInner::Sparse(r) => r.query_ground_truth(idx),
+        }
+    }
 }
