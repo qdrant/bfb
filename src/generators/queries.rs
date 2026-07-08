@@ -14,17 +14,17 @@ use rand::RngExt;
 use rand::distr::Distribution;
 use rand::seq::IndexedRandom;
 
-use crate::common::{
+use super::random::{
     DEFAULT_VOCAB_SIZE, create_zipf, random_dense_vector, random_keyword, random_sparse_vector,
     random_text,
 };
+use crate::config::search::{FilterPayloadConfig, SearchConfig, SearchRequestConfig};
 use crate::config::{
     DatatypeKind, DistributionKind, FileStrategy, PayloadSourceKind, PayloadType, SparseKind,
     VectorSource,
 };
 use crate::dataset::{DatasetReader, default_datasets_dir};
 use crate::fbin_reader::FBinReader;
-use crate::search_config::{FilterPayloadConfig, SearchConfig, SearchRequestConfig};
 
 const GEO_CENTER_LAT: f64 = 52.52437;
 const GEO_CENTER_LON: f64 = 13.41053;

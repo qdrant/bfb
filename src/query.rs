@@ -8,11 +8,11 @@ use qdrant_client::qdrant::ScrollPointsBuilder;
 
 use crate::args::Args;
 use crate::client::create_clients;
-use crate::common::UUID_PAYLOAD_KEY;
+use crate::config::search::SearchConfig;
+use crate::generators::random::UUID_PAYLOAD_KEY;
 use crate::scroll::ScrollProcessor;
 use crate::search::ConfigSearchProcessor;
 use crate::search::SearchProcessor;
-use crate::search_config::SearchConfig;
 use crate::stats::process;
 
 pub async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {

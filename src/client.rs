@@ -1,9 +1,11 @@
 use std::time::Duration;
 
-use anyhow::Result;
-use qdrant_client::Qdrant;
+use anyhow::{Error, Result};
 use qdrant_client::config::QdrantConfig;
+use qdrant_client::{Qdrant, QdrantError};
 use rand::RngExt;
+use rand::prelude::SliceRandom;
+use tracing::warn;
 
 use crate::args::Args;
 
@@ -50,4 +52,45 @@ pub fn create_clients(args: &Args) -> Result<Vec<Qdrant>> {
         clients.push(Qdrant::new(config)?);
     }
     Ok(clients)
+}
+
+/// Try the request on every client in random order, retrying `args.retries`
+/// times with `args.retry_interval` between rounds.
+pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R, QdrantError>>>(
+    clients: &'a [Qdrant],
+    args: &Args,
+    mut call: impl FnMut(&'a Qdrant) -> T,
+) -> anyhow::Result<R> {
+    let mut rng = rand::rng();
+    let mut permutation = (0..clients.len()).collect::<Vec<_>>();
+    let mut previous_err: Option<Error> = None;
+
+    for attempt in 0..=args.retries {
+        permutation.shuffle(&mut rng);
+        for client_id in &permutation {
+            let client = clients.get(*client_id).unwrap();
+
+            let resp = call(client).await.map_err(|i| i.into());
+
+            match resp {
+                Ok(_) => {
+                    return resp;
+                }
+                Err(err) => {
+                    previous_err = Some(err);
+                }
+            }
+        }
+
+        let is_last = attempt >= args.retries;
+        if !is_last {
+            if let Some(err) = &previous_err {
+                warn!("Request failed at attempt {}: {err}", attempt + 1);
+            }
+
+            tokio::time::sleep(Duration::from_secs_f32(args.retry_interval.max(0.0))).await;
+        }
+    }
+
+    Err(previous_err.unwrap_or_else(|| anyhow::anyhow!("No clients")))
 }

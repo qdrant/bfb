@@ -6,8 +6,9 @@ use qdrant_client::Qdrant;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 
 use crate::args::Args;
-use crate::common::{DEFAULT_VOCAB_SIZE, Timing, create_zipf, random_filter, retry_with_clients};
-use crate::processor::Processor;
+use crate::client::retry_with_clients;
+use crate::generators::random::{DEFAULT_VOCAB_SIZE, create_zipf, random_filter};
+use crate::processor::{Processor, Timing};
 
 #[derive(Debug, Default)]
 struct ScrollStats {

@@ -13,8 +13,9 @@ use rand::RngExt;
 use tokio::time::sleep;
 
 use crate::args::Args;
-use crate::common::{Timing, retry_with_clients};
-use crate::generator::PointGenerator;
+use crate::client::retry_with_clients;
+use crate::generators::PointGenerator;
+use crate::processor::Timing;
 use crate::save_jsonl::save_timings_as_jsonl;
 
 fn log_points(points: &[PointStruct]) -> impl FnOnce(QdrantError) -> QdrantError + use<'_> {
