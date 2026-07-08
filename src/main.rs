@@ -10,19 +10,15 @@ use args::{Args, Command};
 mod args;
 mod client;
 mod collection;
-mod common;
 mod config;
 mod dataset;
 mod fbin_reader;
-mod generator;
+mod generators;
 mod processor;
 mod query;
 mod save_jsonl;
-mod schema;
 mod scroll;
 mod search;
-mod search_config;
-mod search_generator;
 mod stats;
 mod upload;
 mod upsert;
@@ -33,7 +29,7 @@ async fn run_search(
     search_args: args::SearchArgs,
     stopped: Arc<AtomicBool>,
 ) -> Result<()> {
-    let config = search_config::load(&search_args.file)?;
+    let config = config::search::load(&search_args.file)?;
 
     let mut args = args;
     args.collection_name = config.collection.name.clone();
@@ -152,7 +148,7 @@ fn main() {
 
     // Pure print commands that need no network / Tokio runtime.
     if let Some(Command::Schema) = args.command {
-        schema::print_schema();
+        config::schema::print_schema();
         return;
     }
 

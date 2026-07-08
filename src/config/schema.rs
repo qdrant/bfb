@@ -6,7 +6,7 @@
 //! [`UploadConfig`](crate::config::UploadConfig) from explicit struct literals
 //! (so adding/renaming a field is a compile error there), serializes it, and
 //! asserts every real field name appears in the text below — so the reference
-//! cannot silently fall out of sync with the structs in `config.rs`.
+//! cannot silently fall out of sync with the structs in the `config` module.
 
 /// Print the annotated YAML schema reference to stdout.
 pub fn print_schema() {
@@ -154,11 +154,14 @@ collection:
 
 #[cfg(test)]
 mod tests {
+    use crate::config::collection::*;
+    use crate::config::payload::*;
+    use crate::config::vector::*;
     use crate::config::*;
 
     /// A fully-populated config touching *every* field of *every* config
     /// struct. Built from explicit struct literals on purpose: adding,
-    /// removing, or renaming a field anywhere in `config.rs` turns this into a
+    /// removing, or renaming a field anywhere in the `config` module turns this into a
     /// compile error, forcing a conscious update of the schema reference.
     fn reference_example() -> UploadConfig {
         UploadConfig {

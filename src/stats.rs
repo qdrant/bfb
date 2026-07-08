@@ -9,10 +9,31 @@ use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use tokio::join;
 
+use futures::Stream;
+use tokio_stream::wrappers::IntervalStream;
+
 use crate::args::Args;
-use crate::common::{Timing, throttler};
-use crate::processor::Processor;
+use crate::processor::{Processor, Timing};
 use crate::save_jsonl::save_timings_as_jsonl;
+
+/// Build a stream that will emit a unit value at the given frequency
+///
+/// If `None` - the stream will emit a unit value every time it is polled.
+pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item = ()> + Unpin> {
+    match hz
+        // Do not support zero or infinite
+        .filter(|throttle| *throttle != 0.0 && !throttle.is_nan() && !throttle.is_infinite())
+        .map(|throttle| Duration::from_secs_f32(1.0 / throttle))
+        // Do not support durations of zero
+        .filter(|duration| !duration.is_zero())
+    {
+        Some(duration) => {
+            let interval = tokio::time::interval(duration);
+            Box::new(IntervalStream::new(interval).map(|_| ()))
+        }
+        None => Box::new(futures::stream::repeat(())),
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct SearcherResults {
