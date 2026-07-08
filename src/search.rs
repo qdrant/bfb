@@ -362,6 +362,35 @@ fn compare_search_results(exact_search: &[ScoredPoint], normal_search: &[ScoredP
     true_positive as f32 / (true_positive as f32 + false_positive as f32)
 }
 
+/// Recall of a single search against reference-dataset ground truth:
+/// `|returned_ids ∩ expected[:top]| / top`, where `top` is bounded by both the
+/// search limit and the number of ground-truth neighbors available. Ground
+/// truth ids are dataset corpus indices, which match integer point ids when the
+/// dataset was uploaded with the default integer id scheme.
+fn recall_against_ground_truth(
+    returned: &[ScoredPoint],
+    expected: &[u64],
+    search_limit: usize,
+) -> f32 {
+    let top = search_limit.min(expected.len());
+    if top == 0 {
+        return 1.0;
+    }
+
+    let expected_top: HashSet<u64> = expected.iter().take(top).copied().collect();
+
+    let found = returned
+        .iter()
+        .filter_map(|p| match p.id.as_ref()?.point_id_options.as_ref()? {
+            PointIdOptions::Num(num) => Some(*num),
+            PointIdOptions::Uuid(_) => None,
+        })
+        .filter(|id| expected_top.contains(id))
+        .count();
+
+    found as f32 / top as f32
+}
+
 fn compare_batch_search_results(
     exact_search: &[BatchResult],
     normal_search: &[BatchResult],
@@ -533,11 +562,6 @@ impl ConfigSearchProcessor {
         let mut rng = rand::rng();
 
         let template_idx = self.generator.random_template_idx(&mut rng);
-        let query_filter = self
-            .generator
-            .make_query_for(template_idx, req_id, &mut rng)
-            .filter
-            .clone();
 
         let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()
             .rescore(self.args.quantization_rescore.unwrap_or_default());
@@ -555,11 +579,25 @@ impl ConfigSearchProcessor {
             search_params = search_params.hnsw_ef(hnsw_ef as u64);
         }
 
-        let query_points: Vec<_> = (0..self.args.search_batch_size)
+        // Materialize the whole batch up front so each query keeps its own
+        // filter and (for dataset query sources) its ground-truth ids.
+        let generated: Vec<_> = (0..self.args.search_batch_size)
             .map(|_| {
-                let generated = self
-                    .generator
-                    .make_query_for(template_idx, req_id, &mut rng);
+                self.generator
+                    .make_query_for(template_idx, req_id, &mut rng)
+            })
+            .collect();
+
+        // Ground-truth ids present ⇒ measure recall against the dataset instead
+        // of the exact-search self-comparison.
+        let expected_ids: Vec<Option<Vec<u64>>> =
+            generated.iter().map(|g| g.expected_ids.clone()).collect();
+        let has_ground_truth = expected_ids.iter().any(Option::is_some);
+
+        let query_points: Vec<_> = generated
+            .into_iter()
+            .map(|generated| {
+                let query_filter = generated.filter.clone();
                 let (query_vectors, sparse_indices, vector_name) =
                     if let Some((values, indices, name)) = generated.sparse {
                         (values, Some(indices), Some(name))
@@ -570,7 +608,7 @@ impl ConfigSearchProcessor {
                     };
 
                 self.create_request_builder(
-                    query_filter.clone(),
+                    query_filter,
                     query_vectors,
                     sparse_indices,
                     vector_name,
@@ -580,11 +618,14 @@ impl ConfigSearchProcessor {
             })
             .collect();
 
-        let (query_points_for_quality, batch_query_points) = if self.args.search_quality {
-            (Some(query_points.clone()), query_points)
-        } else {
-            (None, query_points)
-        };
+        // Exact-search quality comparison only makes sense without dataset
+        // ground truth; otherwise we score directly against the known answers.
+        let (query_points_for_quality, batch_query_points) =
+            if self.args.search_quality && !has_ground_truth {
+                (Some(query_points.clone()), query_points)
+            } else {
+                (None, query_points)
+            };
 
         let mut batch_request_builder =
             QueryBatchPointsBuilder::new(self.args.collection_name.clone(), batch_query_points);
@@ -635,6 +676,29 @@ impl ConfigSearchProcessor {
 
         if let Some(delay_millis) = self.args.delay {
             tokio::time::sleep(std::time::Duration::from_millis(delay_millis as u64)).await;
+        }
+
+        // Reference-dataset accuracy: compare each query's returned ids to the
+        // dataset's ground-truth neighbors (recall@k), matching
+        // vector-db-benchmark's `|found ∩ expected[:k]| / k`.
+        if has_ground_truth {
+            let recalls: Vec<f32> = res_batch
+                .result
+                .iter()
+                .zip(&expected_ids)
+                .filter_map(|(result, expected)| {
+                    expected.as_ref().map(|expected| {
+                        recall_against_ground_truth(
+                            &result.result,
+                            expected,
+                            self.args.search_limit,
+                        )
+                    })
+                })
+                .collect();
+            let mut stats_guard = self.stats.lock().unwrap();
+            stats_guard.precisions.extend(recalls);
+            return Ok(());
         }
 
         let Some(mut exact_query_points) = query_points_for_quality else {
@@ -704,5 +768,45 @@ impl Processor for ConfigSearchProcessor {
 
     fn get_batch_size(&self) -> usize {
         self.args.search_batch_size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qdrant_client::qdrant::PointId as GrpcPointId;
+
+    fn scored(ids: &[u64]) -> Vec<ScoredPoint> {
+        ids.iter()
+            .map(|&id| ScoredPoint {
+                id: Some(GrpcPointId::from(id)),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn recall_perfect_and_partial() {
+        // All top-3 found.
+        let returned = scored(&[1, 2, 3]);
+        assert_eq!(
+            recall_against_ground_truth(&returned, &[1, 2, 3, 4], 3),
+            1.0
+        );
+
+        // 2 of top-3 found.
+        let returned = scored(&[1, 9, 3]);
+        assert!((recall_against_ground_truth(&returned, &[1, 2, 3], 3) - 2.0 / 3.0).abs() < 1e-6);
+
+        // Ground truth shorter than the limit ⇒ denominator is bounded by it.
+        let returned = scored(&[5, 6]);
+        assert_eq!(recall_against_ground_truth(&returned, &[5, 6], 10), 1.0);
+    }
+
+    #[test]
+    fn recall_ignores_extra_returned_ids() {
+        // Returning more than `top` correct ids never exceeds 1.0.
+        let returned = scored(&[1, 2, 3, 4, 5]);
+        assert_eq!(recall_against_ground_truth(&returned, &[1, 2], 2), 1.0);
     }
 }

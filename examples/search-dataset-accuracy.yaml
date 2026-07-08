@@ -1,0 +1,53 @@
+# Example bfb search config that measures search accuracy (recall) against a
+# reference dataset, using the same dataset format as vector-db-benchmark.
+#
+#   # 1. Upload the dataset corpus (assigns point id = dataset row index):
+#   bfb upload --file examples/upload-dataset-config.yaml
+#
+#   # 2. Search with the dataset's query set and measure recall:
+#   bfb search --file examples/search-dataset-accuracy.yaml -p 8 -t 4 \
+#       --search-limit 10 --uri http://localhost:6334
+#
+# When a request's `source` is `type: dataset`, bfb draws query vectors from the
+# dataset's *query set* (not the corpus) and, for every query, compares the
+# returned point ids against the dataset's ground-truth nearest neighbors.
+# Recall is reported under "--- Precision ---" as `|found ∩ expected[:k]| / k`.
+#
+# IMPORTANT: accuracy only lines up when the corpus was uploaded with the
+# default integer id scheme (point id == dataset row index), which is what
+# `bfb upload` does for `id: integer` collections.
+#
+# Supported query/ground-truth sources (auto-detected from the dataset files):
+#   * h5 (ann-benchmarks): `test` (queries) + `neighbors` (ground truth)
+#   * tar (ann-filtering-benchmark-datasets): `tests.jsonl` with
+#     `query` / `closest_ids`
+#   * sparse: `queries.csr` + `results.gt`
+
+collection:
+  # Must match the collection uploaded in step 1 (examples/upload-dataset-config.yaml).
+  name: glove-25-angular
+
+requests:
+  # Dense recall against the glove-25-angular query set (h5 `test`/`neighbors`).
+  # `size` is optional for dataset sources (the dataset defines the dimension);
+  # it is kept here only for documentation.
+  - kind: dense
+    size: 25
+    source:
+      type: dataset
+      name: glove-25-angular
+      format: h5
+      path: glove-25-angular/glove-25-angular.hdf5
+      link: http://ann-benchmarks.com/glove-25-angular.hdf5
+
+  # Sparse recall example (uncomment and point at a sparse dataset that ships a
+  # `queries.csr` + `results.gt` query set):
+  #
+  # - kind: sparse
+  #   using: bm25
+  #   source:
+  #     type: dataset
+  #     name: my-sparse-dataset
+  #     format: sparse
+  #     path: my-sparse-dataset/my-sparse-dataset
+  #     link: https://example.com/my-sparse-dataset.tgz

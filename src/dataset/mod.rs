@@ -8,6 +8,7 @@ mod sources;
 mod upload;
 
 pub use config::DatasetConfig;
+pub use reader::DatasetReader;
 pub use sources::UploadDatasetSources;
 pub use upload::resolve_num_vectors;
 

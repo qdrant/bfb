@@ -75,11 +75,38 @@ batch. Supported kinds:
 
 | `kind` | Fields | Notes |
 |--------|--------|-------|
-| `dense` | `size`, optional `using`, `source`, `filters` | Query a dense vector |
-| `sparse` | `using`, `source`, `filters` | Query a named sparse vector |
+| `dense` | `size`, optional `using`, `source`, `filters` | Query a dense vector; `source: { type: dataset }` measures recall (see below) |
+| `sparse` | `using`, `source`, `filters` | Query a named sparse vector; `source: { type: dataset }` measures recall (see below) |
 
 Filter entries reuse the same payload `type` / `source` vocabulary as the
 upload config.
+
+#### Measuring accuracy against a reference dataset
+
+A `dense` or `sparse` request can draw its queries from a vector-db-benchmark
+dataset instead of generating random vectors, using `source: { type: dataset }`.
+When a dataset query source is used, bfb reads the dataset's *query set* and,
+for each query, compares the returned point ids against the dataset's
+ground-truth nearest neighbors. Recall (`|found ∩ expected[:k]| / k`, the same
+metric as vector-db-benchmark) is reported under `--- Precision ---`.
+
+```bash
+bfb upload --file examples/upload-dataset-config.yaml --uri http://localhost:6334
+bfb search --file examples/search-dataset-accuracy.yaml --search-limit 10 -p 8 --uri http://localhost:6334
+```
+
+Query set + ground truth are auto-detected from the dataset files:
+
+| `format` | Query vectors | Ground truth |
+|----------|---------------|--------------|
+| `h5` (ann-benchmarks) | `test` dataset | `neighbors` dataset |
+| `tar` (ann-filtering-benchmark-datasets) | `tests.jsonl` `query` | `tests.jsonl` `closest_ids` |
+| `sparse` | `queries.csr` | `results.gt` |
+
+Accuracy only lines up when the corpus was uploaded with the default integer id
+scheme (point id == dataset row index), which is what `bfb upload` does for
+`id: integer` collections. See
+[`examples/search-dataset-accuracy.yaml`](examples/search-dataset-accuracy.yaml).
 
 ### `schema` — print the upload-config file schema
 
