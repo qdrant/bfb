@@ -1,25 +1,19 @@
-use crate::args::Args;
-use anyhow::Error;
-use core::option::Option;
-use core::option::Option::{None, Some};
-use futures::Stream;
+//! Shared random-data primitives (vectors, payload values, filters) and the
+//! payload field naming scheme used by both generation and index creation.
+
+use qdrant_client::Payload;
 use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{
     Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, Vector,
 };
-use qdrant_client::{Payload, Qdrant, QdrantError};
 use rand::Rng;
 use rand::RngExt;
 use rand::distr::Distribution;
-use rand::prelude::SliceRandom;
 use rand::seq::IndexedRandom;
 use serde_json::json;
-use std::time::Duration;
-use tokio::time::interval;
-use tokio_stream::StreamExt;
-use tokio_stream::wrappers::IntervalStream;
-use tracing::warn;
 use uuid::Uuid;
+
+use crate::args::Args;
 
 pub const KEYWORD_PAYLOAD_KEY: &str = "a";
 pub const FLOAT_PAYLOAD_KEY: &str = "b";
@@ -44,12 +38,6 @@ const GEO_RADIUS_METERS_MIN: f64 = 1000.0;
 const GEO_RADIUS_METERS_MAX: f64 = 50000.0;
 
 const BOOL_TRUE_RATIO: f64 = 0.7;
-
-#[derive(Debug, Clone)]
-pub struct Timing {
-    pub delay_millis: u32,
-    pub value: f32,
-}
 
 pub fn create_zipf(vocab_size: usize) -> rand_distr::Zipf<f64> {
     rand_distr::Zipf::new(f64::from(vocab_size as u32), 1.03).unwrap()
@@ -340,64 +328,6 @@ pub fn random_dense_vector(rng: &mut impl Rng, dim: usize, is_uint: bool) -> Vec
 
 pub fn random_vector_name(rng: &mut impl Rng, max: usize) -> String {
     format!("{}", rng.random_range(0..max))
-}
-
-pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R, QdrantError>>>(
-    clients: &'a [Qdrant],
-    args: &Args,
-    mut call: impl FnMut(&'a Qdrant) -> T,
-) -> anyhow::Result<R> {
-    let mut rng = rand::rng();
-    let mut permutation = (0..clients.len()).collect::<Vec<_>>();
-    let mut previous_err: Option<Error> = None;
-
-    for attempt in 0..=args.retries {
-        permutation.shuffle(&mut rng);
-        for client_id in &permutation {
-            let client = clients.get(*client_id).unwrap();
-
-            let resp = call(client).await.map_err(|i| i.into());
-
-            match resp {
-                Ok(_) => {
-                    return resp;
-                }
-                Err(err) => {
-                    previous_err = Some(err);
-                }
-            }
-        }
-
-        let is_last = attempt >= args.retries;
-        if !is_last {
-            if let Some(err) = &previous_err {
-                warn!("Request failed at attempt {}: {err}", attempt + 1);
-            }
-
-            tokio::time::sleep(Duration::from_secs_f32(args.retry_interval.max(0.0))).await;
-        }
-    }
-
-    Err(previous_err.unwrap_or_else(|| anyhow::anyhow!("No clients")))
-}
-
-/// Build a stream that will emit a unit value at the given frequency
-///
-/// If `None` - the stream will emit a unit value every time it is polled.
-pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item = ()> + Unpin> {
-    match hz
-        // Do not support zero or infinite
-        .filter(|throttle| *throttle != 0.0 && !throttle.is_nan() && !throttle.is_infinite())
-        .map(|throttle| Duration::from_secs_f32(1.0 / throttle))
-        // Do not support durations of zero
-        .filter(|duration| !duration.is_zero())
-    {
-        Some(duration) => {
-            let interval = interval(duration);
-            Box::new(IntervalStream::new(interval).map(|_| ()))
-        }
-        None => Box::new(futures::stream::repeat(())),
-    }
 }
 
 pub fn payload_prefixes(id: usize) -> String {

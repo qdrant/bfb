@@ -1,6 +1,12 @@
 use crate::args::Args;
-use crate::common::Timing;
 use indicatif::ProgressBar;
+
+/// A single measurement: a value observed `delay_millis` after the run start.
+#[derive(Debug, Clone)]
+pub struct Timing {
+    pub delay_millis: u32,
+    pub value: f32,
+}
 
 pub trait Processor {
     async fn make_request(

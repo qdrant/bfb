@@ -10,10 +10,10 @@ use tokio::join;
 
 use crate::args::Args;
 use crate::client::get_config;
-use crate::common::throttler;
 use crate::config::UploadConfig;
 use crate::fbin_reader::FBinReader;
-use crate::generator::{ConfigGenerator, LegacyGenerator, PointGenerator};
+use crate::generators::{ConfigGenerator, LegacyGenerator, PointGenerator};
+use crate::stats::throttler;
 use crate::upsert::UpsertProcessor;
 
 /// Legacy flag-driven upload.
