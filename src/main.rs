@@ -6,6 +6,7 @@ use clap::{CommandFactory, FromArgMatches};
 use tokio::runtime;
 
 use args::{Args, Command};
+use results::{BenchmarkResults, IndexPhase};
 
 mod args;
 mod client;
@@ -16,12 +17,21 @@ mod fbin_reader;
 mod generators;
 mod processor;
 mod query;
+mod results;
 mod save_jsonl;
 mod scroll;
 mod search;
 mod stats;
 mod upload;
 mod upsert;
+
+/// Wait for the index and record how long it took.
+async fn run_wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<IndexPhase> {
+    println!("Waiting for index to be ready...");
+    let wait_secs = collection::wait_index(args, stopped).await?;
+    println!("Index ready in {wait_secs} seconds");
+    Ok(IndexPhase { wait_secs })
+}
 
 /// `bfb search --file config.yaml`: YAML-config-driven search.
 async fn run_search(
@@ -38,7 +48,9 @@ async fn run_search(
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
 
-    query::search_with_config(&args, &config, stopped).await
+    let mut results = BenchmarkResults::new(&args, Some(search_args.file.clone()));
+    results.results.search = Some(query::search_with_config(&args, &config, stopped).await?);
+    results.write_if_requested(&args)
 }
 
 /// `bfb upload --file config.yaml`: YAML-config-driven upload.
@@ -60,21 +72,22 @@ async fn run_upload(
         args.shard_key = Some(sharding.key.clone());
     }
 
+    let mut results = BenchmarkResults::new(&args, Some(upload_args.file.clone()));
+
     if !args.skip_create && !args.skip_setup {
         collection::recreate_collection_from_config(&config, &args, stopped.clone()).await?;
     }
 
     if !args.skip_upload && !args.skip_setup {
-        upload::upload_with_config(&args, &config, stopped.clone()).await?;
+        results.results.upload =
+            Some(upload::upload_with_config(&args, &config, stopped.clone()).await?);
     }
 
     if !args.skip_wait_index && !args.skip_setup {
-        println!("Waiting for index to be ready...");
-        let wait_time = collection::wait_index(&args, stopped.clone()).await?;
-        println!("Index ready in {wait_time} seconds");
+        results.results.index = Some(run_wait_index(&args, stopped.clone()).await?);
     }
 
-    Ok(())
+    results.write_if_requested(&args)
 }
 
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
@@ -90,29 +103,29 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
 
+    let mut results = BenchmarkResults::new(&args, None);
+
     if !args.skip_create && !args.skip_setup {
         collection::recreate_collection(&args, stopped.clone()).await?;
     }
 
     if !args.skip_upload && !args.skip_setup {
-        upload::upload_data(&args, stopped.clone()).await?;
+        results.results.upload = Some(upload::upload_data(&args, stopped.clone()).await?);
     }
 
     if !args.skip_wait_index && !args.skip_setup {
-        println!("Waiting for index to be ready...");
-        let wait_time = collection::wait_index(&args, stopped.clone()).await?;
-        println!("Index ready in {wait_time} seconds");
+        results.results.index = Some(run_wait_index(&args, stopped.clone()).await?);
     }
 
     if args.search || args.search_quality {
-        query::search(&args, stopped.clone()).await?;
+        results.results.search = Some(query::search(&args, stopped.clone()).await?);
     }
 
     if args.scroll {
-        query::scroll(&args, stopped.clone()).await?;
+        results.results.scroll = Some(query::scroll(&args, stopped.clone()).await?);
     }
 
-    Ok(())
+    results.write_if_requested(&args)
 }
 
 /// Parse command line arguments with shell completion installation support
