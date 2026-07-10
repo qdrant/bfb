@@ -21,7 +21,8 @@ pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
     let reader = args
         .fbin
         .as_ref()
-        .map(|path| FBinReader::new(Path::new(path)));
+        .map(|path| FBinReader::new(Path::new(path)))
+        .transpose()?;
     let generator = Arc::new(LegacyGenerator::new(args.clone(), reader));
     run_upload(args, stopped, generator).await
 }

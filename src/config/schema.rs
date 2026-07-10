@@ -78,7 +78,7 @@ collection:
       source: random             # default=random
       # source:
       #   type: file             # enum           [random | file | dataset]
-      #   path: ./vectors.fbin   # string         required for file (local path, http(s)://, or s3://)
+      #   path: ./vectors.fbin   # string         required for file (local path or http(s):// URL, cached on download)
       #   strategy: random-sample # enum          default=random-sample  [random-sample | from-start]
       # source:
       #   type: dataset          # inline dataset definition (vector-db-benchmark format)
@@ -212,7 +212,7 @@ mod tests {
                     // File source so `path`/`strategy` are exercised too;
                     // a remote path keeps `validate()` from checking existence.
                     source: VectorSource::File {
-                        path: "s3://bucket/vectors.fbin".to_string(),
+                        path: "https://example.com/vectors.fbin".to_string(),
                         strategy: FileStrategy::RandomSample,
                     },
                 }],

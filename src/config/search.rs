@@ -4,14 +4,12 @@
 //! to query, optional payload filters). The *how* of searching (number of
 //! queries, batch size, threads, parallelism, uri, …) stays on the CLI.
 
-use std::path::Path;
-
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
     DatatypeKind, PayloadSource, PayloadType, SparseKind, SparseSource, VectorSource,
-    default_collection_name, string_or_struct,
+    default_collection_name, string_or_struct, validate_file_source_path,
 };
 
 /// Top-level document: `{ collection: { name }, requests: [ … ] }`.
@@ -101,13 +99,8 @@ impl SearchRequestConfig {
         match self {
             SearchRequestConfig::Dense { size, source, .. } => {
                 match source {
-                    VectorSource::File { path, .. }
-                        if !path.starts_with("s3://")
-                            && !path.starts_with("http")
-                            && !Path::new(path).exists() =>
-                    {
-                        bail!("requests[{index}]: vector source file not found: {path}");
-                    }
+                    VectorSource::File { path, .. } => validate_file_source_path(path)
+                        .with_context(|| format!("requests[{index}]"))?,
                     // A dataset query source supplies its own query vectors, so
                     // `size` is not required to match anything here.
                     VectorSource::Dataset { dataset } => dataset.validate_inline()?,
@@ -249,6 +242,38 @@ requests:
 "#;
         let cfg: SearchConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(cfg.validate().is_err());
+    }
+
+    fn search_config_with_vector_path(path: &str) -> SearchConfig {
+        let yaml = format!(
+            r#"
+collection:
+  name: bench
+requests:
+  - kind: dense
+    size: 128
+    source:
+      type: file
+      path: {path}
+"#
+        );
+        serde_yaml::from_str(&yaml).unwrap()
+    }
+
+    #[test]
+    fn accepts_http_query_vector_path() {
+        search_config_with_vector_path("https://example.com/queries.fbin")
+            .validate()
+            .unwrap();
+    }
+
+    #[test]
+    fn rejects_s3_query_vector_path() {
+        let err = search_config_with_vector_path("s3://bucket/queries.fbin")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("requests[0]"), "{err}");
     }
 
     #[test]

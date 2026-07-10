@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, bail};
 use memmap2::{Mmap, MmapOptions};
 use std::fs::OpenOptions;
 use std::mem::transmute;
@@ -12,32 +13,40 @@ pub struct FBinReader {
 }
 
 impl FBinReader {
-    pub fn new(path: &Path) -> Self {
+    pub fn new(path: &Path) -> Result<Self> {
         let file = OpenOptions::new()
             .read(true)
             .write(false)
             .append(false)
             .create(false)
             .open(path)
-            .unwrap();
+            .with_context(|| format!("failed to open vector file {}", path.display()))?;
 
-        let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
+        let mmap = unsafe { MmapOptions::new().map(&file) }
+            .with_context(|| format!("failed to mmap vector file {}", path.display()))?;
+
         let int_size = size_of::<i32>();
         let dim_offset = int_size;
         let header_size = dim_offset + int_size;
+        if mmap.len() < header_size {
+            bail!(
+                "vector file {} is too short to hold an fbin header",
+                path.display()
+            );
+        }
         let num_vectors_raw = &mmap[0..dim_offset];
         let num_dim_raw = &mmap[dim_offset..header_size];
 
         let num_vectors = i32::from_le_bytes(num_vectors_raw.try_into().unwrap());
         let dim = i32::from_le_bytes(num_dim_raw.try_into().unwrap());
 
-        FBinReader {
+        Ok(FBinReader {
             num_vectors,
             dim,
             iter_offset: 0,
             header_size,
             mmap,
-        }
+        })
     }
 
     pub fn read_vector(&self, idx: usize) -> &[f32] {
