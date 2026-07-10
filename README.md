@@ -175,6 +175,14 @@ Phases that did not run are omitted: `bfb search --file …` yields only
 (`--search-quality`, or a dataset query source with ground truth). Timings are
 in seconds. The per-request `--jsonl-*` time series are unchanged.
 
+**Backward compatibility.** The three arrays `--json` used to emit at the top
+level — `server_timings`, `rps`, `full_timings` — are still written there, so
+existing `jq '.rps'` consumers keep working. As before, they mirror the last
+query phase that ran (scroll takes precedence over search), and they are absent
+when no query phase ran. They are **deprecated**: prefer `results.search` /
+`results.scroll`, which also expose `qps`, per-phase `duration_secs`, and the
+precomputed `server_time` / `request_time` summaries.
+
 ### Legacy flag-driven mode
 
 The main command runs without any subcommands, just options:

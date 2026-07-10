@@ -13,10 +13,39 @@ use crate::args::Args;
 use crate::processor::Timing;
 
 /// Top-level document: `{ config: {...}, results: {...} }`.
+///
+/// For backward compatibility it also carries the pre-`results` top-level
+/// timing arrays; see [`LegacySearcherResults`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BenchmarkResults {
     pub config: RunConfig,
     pub results: PhaseResults,
+    /// Deprecated mirror of the last query phase. Flattened to the top level.
+    #[serde(flatten)]
+    pub legacy: Option<LegacySearcherResults>,
+}
+
+/// The shape `--json` emitted before the `{config, results}` document existed:
+/// three bare top-level arrays, written by whichever query phase ran last.
+///
+/// Kept so existing consumers (`jq '.rps'`, `jq '.server_timings'`) keep
+/// working. Prefer `results.search` / `results.scroll`; this will be removed in
+/// a future release.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LegacySearcherResults {
+    pub server_timings: Vec<f32>,
+    pub rps: Vec<f32>,
+    pub full_timings: Vec<f32>,
+}
+
+impl LegacySearcherResults {
+    fn from_phase(phase: &QueryPhase) -> Self {
+        LegacySearcherResults {
+            server_timings: phase.server_timings.clone(),
+            rps: phase.rps.clone(),
+            full_timings: phase.full_timings.clone(),
+        }
+    }
 }
 
 /// Echo of the run's parameters, so a results file is self-describing.
@@ -162,14 +191,30 @@ impl BenchmarkResults {
                 config_file,
             },
             results: PhaseResults::default(),
+            legacy: None,
         }
     }
 
+    /// Mirror the last query phase into the deprecated top-level fields.
+    ///
+    /// Pre-`results` each `process()` call rewrote the whole file, so a run with
+    /// both `--search` and `--scroll` left *scroll*'s numbers at the top level.
+    /// Reproduce that precedence rather than inventing new semantics.
+    fn populate_legacy_fields(&mut self) {
+        let last_phase = self
+            .results
+            .scroll
+            .as_ref()
+            .or(self.results.search.as_ref());
+        self.legacy = last_phase.map(LegacySearcherResults::from_phase);
+    }
+
     /// Write the document to `--json <path>`, if the flag was given.
-    pub fn write_if_requested(&self, args: &Args) -> Result<()> {
+    pub fn write_if_requested(&mut self, args: &Args) -> Result<()> {
         let Some(path) = args.json.as_ref() else {
             return Ok(());
         };
+        self.populate_legacy_fields();
         println!("--- Writing results to json file ---");
         let file =
             File::create(path).with_context(|| format!("failed to create results file {path}"))?;
@@ -240,9 +285,22 @@ mod tests {
         assert_eq!(json, r#"{"index":{"wait_secs":1.5}}"#);
     }
 
-    #[test]
-    fn document_roundtrips() {
-        let doc = BenchmarkResults {
+    /// A query phase whose series are distinguishable by `marker`.
+    fn phase(marker: f32) -> QueryPhase {
+        QueryPhase {
+            duration_secs: 2.0,
+            server_timings: vec![marker],
+            full_timings: vec![marker + 1.0],
+            rps: vec![marker + 2.0],
+            qps: vec![marker + 3.0],
+            server_time: Summary::from_sorted(&timings(&[marker])),
+            request_time: None,
+            precision: PrecisionSummary::new(vec![1.0]),
+        }
+    }
+
+    fn doc(results: PhaseResults) -> BenchmarkResults {
+        BenchmarkResults {
             config: RunConfig {
                 bfb_version: "0.1.1".into(),
                 collection_name: "benchmark".into(),
@@ -253,27 +311,82 @@ mod tests {
                 rps: None,
                 config_file: Some("c.yaml".into()),
             },
-            results: PhaseResults {
-                upload: Some(UploadPhase::new(1.0, 100)),
-                index: Some(IndexPhase { wait_secs: 0.5 }),
-                search: Some(QueryPhase {
-                    duration_secs: 2.0,
-                    server_timings: vec![1.0],
-                    full_timings: vec![2.0],
-                    rps: vec![50.0],
-                    qps: vec![50.0],
-                    server_time: Summary::from_sorted(&timings(&[1.0])),
-                    request_time: None,
-                    precision: PrecisionSummary::new(vec![1.0]),
-                }),
-                scroll: None,
-            },
-        };
+            results,
+            legacy: None,
+        }
+    }
+
+    fn to_value(doc: &BenchmarkResults) -> serde_json::Value {
+        serde_json::from_str(&serde_json::to_string(doc).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn document_roundtrips() {
+        let mut doc = doc(PhaseResults {
+            upload: Some(UploadPhase::new(1.0, 100)),
+            index: Some(IndexPhase { wait_secs: 0.5 }),
+            search: Some(phase(1.0)),
+            scroll: None,
+        });
+        doc.populate_legacy_fields();
 
         let json = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             serde_json::from_str::<BenchmarkResults>(&json).unwrap(),
             doc
         );
+    }
+
+    #[test]
+    fn legacy_fields_mirror_search_at_the_top_level() {
+        let mut doc = doc(PhaseResults {
+            search: Some(phase(1.0)),
+            ..Default::default()
+        });
+        doc.populate_legacy_fields();
+        let json = to_value(&doc);
+
+        // The pre-M1 `jq` paths must still resolve...
+        assert_eq!(json["server_timings"], serde_json::json!([1.0]));
+        assert_eq!(json["full_timings"], serde_json::json!([2.0]));
+        assert_eq!(json["rps"], serde_json::json!([3.0]));
+        // ...and agree with the new nested location.
+        assert_eq!(
+            json["results"]["search"]["server_timings"],
+            json["server_timings"]
+        );
+    }
+
+    #[test]
+    fn scroll_wins_over_search_at_the_top_level() {
+        // Pre-M1 each phase rewrote the whole file, so scroll (which runs last)
+        // clobbered search. Preserve that precedence.
+        let mut doc = doc(PhaseResults {
+            search: Some(phase(1.0)),
+            scroll: Some(phase(10.0)),
+            ..Default::default()
+        });
+        doc.populate_legacy_fields();
+
+        assert_eq!(doc.legacy.as_ref().unwrap().server_timings, vec![10.0]);
+        // The nested phases still each keep their own numbers.
+        assert_eq!(
+            doc.results.search.as_ref().unwrap().server_timings,
+            vec![1.0]
+        );
+    }
+
+    #[test]
+    fn upload_only_run_emits_no_legacy_fields() {
+        let mut doc = doc(PhaseResults {
+            upload: Some(UploadPhase::new(1.0, 100)),
+            index: Some(IndexPhase { wait_secs: 0.5 }),
+            ..Default::default()
+        });
+        doc.populate_legacy_fields();
+
+        let json = to_value(&doc);
+        assert!(json.get("server_timings").is_none());
+        assert!(json.get("rps").is_none());
     }
 }
