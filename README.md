@@ -152,6 +152,42 @@ and search configs. The CLI still controls *how* the benchmark runs (`-n`, `-p`,
 The flag-driven path (`bfb --scroll --keywords 100 …`) is still available when
 you prefer flat CLI flags over a YAML file.
 
+### Per-stage indexing timings
+
+`bfb upload` and legacy runs already wait for a green index before exiting. That
+wait now also reports the server's own breakdown of what the optimizer spent the
+time on:
+
+```bash
+bfb upload --file config.yaml -n 1M --json results.json
+```
+
+```
+Index ready in 20.255 seconds
+--- Optimization stages (1 completed, 18.068 s total) ---
+vector_index/main_graph:      16.663360 s total over 1 run(s), max 16.663360 s
+copy_data:                     0.336660 s total over 1 run(s), max 0.336660 s
+payload_index/keyword:color:   0.133206 s total over 1 run(s), max 0.133206 s
+```
+
+Stages are keyed by their path in the optimizer's progress tree, so a name that
+appears under two parents stays distinct: `payload_index/keyword:color` (building
+the field index) is separate from `vector_index/additional_links/keyword:color`
+(adding HNSW links for that field). Named vectors add a level of their own —
+`vector_index/image/main_graph`.
+
+The server exposes a rolling window of the last 16 completed optimizations, not
+the ones belonging to any particular run — so bfb snapshots which had already
+finished *before* the phase and excludes them, rather than claiming earlier work
+as its own. Only `done` optimizations are aggregated; cancelled or errored ones
+stopped partway through their tree and are counted separately as `unfinished`.
+
+This data is only exposed over Qdrant's **REST** API, so bfb reads it on the REST
+port, derived from `--uri` by mapping port 6334 → 6333. A failure here warns
+rather than failing a run that already has its headline number;
+`--skip-server-stats` turns it off. It lands under `results.index.optimizations`
+in `--json`.
+
 ### `schema` — print the upload-config file schema
 
 Print an annotated YAML reference enumerating every option accepted by an

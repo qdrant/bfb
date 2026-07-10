@@ -1,0 +1,235 @@
+{
+  "result": {
+    "summary": {
+      "queued_optimizations": 0,
+      "queued_segments": 0,
+      "queued_points": 0,
+      "idle_segments": 4
+    },
+    "running": [],
+    "completed": [
+      {
+        "uuid": "21a7e712-dd1e-4069-9f06-b292e4997ef7",
+        "optimizer": "indexing",
+        "status": "done",
+        "segments": [
+          {
+            "uuid": "1821de91-a124-4c57-bcd8-cdad6b535194",
+            "points_count": 15000
+          },
+          {
+            "uuid": "42488f00-c7f9-4e20-b59a-7273974397b8",
+            "points_count": 1012
+          }
+        ],
+        "progress": {
+          "name": "Segment Optimizing",
+          "started_at": "2026-07-10T09:40:21.765178905Z",
+          "finished_at": "2026-07-10T09:40:23.145000753Z",
+          "duration_sec": 1.379821628,
+          "children": [
+            {
+              "name": "copy_data",
+              "started_at": "2026-07-10T09:40:21.836839467Z",
+              "finished_at": "2026-07-10T09:40:21.895042118Z",
+              "duration_sec": 0.058201569
+            },
+            {
+              "name": "populate_vector_storages",
+              "started_at": "2026-07-10T09:40:21.895044172Z",
+              "finished_at": "2026-07-10T09:40:21.946601106Z",
+              "duration_sec": 0.051556734
+            },
+            {
+              "name": "wait_cpu_permit",
+              "started_at": "2026-07-10T09:40:21.946602378Z",
+              "finished_at": "2026-07-10T09:40:22.160921861Z",
+              "duration_sec": 0.214319082
+            },
+            {
+              "name": "quantization",
+              "started_at": "2026-07-10T09:40:22.192142510Z",
+              "finished_at": "2026-07-10T09:40:22.192145886Z",
+              "duration_sec": 2.795e-06
+            },
+            {
+              "name": "payload_index",
+              "started_at": "2026-07-10T09:40:22.231933459Z",
+              "finished_at": "2026-07-10T09:40:22.276830503Z",
+              "duration_sec": 0.044896443,
+              "children": [
+                {
+                  "name": "keyword:a",
+                  "started_at": "2026-07-10T09:40:22.235260060Z",
+                  "finished_at": "2026-07-10T09:40:22.276829041Z",
+                  "duration_sec": 0.041560936
+                }
+              ]
+            },
+            {
+              "name": "vector_index",
+              "started_at": "2026-07-10T09:40:22.282012799Z",
+              "finished_at": "2026-07-10T09:40:23.121430494Z",
+              "duration_sec": 0.839417014,
+              "children": [
+                {
+                  "name": "",
+                  "started_at": "2026-07-10T09:40:22.282019201Z",
+                  "finished_at": "2026-07-10T09:40:23.121374811Z",
+                  "duration_sec": 0.83935554,
+                  "children": [
+                    {
+                      "name": "migrate",
+                      "started_at": "2026-07-10T09:40:22.284579186Z",
+                      "finished_at": "2026-07-10T09:40:22.285133379Z",
+                      "duration_sec": 0.000553562
+                    },
+                    {
+                      "name": "main_graph",
+                      "started_at": "2026-07-10T09:40:22.285133650Z",
+                      "finished_at": "2026-07-10T09:40:23.082625933Z",
+                      "duration_sec": 0.797491983,
+                      "done": 15000,
+                      "total": 15000
+                    },
+                    {
+                      "name": "additional_links",
+                      "started_at": "2026-07-10T09:40:23.082628588Z",
+                      "finished_at": "2026-07-10T09:40:23.095550070Z",
+                      "duration_sec": 0.012921402,
+                      "children": [
+                        {
+                          "name": "keyword:a",
+                          "started_at": "2026-07-10T09:40:23.095520355Z",
+                          "finished_at": "2026-07-10T09:40:23.095546554Z",
+                          "duration_sec": 2.5608e-05,
+                          "done": 0
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "sparse_vector_index",
+              "started_at": "2026-07-10T09:40:23.121430985Z",
+              "finished_at": "2026-07-10T09:40:23.121431566Z",
+              "duration_sec": 5.01e-07
+            }
+          ]
+        }
+      },
+      {
+        "uuid": "93cc97c6-ace5-4d4d-ba32-c2144e2b5f7a",
+        "optimizer": "indexing",
+        "status": "done",
+        "segments": [
+          {
+            "uuid": "c6d47929-9308-4a1a-b575-c7752c400630",
+            "points_count": 3500
+          }
+        ],
+        "progress": {
+          "name": "Segment Optimizing",
+          "started_at": "2026-07-10T09:40:20.800774711Z",
+          "finished_at": "2026-07-10T09:40:22.123890285Z",
+          "duration_sec": 1.323115413,
+          "children": [
+            {
+              "name": "copy_data",
+              "started_at": "2026-07-10T09:40:20.870915263Z",
+              "finished_at": "2026-07-10T09:40:20.888020114Z",
+              "duration_sec": 0.017103609
+            },
+            {
+              "name": "populate_vector_storages",
+              "started_at": "2026-07-10T09:40:20.888022348Z",
+              "finished_at": "2026-07-10T09:40:20.943550449Z",
+              "duration_sec": 0.055527811
+            },
+            {
+              "name": "wait_cpu_permit",
+              "started_at": "2026-07-10T09:40:20.943551912Z",
+              "finished_at": "2026-07-10T09:40:21.765102494Z",
+              "duration_sec": 0.821550302
+            },
+            {
+              "name": "quantization",
+              "started_at": "2026-07-10T09:40:21.793020004Z",
+              "finished_at": "2026-07-10T09:40:21.793023851Z",
+              "duration_sec": 2.895e-06
+            },
+            {
+              "name": "payload_index",
+              "started_at": "2026-07-10T09:40:21.815024641Z",
+              "finished_at": "2026-07-10T09:40:21.857925898Z",
+              "duration_sec": 0.042900546,
+              "children": [
+                {
+                  "name": "keyword:a",
+                  "started_at": "2026-07-10T09:40:21.822396678Z",
+                  "finished_at": "2026-07-10T09:40:21.857924255Z",
+                  "duration_sec": 0.035526415
+                }
+              ]
+            },
+            {
+              "name": "vector_index",
+              "started_at": "2026-07-10T09:40:21.860372765Z",
+              "finished_at": "2026-07-10T09:40:22.099029295Z",
+              "duration_sec": 0.238655959,
+              "children": [
+                {
+                  "name": "",
+                  "started_at": "2026-07-10T09:40:21.860377454Z",
+                  "finished_at": "2026-07-10T09:40:22.098965377Z",
+                  "duration_sec": 0.238587823,
+                  "children": [
+                    {
+                      "name": "migrate",
+                      "started_at": "2026-07-10T09:40:21.861825747Z",
+                      "finished_at": "2026-07-10T09:40:21.861825747Z",
+                      "duration_sec": 0.0
+                    },
+                    {
+                      "name": "main_graph",
+                      "started_at": "2026-07-10T09:40:21.861826749Z",
+                      "finished_at": "2026-07-10T09:40:22.080672230Z",
+                      "duration_sec": 0.218845121,
+                      "done": 5500,
+                      "total": 5500
+                    },
+                    {
+                      "name": "additional_links",
+                      "started_at": "2026-07-10T09:40:22.080674735Z",
+                      "finished_at": "2026-07-10T09:40:22.083122724Z",
+                      "duration_sec": 0.002447788,
+                      "children": [
+                        {
+                          "name": "keyword:a",
+                          "started_at": "2026-07-10T09:40:22.083107005Z",
+                          "finished_at": "2026-07-10T09:40:22.083120840Z",
+                          "duration_sec": 1.3505e-05,
+                          "done": 0
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "sparse_vector_index",
+              "started_at": "2026-07-10T09:40:22.099030157Z",
+              "finished_at": "2026-07-10T09:40:22.099030648Z",
+              "duration_sec": 3.81e-07
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "status": "ok",
+  "time": 5.2477e-05
+}

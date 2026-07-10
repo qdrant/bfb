@@ -43,6 +43,10 @@ pub struct Args {
     #[clap(long, default_value = "http://localhost:6334", global = true)]
     pub uri: Vec<String>,
 
+    /// Skip the REST-only extras: per-stage optimization timings after indexing
+    #[clap(long, default_value_t = false, global = true)]
+    pub skip_server_stats: bool,
+
     /// Source of data to upload - fbin file. Random if not specified
     #[clap(long)]
     pub fbin: Option<String>,
