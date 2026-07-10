@@ -55,7 +55,11 @@ impl LegacySearcherResults {
 pub struct RunConfig {
     pub bfb_version: String,
     pub collection_name: String,
-    pub num_vectors: usize,
+    /// Points to upload (or queries to run). Absent for phase-only commands,
+    /// where no point count is requested and the CLI default would be a lie.
+    /// This is what was *asked for*, not what the collection ended up holding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_vectors: Option<usize>,
     pub batch_size: usize,
     pub parallel: usize,
     pub threads: usize,
@@ -74,12 +78,34 @@ pub struct PhaseResults {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<IndexPhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub create_field_index: Option<CreateFieldIndexPhase>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<QueryPhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scroll: Option<QueryPhase>,
     /// Memory and disk sampled after the run, not a phase of it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryReport>,
+}
+
+/// Post-upload field-index creation, timed per field. Optimizer work the build
+/// schedules is reported under `index`, as for any other trigger.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CreateFieldIndexPhase {
+    /// Time spent in the `create_field_index` calls themselves.
+    pub duration_secs: f64,
+    pub fields: Vec<FieldIndexTiming>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FieldIndexTiming {
+    pub field: String,
+    /// Payload type, e.g. `keyword`, `integer`.
+    pub kind: String,
+    /// Wall-clock time of the `wait=true` request.
+    pub duration_secs: f64,
+    /// Time the server reported for the operation.
+    pub server_secs: f64,
 }
 
 /// M2: upload wall time and throughput.
@@ -183,12 +209,14 @@ impl UploadPhase {
 }
 
 impl BenchmarkResults {
-    pub fn new(args: &Args, config_file: Option<String>) -> Self {
+    /// `num_vectors` is the requested point/query count, or `None` for commands
+    /// that neither upload nor query (`create-field-index`, …).
+    pub fn new(args: &Args, config_file: Option<String>, num_vectors: Option<usize>) -> Self {
         BenchmarkResults {
             config: RunConfig {
                 bfb_version: env!("CARGO_PKG_VERSION").to_string(),
                 collection_name: args.collection_name.clone(),
-                num_vectors: args.num_vectors_or_default(),
+                num_vectors,
                 batch_size: args.batch_size,
                 parallel: args.parallel,
                 threads: args.threads,
@@ -315,7 +343,7 @@ mod tests {
             config: RunConfig {
                 bfb_version: "0.1.1".into(),
                 collection_name: "benchmark".into(),
-                num_vectors: 100,
+                num_vectors: Some(100),
                 batch_size: 8,
                 parallel: 2,
                 threads: 4,
@@ -337,8 +365,7 @@ mod tests {
             upload: Some(UploadPhase::new(1.0, 100)),
             index: Some(IndexPhase { wait_secs: 0.5 }),
             search: Some(phase(1.0)),
-            scroll: None,
-            memory: None,
+            ..Default::default()
         });
         doc.populate_legacy_fields();
 
@@ -386,6 +413,16 @@ mod tests {
             doc.results.search.as_ref().unwrap().server_timings,
             vec![1.0]
         );
+    }
+
+    #[test]
+    fn phase_only_runs_omit_the_requested_point_count() {
+        // `bfb create-field-index` neither uploads nor queries, so echoing the
+        // CLI default (100k) would misdescribe the run.
+        let mut doc = doc(PhaseResults::default());
+        doc.config.num_vectors = None;
+        let json = to_value(&doc);
+        assert!(json["config"].get("num_vectors").is_none());
     }
 
     #[test]

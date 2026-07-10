@@ -22,6 +22,7 @@ use qdrant_client::qdrant::{
 };
 use tokio::time::sleep;
 
+use super::{FieldIndexSpec, create_field_indices};
 use crate::args::{Args, QuantizationArg};
 use crate::client::random_client;
 use crate::generators::random::{
@@ -258,7 +259,7 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
     sleep(Duration::from_secs(1)).await;
 
     if !args.skip_field_indices {
-        create_field_indices(args, &client).await?;
+        create_field_indices(&client, field_index_specs(args)).await?;
     }
 
     if let Some(shard_key) = &args.shard_key {
@@ -279,153 +280,112 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
     Ok(())
 }
 
-async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Result<()> {
+/// Build the field-index requests implied by the CLI flags.
+///
+/// Pure: performs no I/O, so a bad spec is reported rather than panicking
+/// mid-creation.
+fn field_index_specs(args: &Args) -> Vec<FieldIndexSpec> {
+    let collection = args.collection_name.clone();
+    let on_disk = args.on_disk_payload_index;
+    let tenant = args.tenants.unwrap_or_default();
+    let mut specs = Vec::new();
+
     for (idx, _) in args.keywords.iter().enumerate() {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
-                    FieldType::Keyword,
-                )
+        let field = format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY);
+        specs.push(FieldIndexSpec::new(
+            &field,
+            "keyword",
+            CreateFieldIndexCollectionBuilder::new(&collection, &field, FieldType::Keyword)
                 .field_index_params(
                     KeywordIndexParamsBuilder::default()
-                        .on_disk(args.on_disk_payload_index)
-                        .is_tenant(args.tenants.unwrap_or_default()),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+                        .on_disk(on_disk)
+                        .is_tenant(tenant),
+                ),
+        ));
     }
 
     for (idx, _) in args.float_payloads.iter().enumerate() {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
-                    FieldType::Float,
-                )
+        let field = format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY);
+        specs.push(FieldIndexSpec::new(
+            &field,
+            "float",
+            CreateFieldIndexCollectionBuilder::new(&collection, &field, FieldType::Float)
                 .field_index_params(
                     FloatIndexParamsBuilder::default()
-                        .on_disk(args.on_disk_payload_index)
-                        .is_principal(args.tenants.unwrap_or_default()),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+                        .on_disk(on_disk)
+                        .is_principal(tenant),
+                ),
+        ));
     }
 
     for (idx, _) in args.int_payloads.iter().enumerate() {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
-                    FieldType::Integer,
-                )
+        let field = format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY);
+        specs.push(FieldIndexSpec::new(
+            &field,
+            "integer",
+            CreateFieldIndexCollectionBuilder::new(&collection, &field, FieldType::Integer)
                 .field_index_params(
                     IntegerIndexParamsBuilder::new(true, args.int_payloads_range)
-                        .on_disk(args.on_disk_payload_index)
-                        .is_principal(args.tenants.unwrap_or_default()),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+                        .on_disk(on_disk)
+                        .is_principal(tenant),
+                ),
+        ));
     }
 
     if args.timestamp_payload {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    "timestamp",
-                    FieldType::Datetime,
-                )
+        specs.push(FieldIndexSpec::new(
+            "timestamp",
+            "datetime",
+            CreateFieldIndexCollectionBuilder::new(&collection, "timestamp", FieldType::Datetime)
                 .field_index_params(
                     DatetimeIndexParamsBuilder::default()
-                        .on_disk(args.on_disk_payload_index)
-                        .is_principal(args.tenants.unwrap_or_default()),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+                        .on_disk(on_disk)
+                        .is_principal(tenant),
+                ),
+        ));
     }
 
     if args.uuid_payloads {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    UUID_PAYLOAD_KEY,
-                    FieldType::Uuid,
-                )
+        specs.push(FieldIndexSpec::new(
+            UUID_PAYLOAD_KEY,
+            "uuid",
+            CreateFieldIndexCollectionBuilder::new(&collection, UUID_PAYLOAD_KEY, FieldType::Uuid)
                 .field_index_params(
                     UuidIndexParamsBuilder::default()
-                        .is_tenant(args.tenants.unwrap_or_default())
-                        .on_disk(args.on_disk_payload_index),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+                        .is_tenant(tenant)
+                        .on_disk(on_disk),
+                ),
+        ));
     }
 
     if args.geo_payloads {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    GEO_PAYLOAD_KEY,
-                    FieldType::Geo,
-                )
-                .field_index_params(
-                    GeoIndexParamsBuilder::new().on_disk(args.on_disk_payload_index),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+        specs.push(FieldIndexSpec::new(
+            GEO_PAYLOAD_KEY,
+            "geo",
+            CreateFieldIndexCollectionBuilder::new(&collection, GEO_PAYLOAD_KEY, FieldType::Geo)
+                .field_index_params(GeoIndexParamsBuilder::new().on_disk(on_disk)),
+        ));
     }
 
     if args.bool_payloads {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    BOOL_PAYLOAD_KEY,
-                    FieldType::Bool,
-                )
-                .field_index_params(
-                    BoolIndexParamsBuilder::default().on_disk(args.on_disk_payload_index),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+        specs.push(FieldIndexSpec::new(
+            BOOL_PAYLOAD_KEY,
+            "bool",
+            CreateFieldIndexCollectionBuilder::new(&collection, BOOL_PAYLOAD_KEY, FieldType::Bool)
+                .field_index_params(BoolIndexParamsBuilder::default().on_disk(on_disk)),
+        ));
     }
 
     if args.text_payloads {
-        client
-            .create_field_index(
-                CreateFieldIndexCollectionBuilder::new(
-                    args.collection_name.clone(),
-                    TEXT_PAYLOAD_KEY,
-                    FieldType::Text,
-                )
+        specs.push(FieldIndexSpec::new(
+            TEXT_PAYLOAD_KEY,
+            "text",
+            CreateFieldIndexCollectionBuilder::new(&collection, TEXT_PAYLOAD_KEY, FieldType::Text)
                 .field_index_params(
-                    TextIndexParamsBuilder::new(TokenizerType::Word)
-                        .on_disk(args.on_disk_payload_index),
-                )
-                .wait(true),
-            )
-            .await
-            .unwrap();
+                    TextIndexParamsBuilder::new(TokenizerType::Word).on_disk(on_disk),
+                ),
+        ));
     }
 
-    Ok(())
+    specs
 }

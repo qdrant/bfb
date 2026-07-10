@@ -99,9 +99,89 @@ async fn run_scroll(
     let mut args = args;
     args.collection_name = config.collection.name.clone();
 
-    let mut results = BenchmarkResults::new(&args, Some(scroll_args.file.clone()));
+    let mut results = BenchmarkResults::new(
+        &args,
+        Some(scroll_args.file.clone()),
+        Some(args.num_vectors_or_default()),
+    );
     results.results.scroll = Some(query::scroll_with_config(&args, &config, stopped).await?);
     results.write_if_requested(&args)
+}
+
+/// `bfb create-field-index`: build field indices on a populated collection.
+async fn run_create_field_index(
+    args: Args,
+    create_args: args::CreateFieldIndexArgs,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
+    let config = config::load(&create_args.file)?;
+
+    let mut args = args;
+    args.collection_name = config.collection.name.clone();
+    let mut specs = collection::field_index_specs_from_config(&config);
+
+    if !create_args.field.is_empty() {
+        let wanted = &create_args.field;
+        for name in wanted {
+            if !specs.iter().any(|spec| &spec.field == name) {
+                anyhow::bail!("--field {name:?} is not a declared, indexed field");
+            }
+        }
+        specs.retain(|spec| wanted.contains(&spec.field));
+    }
+
+    if specs.is_empty() {
+        anyhow::bail!("no field indices to create: the config declares none with `index: true`");
+    }
+
+    let client = client::random_client(&args)?;
+    let phase = collection::create_field_indices(&client, specs).await?;
+
+    println!("--- Field index creation ---");
+    for field in &phase.fields {
+        println!(
+            "{} ({}): {:.3} s (server {:.3} s)",
+            field.field, field.kind, field.duration_secs, field.server_secs
+        );
+    }
+    println!("Total: {:.3} s", phase.duration_secs);
+
+    // Phase-only: neither uploads nor queries, so no requested point count.
+    let mut results = BenchmarkResults::new(&args, Some(create_args.file.clone()), None);
+    results.results.create_field_index = Some(phase);
+
+    // `create_field_index(wait=true)` returns once the field index exists, but any
+    // optimizer work it schedules — notably the extra HNSW links for that field —
+    // runs afterwards. Waiting for it is what folds that cost into the index wait.
+    if !args.skip_wait_index {
+        results.results.index = Some(run_wait_index(&args, stopped).await?);
+        results.results.memory = fetch_memory(&args).await;
+    }
+
+    results.write_if_requested(&args)
+}
+
+/// `bfb drop-field-index`: remove field indices so they can be rebuilt and re-measured.
+async fn run_drop_field_index(args: Args, drop_args: args::DropFieldIndexArgs) -> Result<()> {
+    let config = config::load(&drop_args.file)?;
+
+    let mut args = args;
+    args.collection_name = config.collection.name.clone();
+    let fields: Vec<String> = if drop_args.field.is_empty() {
+        collection::field_index_specs_from_config(&config)
+            .into_iter()
+            .map(|spec| spec.field)
+            .collect()
+    } else {
+        drop_args.field.clone()
+    };
+
+    if fields.is_empty() {
+        anyhow::bail!("no field indices to drop");
+    }
+
+    let client = client::random_client(&args)?;
+    collection::drop_field_indices(&client, &args.collection_name, &fields).await
 }
 
 /// `bfb search --file config.yaml`: YAML-config-driven search.
@@ -119,7 +199,11 @@ async fn run_search(
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
 
-    let mut results = BenchmarkResults::new(&args, Some(search_args.file.clone()));
+    let mut results = BenchmarkResults::new(
+        &args,
+        Some(search_args.file.clone()),
+        Some(args.num_vectors_or_default()),
+    );
     results.results.search = Some(query::search_with_config(&args, &config, stopped).await?);
     results.write_if_requested(&args)
 }
@@ -143,7 +227,11 @@ async fn run_upload(
         args.shard_key = Some(sharding.key.clone());
     }
 
-    let mut results = BenchmarkResults::new(&args, Some(upload_args.file.clone()));
+    let mut results = BenchmarkResults::new(
+        &args,
+        Some(upload_args.file.clone()),
+        Some(args.num_vectors_or_default()),
+    );
 
     if !args.skip_create && !args.skip_setup {
         collection::recreate_collection_from_config(&config, &args, stopped.clone()).await?;
@@ -167,6 +255,12 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         Some(Command::Search(search_args)) => return run_search(args, search_args, stopped).await,
         Some(Command::Upload(upload_args)) => return run_upload(args, upload_args, stopped).await,
         Some(Command::Scroll(scroll_args)) => return run_scroll(args, scroll_args, stopped).await,
+        Some(Command::CreateFieldIndex(create_args)) => {
+            return run_create_field_index(args, create_args, stopped).await;
+        }
+        Some(Command::DropFieldIndex(drop_args)) => {
+            return run_drop_field_index(args, drop_args).await;
+        }
         // `Schema` is handled before the runtime starts; `None` falls through.
         Some(Command::Schema) | None => {}
     }
@@ -175,7 +269,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
 
-    let mut results = BenchmarkResults::new(&args, None);
+    let mut results = BenchmarkResults::new(&args, None, Some(args.num_vectors_or_default()));
 
     if !args.skip_create && !args.skip_setup {
         collection::recreate_collection(&args, stopped.clone()).await?;

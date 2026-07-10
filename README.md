@@ -175,6 +175,40 @@ Read over Qdrant's **REST** API, on the port derived from `--uri` (6334 → 6333
 A failure here warns rather than failing a run that already has its headline
 number; `--skip-server-stats` turns it off.
 
+### `create-field-index` — time payload field-index construction
+
+Field indices are normally created together with the collection, while it is
+still empty, so building them costs nothing and measures nothing. To measure
+index construction over real data, defer them and build them afterwards:
+
+```bash
+bfb upload --file config.yaml -n 1M --skip-field-indices
+bfb create-field-index --file config.yaml --json field-index.json
+```
+
+```
+--- Field index creation ---
+color (keyword): 0.316 s (server 0.277 s)
+price (integer): 0.316 s (server 0.287 s)
+Total: 0.632 s
+```
+
+Each index is created with `wait=true`, so the elapsed time reflects the build
+rather than the request round-trip. Fields declared `index: false` are never
+built — that is how unindexed filler payload is expressed. Per-field timings
+land under `results.create_field_index` in `--json`.
+
+Indices are built one after another, so `Total` is the number to compare across
+runs; a per-field time also carries whatever the fields before it left warm. To
+attribute a cost to one field, build it alone, and use `drop-field-index` to re-measure
+it on the same data:
+
+```bash
+bfb create-field-index --file config.yaml --field color
+bfb drop-field-index   --file config.yaml --field color
+bfb drop-field-index   --file config.yaml        # or every indexed field in the config
+```
+
 ### `schema` — print the upload-config file schema
 
 Print an annotated YAML reference enumerating every option accepted by an
@@ -236,6 +270,11 @@ bfb -n 1M --search --json results.json
   }
 }
 ```
+
+`config.num_vectors` is the point (or query) count the run was *asked* for, from
+`-n` or the YAML config — not what the collection turned out to hold. It is
+omitted entirely for phase-only commands like `bfb create-field-index`, which
+neither upload nor query.
 
 Phases that did not run are omitted: `bfb search --file …` yields only
 `results.search`, and `precision` appears only when accuracy was measured

@@ -449,9 +449,46 @@ pub enum Command {
     /// *how* the benchmark runs.
     Scroll(ScrollArgs),
 
+    /// Build payload field indices on an existing, populated collection, and
+    /// time each one.
+    ///
+    /// Upload with `--skip-field-indices` first, then run this to measure index
+    /// construction over real data rather than on an empty collection.
+    CreateFieldIndex(CreateFieldIndexArgs),
+
+    /// Drop payload field indices, so they can be rebuilt and re-measured on
+    /// the same data without re-uploading.
+    DropFieldIndex(DropFieldIndexArgs),
+
     /// Print the upload-config file schema: every option, its type, default,
     /// and allowed values, as an annotated YAML reference.
     Schema,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct CreateFieldIndexArgs {
+    /// Path to the YAML collection-shape config file: every field it declares
+    /// with `index: true` is built.
+    #[clap(long)]
+    pub file: String,
+
+    /// Build only this field's index. Repeatable. Timings for several fields
+    /// built together are order-dependent, so isolate a field by building it
+    /// alone (pair with `bfb drop-field-index` to repeat on the same data).
+    #[clap(long)]
+    pub field: Vec<String>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct DropFieldIndexArgs {
+    /// Path to the YAML collection-shape config file: every field it declares
+    /// with `index: true` is dropped, unless narrowed with `--field`.
+    #[clap(long)]
+    pub file: String,
+
+    /// Drop only this field's index. Repeatable.
+    #[clap(long)]
+    pub field: Vec<String>,
 }
 
 #[derive(clap::Args, Debug, Clone)]

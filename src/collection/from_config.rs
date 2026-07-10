@@ -22,6 +22,7 @@ use qdrant_client::qdrant::{
 };
 use tokio::time::sleep;
 
+use super::{FieldIndexSpec, create_field_indices};
 use crate::args::Args;
 use crate::client::random_client;
 use crate::config::{
@@ -265,7 +266,7 @@ pub async fn recreate_collection_from_config(
     sleep(Duration::from_secs(1)).await;
 
     if !args.skip_field_indices {
-        create_field_indices_from_config(config, &client).await?;
+        create_field_indices(&client, field_index_specs_from_config(config)).await?;
     }
 
     if let Some(sharding) = &collection.sharding {
@@ -285,10 +286,12 @@ pub async fn recreate_collection_from_config(
     Ok(())
 }
 
-async fn create_field_indices_from_config(
-    config: &UploadConfig,
-    client: &qdrant_client::Qdrant,
-) -> Result<()> {
+/// Build the field-index requests declared by the YAML config.
+///
+/// Pure: performs no I/O, so the same specs can be applied when the collection
+/// is created or later, on a populated collection (`bfb create-field-index`).
+pub fn field_index_specs_from_config(config: &UploadConfig) -> Vec<FieldIndexSpec> {
+    let mut specs = Vec::new();
     for pc in &config.collection.fields {
         if !pc.index {
             continue;
@@ -356,10 +359,28 @@ async fn create_field_indices_from_config(
             }
         };
 
-        client.create_field_index(builder.wait(true)).await?;
+        specs.push(FieldIndexSpec::new(
+            &pc.name,
+            payload_type_name(pc.kind),
+            builder,
+        ));
     }
 
-    Ok(())
+    specs
+}
+
+/// Stable, human-readable name for a payload type, used in reports.
+fn payload_type_name(kind: PayloadType) -> &'static str {
+    match kind {
+        PayloadType::Keyword => "keyword",
+        PayloadType::Integer => "integer",
+        PayloadType::Float => "float",
+        PayloadType::Bool => "bool",
+        PayloadType::Uuid => "uuid",
+        PayloadType::Geo => "geo",
+        PayloadType::Text => "text",
+        PayloadType::Datetime => "datetime",
+    }
 }
 
 #[cfg(test)]

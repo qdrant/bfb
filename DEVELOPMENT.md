@@ -6,7 +6,7 @@ src/
 ├── args/            # clap Args struct + CLI value types (consistency, ordering)
 ├── config/          # YAML configs: upload (collection/vector/payload), search, schema reference
 ├── client.rs        # Qdrant client construction + multi-client retry
-├── collection/      # collection (re)creation: from CLI flags / from YAML config
+├── collection/      # collection (re)creation, index wait, timed field-index creation
 ├── generators/      # data generation: points (legacy & config), queries, random primitives
 ├── search/          # search benchmarking processors (flag-driven & config-driven)
 ├── upload.rs        # upload pipeline (parallelism, batching, progress)
