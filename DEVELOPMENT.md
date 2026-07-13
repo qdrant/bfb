@@ -14,6 +14,7 @@ src/
 ├── scroll.rs        # scroll benchmarking processor
 ├── query.rs         # search/scroll entry points
 ├── optimizations.rs # per-stage indexing timings (REST /collections/{c}/optimizations)
+├── memory.rs        # memory + on-disk size (REST /collections/{c}/memory, /telemetry)
 ├── processor.rs     # Processor trait + Timing measurement type
 ├── results.rs       # unified `{config, results}` document written by --json
 ├── stats.rs         # benchmark run loops (parallel/RPS), stats output, throttling

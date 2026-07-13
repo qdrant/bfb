@@ -1,0 +1,55 @@
+{
+  "result": {
+    "total": {
+      "disk_bytes": 161554912,
+      "ram_bytes": 6454560,
+      "cached_bytes": 4120576,
+      "expected_cache_bytes": 76330422
+    },
+    "vectors": [
+      {
+        "name": "",
+        "storage": {
+          "disk_bytes": 69206228,
+          "ram_bytes": 0,
+          "cached_bytes": 4120576,
+          "expected_cache_bytes": 69206228
+        },
+        "index": {
+          "disk_bytes": 7124194,
+          "ram_bytes": 0,
+          "cached_bytes": 0,
+          "expected_cache_bytes": 7124194
+        }
+      }
+    ],
+    "sparse_vectors": [],
+    "payload": {
+      "disk_bytes": 70320706,
+      "ram_bytes": 0,
+      "cached_bytes": 0,
+      "expected_cache_bytes": 0
+    },
+    "payload_index": [
+      {
+        "name": "color",
+        "usage": {
+          "disk_bytes": 12791272,
+          "ram_bytes": 2817048,
+          "cached_bytes": 0,
+          "expected_cache_bytes": 0
+        }
+      }
+    ],
+    "other": {
+      "id_tracker": {
+        "disk_bytes": 2112512,
+        "ram_bytes": 3637512,
+        "cached_bytes": 0,
+        "expected_cache_bytes": 0
+      }
+    }
+  },
+  "status": "ok",
+  "time": 0.018762371
+}

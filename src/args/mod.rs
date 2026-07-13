@@ -43,7 +43,8 @@ pub struct Args {
     #[clap(long, default_value = "http://localhost:6334", global = true)]
     pub uri: Vec<String>,
 
-    /// Skip the REST-only extras: per-stage optimization timings after indexing
+    /// Skip the REST-only extras: per-stage optimization timings and the
+    /// memory/disk report
     #[clap(long, default_value_t = false, global = true)]
     pub skip_server_stats: bool,
 

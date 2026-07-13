@@ -15,6 +15,7 @@ mod config;
 mod dataset;
 mod fbin_reader;
 mod generators;
+mod memory;
 mod optimizations;
 mod processor;
 mod query;
@@ -138,6 +139,38 @@ async fn fetch_optimization_stages(
     }
 }
 
+/// Sample memory and disk usage. Best-effort, like the optimization stages: a
+/// REST failure warns rather than failing a run that already has its numbers.
+async fn fetch_memory(args: &Args) -> Option<memory::MemoryReport> {
+    if args.skip_server_stats {
+        return None;
+    }
+    let (rest_uri, collection) = (rest_uri(args), args.collection_name.clone());
+    let api_key = std::env::var("QDRANT_API_KEY").ok();
+
+    // `ureq` is blocking; keep it off the async worker threads.
+    let fetched = tokio::task::spawn_blocking(move || {
+        memory::fetch(&rest_uri, &collection, api_key.as_deref())
+    })
+    .await;
+
+    match fetched {
+        Ok(Ok(report)) => {
+            report.print();
+            Some(report)
+        }
+        Ok(Err(err)) => {
+            eprintln!("Warning: could not read memory usage: {err:#}");
+            eprintln!("         (pass --skip-server-stats to silence)");
+            None
+        }
+        Err(err) => {
+            eprintln!("Warning: memory task failed: {err}");
+            None
+        }
+    }
+}
+
 /// `bfb scroll --file config.yaml`: YAML-config-driven scroll.
 async fn run_scroll(
     args: Args,
@@ -218,6 +251,7 @@ async fn run_upload(
     if !args.skip_wait_index && !args.skip_setup {
         results.results.index =
             Some(wait_and_report_index(&args, stopped.clone(), baseline).await?);
+        results.results.memory = fetch_memory(&args).await;
     }
 
     results.write_if_requested(&args)
@@ -252,6 +286,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     if !args.skip_wait_index && !args.skip_setup {
         results.results.index =
             Some(wait_and_report_index(&args, stopped.clone(), baseline).await?);
+        results.results.memory = fetch_memory(&args).await;
     }
 
     if args.search || args.search_quality {
