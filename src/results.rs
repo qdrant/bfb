@@ -141,7 +141,7 @@ impl Summary {
     }
 }
 
-/// Nearest-rank percentile of a sorted, non-empty series.
+/// Percentile of a sorted, non-empty series using the legacy `index = floor(n * q)` rule.
 fn percentile(sorted: &[Timing], q: f32) -> f32 {
     let index = ((sorted.len() as f32 * q) as usize).min(sorted.len() - 1);
     sorted[index].value
