@@ -110,7 +110,7 @@ pub struct QueryPhase {
     pub precision: Option<PrecisionSummary>,
 }
 
-/// Distribution of a timing series. Percentiles use nearest-rank on sorted data.
+/// Distribution of a timing series. Percentiles use the legacy `index = floor(n * q)` rule on sorted data (upper-median for even `n`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Summary {
     pub min: f32,
