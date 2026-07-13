@@ -1,12 +1,10 @@
-use std::fs::File;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use serde::{Deserialize, Serialize};
 use tokio::join;
 
 use futures::Stream;
@@ -14,6 +12,7 @@ use tokio_stream::wrappers::IntervalStream;
 
 use crate::args::Args;
 use crate::processor::{Processor, Timing};
+use crate::results::{PrecisionSummary, QueryPhase, Summary};
 use crate::save_jsonl::save_timings_as_jsonl;
 
 /// Build a stream that will emit a unit value at the given frequency
@@ -35,38 +34,28 @@ pub(crate) fn throttler(hz: Option<f32>) -> Box<dyn Stream<Item = ()> + Unpin> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct SearcherResults {
-    pub server_timings: Vec<f32>,
-    pub rps: Vec<f32>,
-    pub full_timings: Vec<f32>,
-}
-
-pub fn write_to_json(path: &String, results: SearcherResults) {
-    let mut file = File::create(path).unwrap();
-    serde_json::to_writer(&mut file, &results).unwrap();
-    println!("Search results written to {path}");
-}
-
-pub fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_percentiles: bool) {
+/// Sort `values`, print their distribution, and return it as a [`Summary`].
+/// Returns `None` for an empty series.
+pub fn print_stats(
+    args: &Args,
+    values: &mut [Timing],
+    metric_name: &str,
+    show_percentiles: bool,
+) -> Option<Summary> {
     if values.is_empty() {
-        return;
+        return None;
     }
     // sort values in ascending order
     values.sort_unstable_by(|a, b| a.value.partial_cmp(&b.value).unwrap());
 
-    let avg_time = values.iter().map(|x| x.value as f64).sum::<f64>() / values.len() as f64;
-    let min_time = values.first().unwrap().value;
-    let max_time = values.last().unwrap().value;
-    let p50_time = values[(values.len() as f32 * 0.50) as usize].value;
+    let summary = Summary::from_sorted(values).expect("non-empty");
 
-    println!("Min {metric_name}: {min_time}");
-    println!("Avg {metric_name}: {avg_time}");
-    println!("Median {metric_name}: {p50_time}");
+    println!("Min {metric_name}: {}", summary.min);
+    println!("Avg {metric_name}: {}", summary.avg);
+    println!("Median {metric_name}: {}", summary.p50);
 
     if show_percentiles {
-        let p95_time = values[(values.len() as f32 * 0.95) as usize].value;
-        println!("p95 {metric_name}: {p95_time}");
+        println!("p95 {metric_name}: {}", summary.p95);
 
         for digits in 2..=args.p9 {
             let factor = 1.0 - 0.1f64.powf(digits as f64);
@@ -77,14 +66,17 @@ pub fn print_stats(args: &Args, values: &mut [Timing], metric_name: &str, show_p
         }
     }
 
-    println!("Max {metric_name}: {max_time}");
+    println!("Max {metric_name}: {}", summary.max);
+    Some(summary)
 }
 
+/// Run `processor` to completion and return the phase's measurements.
 pub async fn process<P: Processor + Sync>(
     args: &Args,
     stopped: Arc<AtomicBool>,
     processor: P,
-) -> Result<()> {
+) -> Result<QueryPhase> {
+    let started = Instant::now();
     let batch_size = processor.get_batch_size();
     let batch_count = args.num_vectors_or_default().div_ceil(batch_size);
 
@@ -127,13 +119,14 @@ pub async fn process<P: Processor + Sync>(
     } else {
         progress_bar.finish();
     }
+    let duration_secs = started.elapsed().as_secs_f64();
 
     let mut full_timings = processor.full_timings();
     println!("--- Request timings ---");
-    print_stats(args, &mut full_timings, "request time", true);
+    let request_time = print_stats(args, &mut full_timings, "request time", true);
     let mut server_timings = processor.server_timings();
     println!("--- Server timings ---");
-    print_stats(args, &mut server_timings, "server time", true);
+    let server_time = print_stats(args, &mut server_timings, "server time", true);
 
     let mut rps = processor.rps();
     println!("--- RPS ---");
@@ -142,29 +135,23 @@ pub async fn process<P: Processor + Sync>(
     println!("--- QPS ---");
     print_stats(args, &mut qps, "qps", false);
 
-    let precisions = processor.precisions();
-    if !precisions.is_empty() {
+    let precision = PrecisionSummary::new(processor.precisions());
+    if let Some(precision) = &precision {
         println!("--- Precision ---");
-        let avg_precision = precisions.iter().sum::<f32>() / precisions.len() as f32;
-        println!("Avg precision@10: {avg_precision}");
-
-        let mut sorted_precisions = precisions;
-        sorted_precisions.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-        let p50_time = sorted_precisions[(sorted_precisions.len() as f32 * 0.50) as usize];
-        println!("Median precision@10: {p50_time}");
+        println!("Avg precision@10: {}", precision.avg);
+        println!("Median precision@10: {}", precision.p50);
     }
 
-    if let Some(json) = args.json.as_ref() {
-        println!("--- Writing results to json file ---");
-        write_to_json(
-            json,
-            SearcherResults {
-                server_timings: server_timings.iter().map(|x| x.value).collect(),
-                rps: rps.iter().map(|x| x.value).collect(),
-                full_timings: full_timings.iter().map(|x| x.value).collect(),
-            },
-        );
-    }
+    let phase = QueryPhase {
+        duration_secs,
+        server_timings: server_timings.iter().map(|x| x.value).collect(),
+        full_timings: full_timings.iter().map(|x| x.value).collect(),
+        rps: rps.iter().map(|x| x.value).collect(),
+        qps: qps.iter().map(|x| x.value).collect(),
+        server_time,
+        request_time,
+        precision,
+    };
 
     if let Some(jsonl_path) = &args.jsonl_searches {
         save_timings_as_jsonl(
@@ -186,7 +173,7 @@ pub async fn process<P: Processor + Sync>(
         )?;
     }
 
-    Ok(())
+    Ok(phase)
 }
 
 /// Process requests using fixed parallelism (original behavior)
@@ -316,36 +303,36 @@ async fn process_with_rps<P: Processor + Sync>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
-    #[test]
-    fn test_searcher_results_serde_roundtrip() {
-        let results = SearcherResults {
-            server_timings: vec![1.0, 2.5, 3.7],
-            rps: vec![100.0, 200.0],
-            full_timings: vec![0.5, 1.5, 2.5, 3.5],
-        };
-
-        let json = serde_json::to_string(&results).unwrap();
-        let deserialized: SearcherResults = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(results.server_timings, deserialized.server_timings);
-        assert_eq!(results.rps, deserialized.rps);
-        assert_eq!(results.full_timings, deserialized.full_timings);
+    fn timings(values: &[f32]) -> Vec<Timing> {
+        values
+            .iter()
+            .map(|&value| Timing {
+                delay_millis: 0,
+                value,
+            })
+            .collect()
     }
 
     #[test]
-    fn test_searcher_results_empty() {
-        let results = SearcherResults {
-            server_timings: vec![],
-            rps: vec![],
-            full_timings: vec![],
-        };
+    fn print_stats_summarizes_and_sorts_in_place() {
+        let args = Args::parse_from(["bfb"]);
+        let mut values = timings(&[3.0, 1.0, 2.0, 4.0]);
 
-        let json = serde_json::to_string(&results).unwrap();
-        let deserialized: SearcherResults = serde_json::from_str(&json).unwrap();
+        let summary = print_stats(&args, &mut values, "request time", true).unwrap();
 
-        assert!(deserialized.server_timings.is_empty());
-        assert!(deserialized.rps.is_empty());
-        assert!(deserialized.full_timings.is_empty());
+        assert_eq!(summary.min, 1.0);
+        assert_eq!(summary.max, 4.0);
+        assert_eq!(summary.avg, 2.5);
+        // The caller relies on `print_stats` leaving the series sorted.
+        let sorted: Vec<_> = values.iter().map(|t| t.value).collect();
+        assert_eq!(sorted, vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn print_stats_of_empty_series_is_none() {
+        let args = Args::parse_from(["bfb"]);
+        assert!(print_stats(&args, &mut [], "request time", true).is_none());
     }
 }

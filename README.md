@@ -133,6 +133,56 @@ bfb search --file search-config.yaml -n 50k -p 8 --uri http://localhost:6334
 The legacy flag-driven search path (`bfb --skip-create --skip-upload --search …`)
 is still available when you prefer flat CLI flags over a YAML file.
 
+### Results document (`--json`)
+
+`--json <path>` writes one document describing the whole run — the parameters it
+ran with, plus a section per phase that actually executed. It works on every
+mode (`bfb upload`, `bfb search`, and legacy flag-driven runs), so phase timings
+no longer have to be scraped from stdout or timed by the calling shell.
+
+```bash
+bfb -n 1M --search --json results.json
+```
+
+```json
+{
+  "config": {
+    "bfb_version": "0.1.1",
+    "collection_name": "benchmark",
+    "num_vectors": 1000000,
+    "batch_size": 100,
+    "parallel": 2,
+    "threads": 2
+  },
+  "results": {
+    "upload": { "duration_secs": 57.8, "num_points": 1000000, "points_per_sec": 17301.0 },
+    "index":  { "wait_secs": 12.4 },
+    "search": {
+      "duration_secs": 30.1,
+      "server_timings": [0.000095, 0.000103],
+      "full_timings":   [0.001019, 0.001185],
+      "rps": [989.1], "qps": [989.1],
+      "server_time":  { "min": 0.000095, "avg": 0.000196, "p50": 0.00017, "p95": 0.00023, "max": 0.0124 },
+      "request_time": { "min": 0.001019, "avg": 0.001885, "p50": 0.00118, "p95": 0.00137, "max": 0.0379 },
+      "precision": { "avg": 0.98, "p50": 1.0 }
+    }
+  }
+}
+```
+
+Phases that did not run are omitted: `bfb search --file …` yields only
+`results.search`, and `precision` appears only when accuracy was measured
+(`--search-quality`, or a dataset query source with ground truth). Timings are
+in seconds. The per-request `--jsonl-*` time series are unchanged.
+
+**Backward compatibility.** The three arrays `--json` used to emit at the top
+level — `server_timings`, `rps`, `full_timings` — are still written there, so
+existing `jq '.rps'` consumers keep working. As before, they mirror the last
+query phase that ran (scroll takes precedence over search), and they are absent
+when no query phase ran. They are **deprecated**: prefer `results.search` /
+`results.scroll`, which also expose `qps`, per-phase `duration_secs`, and the
+precomputed `server_time` / `request_time` summaries.
+
 ### Legacy flag-driven mode
 
 The main command runs without any subcommands, just options:
@@ -190,7 +240,7 @@ Options:
       --search-limit <SEARCH_LIMIT>
           Search limit [default: 10]
       --json <JSON>
-          Store results to csv
+          Write the benchmark results document (config + every phase) to this path
       --p9 <P9>
           Number of 9 digits to show in p99* results [default: 2]
       --collection-name <COLLECTION_NAME>
