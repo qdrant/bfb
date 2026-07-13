@@ -152,6 +152,29 @@ and search configs. The CLI still controls *how* the benchmark runs (`-n`, `-p`,
 The flag-driven path (`bfb --scroll --keywords 100 …`) is still available when
 you prefer flat CLI flags over a YAML file.
 
+### Memory & disk reporting
+
+Sampled automatically after indexing — in `bfb upload` and legacy runs — and
+reported under `results.memory` in `--json`:
+
+```
+--- Memory & disk ---
+total: 154.1 MiB disk, 6.2 MiB ram, 3.9 MiB cached (of 72.8 MiB expected)
+vector (default): storage 66.0 MiB disk / 0.0 MiB ram, index 6.8 MiB disk / 0.0 MiB ram
+payload: 67.1 MiB disk, 0.0 MiB ram
+payload index color: 12.2 MiB disk, 2.7 MiB ram
+process: 74.8 MiB resident, 49.0 MiB allocated (server-wide)
+```
+
+`cached` is what the page cache currently holds of the on-disk bytes, against
+the `expected` a component wants cached to answer queries without touching disk
+— the gap is how cold the cache is. The `process` line covers the whole server,
+not just this collection.
+
+Read over Qdrant's **REST** API, on the port derived from `--uri` (6334 → 6333).
+A failure here warns rather than failing a run that already has its headline
+number; `--skip-server-stats` turns it off.
+
 ### `schema` — print the upload-config file schema
 
 Print an annotated YAML reference enumerating every option accepted by an

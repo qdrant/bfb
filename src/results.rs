@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::args::Args;
+use crate::memory::MemoryReport;
 use crate::processor::Timing;
 
 /// Top-level document: `{ config: {...}, results: {...} }`.
@@ -76,6 +77,9 @@ pub struct PhaseResults {
     pub search: Option<QueryPhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scroll: Option<QueryPhase>,
+    /// Memory and disk sampled after the run, not a phase of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory: Option<MemoryReport>,
 }
 
 /// M2: upload wall time and throughput.
@@ -334,6 +338,7 @@ mod tests {
             index: Some(IndexPhase { wait_secs: 0.5 }),
             search: Some(phase(1.0)),
             scroll: None,
+            memory: None,
         });
         doc.populate_legacy_fields();
 
