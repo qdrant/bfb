@@ -10,12 +10,13 @@ use crate::args::Args;
 use crate::client::create_clients;
 use crate::config::search::SearchConfig;
 use crate::generators::random::UUID_PAYLOAD_KEY;
+use crate::results::QueryPhase;
 use crate::scroll::ScrollProcessor;
 use crate::search::ConfigSearchProcessor;
 use crate::search::SearchProcessor;
 use crate::stats::process;
 
-pub async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+pub async fn search(args: &Args, stopped: Arc<AtomicBool>) -> Result<QueryPhase> {
     let clients = create_clients(args)?;
     let uuids = get_uuids(args, &clients[0]).await?;
 
@@ -28,13 +29,13 @@ pub async fn search_with_config(
     args: &Args,
     config: &SearchConfig,
     stopped: Arc<AtomicBool>,
-) -> Result<()> {
+) -> Result<QueryPhase> {
     let clients = create_clients(args)?;
     let searcher = ConfigSearchProcessor::new(args.clone(), config, stopped.clone(), clients)?;
     process(args, stopped, searcher).await
 }
 
-pub async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+pub async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<QueryPhase> {
     let clients = create_clients(args)?;
     let uuids = get_uuids(args, &clients[0]).await?;
 

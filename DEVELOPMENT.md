@@ -14,6 +14,7 @@ src/
 ├── scroll.rs        # scroll benchmarking processor
 ├── query.rs         # search/scroll entry points
 ├── processor.rs     # Processor trait + Timing measurement type
+├── results.rs       # unified `{config, results}` document written by --json
 ├── stats.rs         # benchmark run loops (parallel/RPS), stats output, throttling
 ├── save_jsonl.rs    # timing series export
 ├── fbin_reader.rs   # raw .fbin vector file reader

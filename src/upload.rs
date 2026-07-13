@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use futures::stream::StreamExt;
@@ -13,11 +13,12 @@ use crate::client::get_config;
 use crate::config::UploadConfig;
 use crate::fbin_reader::FBinReader;
 use crate::generators::{ConfigGenerator, LegacyGenerator, PointGenerator};
+use crate::results::UploadPhase;
 use crate::stats::throttler;
 use crate::upsert::UpsertProcessor;
 
 /// Legacy flag-driven upload.
-pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<()> {
+pub async fn upload_data(args: &Args, stopped: Arc<AtomicBool>) -> Result<UploadPhase> {
     let reader = args
         .fbin
         .as_ref()
@@ -31,7 +32,7 @@ pub async fn upload_with_config(
     args: &Args,
     config: &UploadConfig,
     stopped: Arc<AtomicBool>,
-) -> Result<()> {
+) -> Result<UploadPhase> {
     let generator = Arc::new(ConfigGenerator::new(config)?);
     run_upload(args, stopped, generator).await
 }
@@ -40,7 +41,7 @@ async fn run_upload(
     args: &Args,
     stopped: Arc<AtomicBool>,
     generator: Arc<dyn PointGenerator>,
-) -> Result<()> {
+) -> Result<UploadPhase> {
     let mut clients = Vec::new();
     for config in get_config(args) {
         clients.push(qdrant_client::Qdrant::new(config)?);
@@ -74,12 +75,17 @@ async fn run_upload(
         generator,
     );
 
-    let num_batches = args.num_vectors_or_default().div_ceil(args.batch_size);
+    let num_vectors = args.num_vectors_or_default();
+    let num_batches = num_vectors.div_ceil(args.batch_size);
 
     if stopped.load(Ordering::Relaxed) {
         sent_bar_arc.abandon();
-        return Ok(());
+        return Ok(UploadPhase::new(0.0, 0));
     }
+
+    // Time only the upload itself: client setup and generator construction
+    // (which may download a dataset) are not part of upload throughput.
+    let started = Instant::now();
 
     // Use RPS mode if --rps is set, otherwise use parallel mode
     if let Some(target_rps) = args.rps {
@@ -96,6 +102,8 @@ async fn run_upload(
         upload_with_parallel(args, stopped.clone(), &upserter, &sent_bar_arc, num_batches).await?;
     }
 
+    let duration_secs = started.elapsed().as_secs_f64();
+
     if stopped.load(Ordering::Relaxed) {
         sent_bar_arc.abandon();
     } else {
@@ -104,7 +112,16 @@ async fn run_upload(
 
     upserter.save_data();
 
-    Ok(())
+    // The bar advances a whole batch at a time, so the final batch can push it
+    // past the requested count; report what was actually asked for.
+    let num_points = (sent_bar_arc.position() as usize).min(num_vectors);
+    let phase = UploadPhase::new(duration_secs, num_points);
+    println!(
+        "Uploaded {} points in {:.3} s ({:.0} points/s)",
+        phase.num_points, phase.duration_secs, phase.points_per_sec
+    );
+
+    Ok(phase)
 }
 
 /// Upload data using fixed parallelism (original behavior)
