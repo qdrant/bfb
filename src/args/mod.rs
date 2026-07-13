@@ -460,6 +460,13 @@ pub enum Command {
     /// the same data without re-uploading.
     DropFieldIndex(DropFieldIndexArgs),
 
+    /// Patch optimizer/HNSW settings on a live collection, and measure the
+    /// indexing it triggers.
+    ///
+    /// Only what the YAML declares is sent. Lower `indexing_threshold` to start
+    /// indexing on demand, or change `max_segment_size` to trigger a merge.
+    UpdateCollection(UpdateCollectionArgs),
+
     /// Print the upload-config file schema: every option, its type, default,
     /// and allowed values, as an annotated YAML reference.
     Schema,
@@ -494,6 +501,13 @@ pub struct DropFieldIndexArgs {
 #[derive(clap::Args, Debug, Clone)]
 pub struct SearchArgs {
     /// Path to the YAML search-request config file
+    #[clap(long)]
+    pub file: String,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct UpdateCollectionArgs {
+    /// Path to the YAML update config file
     #[clap(long)]
     pub file: String,
 }

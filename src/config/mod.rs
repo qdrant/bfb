@@ -11,6 +11,7 @@ pub mod payload;
 pub mod schema;
 pub mod scroll;
 pub mod search;
+pub mod update;
 pub mod vector;
 
 pub use collection::{CollectionConfig, IdType, QuantKind};

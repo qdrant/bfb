@@ -1,0 +1,28 @@
+# Example bfb update-collection config.
+#
+#   bfb update-collection --file examples/update-config.yaml
+#
+# Only what this file declares is sent; everything else on the collection is
+# left alone. Undeclared is not the same as `false` or `0`.
+#
+# The canonical use is measuring indexing on its own: upload with indexing
+# effectively disabled, then turn it on and time it. `update-collection` waits
+# for the indexing its patch triggers and reports it under `index` in `--json`.
+#
+#   bfb upload --file upload-config.yaml -n 1M --skip-wait-index
+#   bfb update-collection --file update-config.yaml --json index.json
+
+collection:
+  name: benchmark
+
+  optimizers:
+    indexing_threshold: 1        # start indexing now
+    # max_segment_size: 200000   # changing this triggers a merge
+    # memmap_threshold: 100000
+    # default_segment_number: 2
+
+  # hnsw:
+  #   m: 32
+  #   payload_m: 16
+  #   ef_construct: 200
+  #   on_disk: true

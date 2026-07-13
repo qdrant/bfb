@@ -209,6 +209,42 @@ bfb drop-field-index   --file config.yaml --field color
 bfb drop-field-index   --file config.yaml        # or every indexed field in the config
 ```
 
+### `update-collection` — patch settings, and measure what that triggers
+
+Only what the YAML declares is sent, so the rest of the collection config is
+left alone — undeclared is not the same as `false` or `0`. Lowering
+`indexing_threshold` starts indexing; changing `max_segment_size` starts a
+merge. The patch request returns long before either finishes, so this waits for
+the work it triggered and reports it, exactly as `bfb upload` does:
+
+```bash
+bfb upload --file config.yaml -n 1M --skip-wait-index   # indexing_threshold: 1000000000
+bfb update-collection --file examples/update-config.yaml --json index.json
+```
+
+```yaml
+collection:
+  name: benchmark
+  optimizers:
+    indexing_threshold: 1        # start indexing now
+    # max_segment_size: 200000   # changing this triggers a merge
+  # hnsw:
+  #   m: 32
+  #   payload_m: 16
+```
+
+```
+Updated collection: optimizers.indexing_threshold=1
+Server reported changes: true
+Index ready in 20.255 seconds
+```
+
+The patch itself lands under `results.update_collection` (including the server's
+`applied` flag); the indexing it triggered lands under `results.index`, the same
+place `bfb upload` puts it. `--skip-wait-index` fires the patch and returns
+without waiting. A patch that declares no changes is an error rather than a
+silent no-op. See [`examples/update-config.yaml`](examples/update-config.yaml).
+
 ### `schema` — print the upload-config file schema
 
 Print an annotated YAML reference enumerating every option accepted by an

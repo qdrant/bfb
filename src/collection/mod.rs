@@ -1,5 +1,6 @@
 //! Collection lifecycle: (re)creation — from CLI flags or a YAML config —
-//! waiting for indexing, and building payload field indices.
+//! waiting for indexing, building payload field indices, and patching settings
+//! on a live collection.
 
 mod from_args;
 mod from_config;
@@ -14,13 +15,15 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 use qdrant_client::qdrant::{
     CollectionInfo, CollectionStatus, CreateFieldIndexCollection,
-    CreateFieldIndexCollectionBuilder, DeleteFieldIndexCollectionBuilder,
+    CreateFieldIndexCollectionBuilder, DeleteFieldIndexCollectionBuilder, HnswConfigDiffBuilder,
+    OptimizersConfigDiffBuilder, UpdateCollectionBuilder,
 };
 use tokio::time::sleep;
 
 use crate::args::Args;
 use crate::client::random_client;
-use crate::results::{CreateFieldIndexPhase, FieldIndexTiming};
+use crate::config::update::UpdateConfig;
+use crate::results::{CreateFieldIndexPhase, FieldIndexTiming, UpdateCollectionPhase};
 
 /// One field index to create: the built request plus the labels used to report it.
 pub struct FieldIndexSpec {
@@ -154,4 +157,93 @@ fn report_index_progress(info: &CollectionInfo, elapsed: Duration) {
         "  indexing: status={status}, {indexed}/{total} vectors{pct}, {:.0}s elapsed",
         elapsed.as_secs_f64()
     );
+}
+
+/// Patch collection settings on a live collection.
+///
+/// Only what the config declares is sent, so this can lower
+/// `indexing_threshold` to start indexing on demand, or change
+/// `max_segment_size` to trigger a merge, without disturbing anything else.
+pub async fn update_collection(
+    args: &Args,
+    config: &UpdateConfig,
+) -> Result<UpdateCollectionPhase> {
+    let client = random_client(args)?;
+    let mut changed = Vec::new();
+
+    let mut optimizers = OptimizersConfigDiffBuilder::default();
+    let mut optimizers_changed = false;
+    if let Some(patch) = &config.collection.optimizers {
+        if let Some(threshold) = patch.indexing_threshold {
+            optimizers = optimizers.indexing_threshold(threshold);
+            optimizers_changed = true;
+            changed.push(format!("optimizers.indexing_threshold={threshold}"));
+        }
+        if let Some(size) = patch.max_segment_size {
+            optimizers = optimizers.max_segment_size(size);
+            optimizers_changed = true;
+            changed.push(format!("optimizers.max_segment_size={size}"));
+        }
+        if let Some(threshold) = patch.memmap_threshold {
+            optimizers = optimizers.memmap_threshold(threshold);
+            optimizers_changed = true;
+            changed.push(format!("optimizers.memmap_threshold={threshold}"));
+        }
+        if let Some(segments) = patch.default_segment_number {
+            optimizers = optimizers.default_segment_number(segments);
+            optimizers_changed = true;
+            changed.push(format!("optimizers.default_segment_number={segments}"));
+        }
+    }
+
+    let mut hnsw = HnswConfigDiffBuilder::default();
+    let mut hnsw_changed = false;
+    if let Some(patch) = &config.collection.hnsw {
+        if let Some(m) = patch.m {
+            hnsw = hnsw.m(m);
+            hnsw_changed = true;
+            changed.push(format!("hnsw.m={m}"));
+        }
+        if let Some(ef) = patch.ef_construct {
+            hnsw = hnsw.ef_construct(ef);
+            hnsw_changed = true;
+            changed.push(format!("hnsw.ef_construct={ef}"));
+        }
+        if let Some(payload_m) = patch.payload_m {
+            hnsw = hnsw.payload_m(payload_m);
+            hnsw_changed = true;
+            changed.push(format!("hnsw.payload_m={payload_m}"));
+        }
+        if let Some(on_disk) = patch.on_disk {
+            hnsw = hnsw.on_disk(on_disk);
+            hnsw_changed = true;
+            changed.push(format!("hnsw.on_disk={on_disk}"));
+        }
+    }
+
+    // `validate()` already rejected an empty patch, so `changed` is non-empty.
+    // Each section is only attached when it actually changed: an empty diff would
+    // be a no-op at best, and could still nudge the server to re-evaluate work
+    // the patch never asked for.
+    let mut builder = UpdateCollectionBuilder::new(args.collection_name.clone());
+    if optimizers_changed {
+        builder = builder.optimizers_config(optimizers);
+    }
+    if hnsw_changed {
+        builder = builder.hnsw_config(hnsw);
+    }
+
+    let started = Instant::now();
+    let response = client.update_collection(builder).await?;
+    let duration_secs = started.elapsed().as_secs_f64();
+
+    println!("Updated collection: {}", changed.join(", "));
+    println!("Server reported changes: {}", response.result);
+
+    Ok(UpdateCollectionPhase {
+        duration_secs,
+        server_secs: response.time,
+        changed,
+        applied: response.result,
+    })
 }

@@ -80,6 +80,8 @@ pub struct PhaseResults {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub create_field_index: Option<CreateFieldIndexPhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_collection: Option<UpdateCollectionPhase>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<QueryPhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scroll: Option<QueryPhase>,
@@ -106,6 +108,18 @@ pub struct FieldIndexTiming {
     pub duration_secs: f64,
     /// Time the server reported for the operation.
     pub server_secs: f64,
+}
+
+/// A mid-run `update_collection` patch. It reports the patch request itself; the
+/// indexing it triggers is reported under `index`, as for any other trigger.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateCollectionPhase {
+    pub duration_secs: f64,
+    pub server_secs: f64,
+    /// Human-readable list of the settings that were sent.
+    pub changed: Vec<String>,
+    /// Whether the server reported that the operation made changes.
+    pub applied: bool,
 }
 
 /// M2: upload wall time and throughput.

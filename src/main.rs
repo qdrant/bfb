@@ -161,6 +161,33 @@ async fn run_create_field_index(
     results.write_if_requested(&args)
 }
 
+/// `bfb update-collection --file config.yaml`: patch settings on a live
+/// collection, then measure the indexing the patch triggers.
+async fn run_update_collection(
+    args: Args,
+    update_args: args::UpdateCollectionArgs,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
+    let config = config::update::load(&update_args.file)?;
+
+    let mut args = args;
+    args.collection_name = config.collection.name.clone();
+
+    // Phase-only: neither uploads nor queries, so no requested point count.
+    let mut results = BenchmarkResults::new(&args, Some(update_args.file.clone()), None);
+    results.results.update_collection = Some(collection::update_collection(&args, &config).await?);
+
+    // Lowering `indexing_threshold` starts indexing; changing `max_segment_size`
+    // starts a merge. The patch request returns before either finishes, so the
+    // wait is what turns "applied: true" into a measurement.
+    if !args.skip_wait_index {
+        results.results.index = Some(run_wait_index(&args, stopped).await?);
+        results.results.memory = fetch_memory(&args).await;
+    }
+
+    results.write_if_requested(&args)
+}
+
 /// `bfb drop-field-index`: remove field indices so they can be rebuilt and re-measured.
 async fn run_drop_field_index(args: Args, drop_args: args::DropFieldIndexArgs) -> Result<()> {
     let config = config::load(&drop_args.file)?;
@@ -260,6 +287,9 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         }
         Some(Command::DropFieldIndex(drop_args)) => {
             return run_drop_field_index(args, drop_args).await;
+        }
+        Some(Command::UpdateCollection(update_args)) => {
+            return run_update_collection(args, update_args, stopped).await;
         }
         // `Schema` is handled before the runtime starts; `None` falls through.
         Some(Command::Schema) | None => {}
