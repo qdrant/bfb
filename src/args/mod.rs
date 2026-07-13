@@ -436,6 +436,15 @@ pub enum Command {
     /// `--search-batch-size`, `--uri`, …) still control *how* the benchmark runs.
     Search(SearchArgs),
 
+    /// Run a scroll workload against an existing collection.
+    ///
+    /// The same workload as the legacy `--scroll` flag, runnable as a phase of
+    /// its own so it can be timed and reported independently. The YAML file
+    /// defines the *shape* of scroll requests (which payload filters); the
+    /// runtime flags (`-n`, `--parallel`, `--search-limit`, …) still control
+    /// *how* the benchmark runs.
+    Scroll(ScrollArgs),
+
     /// Print the upload-config file schema: every option, its type, default,
     /// and allowed values, as an annotated YAML reference.
     Schema,
@@ -444,6 +453,13 @@ pub enum Command {
 #[derive(clap::Args, Debug, Clone)]
 pub struct SearchArgs {
     /// Path to the YAML search-request config file
+    #[clap(long)]
+    pub file: String,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ScrollArgs {
+    /// Path to the YAML scroll config file
     #[clap(long)]
     pub file: String,
 }

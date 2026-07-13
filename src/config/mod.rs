@@ -9,6 +9,7 @@
 pub mod collection;
 pub mod payload;
 pub mod schema;
+pub mod scroll;
 pub mod search;
 pub mod vector;
 

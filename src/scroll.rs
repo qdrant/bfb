@@ -5,8 +5,12 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 
+use rand::{Rng, RngExt};
+
 use crate::args::Args;
 use crate::client::retry_with_clients;
+use crate::config::scroll::ScrollConfig;
+use crate::generators::queries::FilterGenerator;
 use crate::generators::random::{DEFAULT_VOCAB_SIZE, create_zipf, random_filter};
 use crate::processor::{Processor, Timing};
 
@@ -17,6 +21,18 @@ struct ScrollStats {
     full_timings: Vec<Timing>,
 }
 
+/// Where a scroll request's filter comes from.
+enum Filters {
+    /// Legacy `bfb --scroll`: filters come from the payload flags.
+    Flags {
+        uuids: Vec<String>,
+        zipf: Option<rand_distr::Zipf<f64>>,
+    },
+    /// `bfb scroll --file`: one generator per `requests:` template, one picked
+    /// at random per request.
+    Config(Vec<FilterGenerator>),
+}
+
 pub struct ScrollProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
@@ -24,11 +40,11 @@ pub struct ScrollProcessor {
     pub start_timestamp_millis: f64,
     start_time: std::time::Instant,
     stats: Mutex<ScrollStats>,
-    pub uuids: Vec<String>,
-    zipf: Option<rand_distr::Zipf<f64>>,
+    filters: Filters,
 }
 
 impl ScrollProcessor {
+    /// Flag-driven: filters come from `--keywords`, `--geo-payloads`, ….
     pub fn new(
         args: Args,
         stopped: Arc<AtomicBool>,
@@ -39,6 +55,32 @@ impl ScrollProcessor {
             .text_payloads
             .then(|| create_zipf(args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE)));
 
+        Self::with_filters(args, stopped, clients, Filters::Flags { uuids, zipf })
+    }
+
+    /// Config-driven: filters come from the YAML `requests:` templates.
+    pub fn from_config(
+        args: Args,
+        config: &ScrollConfig,
+        stopped: Arc<AtomicBool>,
+        clients: Vec<Qdrant>,
+    ) -> Self {
+        let mut rng = rand::rng();
+        let generators = config
+            .requests
+            .iter()
+            .map(|request| FilterGenerator::new(&request.filters, &mut rng))
+            .collect();
+
+        Self::with_filters(args, stopped, clients, Filters::Config(generators))
+    }
+
+    fn with_filters(
+        args: Args,
+        stopped: Arc<AtomicBool>,
+        clients: Vec<Qdrant>,
+        filters: Filters,
+    ) -> Self {
         ScrollProcessor {
             args,
             stopped,
@@ -49,8 +91,35 @@ impl ScrollProcessor {
                 .as_millis() as f64,
             start_time: std::time::Instant::now(),
             stats: Mutex::new(ScrollStats::default()),
-            uuids,
-            zipf,
+            filters,
+        }
+    }
+
+    fn build_filter(
+        &self,
+        rng: &mut impl Rng,
+        args: &Args,
+    ) -> Option<qdrant_client::qdrant::Filter> {
+        match &self.filters {
+            Filters::Flags { uuids, zipf } => random_filter(
+                rng,
+                &self.args.keywords,
+                &self.args.float_payloads,
+                &self.args.int_payloads,
+                uuids,
+                self.args.match_any,
+                self.args.geo_payloads,
+                self.args.bool_payloads,
+                args.keywords_length_multiplier,
+                zipf.as_ref(),
+            ),
+            Filters::Config(generators) if !generators.is_empty() => {
+                generators[rng.random_range(0..generators.len())].build(rng)
+            }
+            // `ScrollConfig::validate` rejects an empty `requests:` list, so this
+            // is unreachable today; scroll unfiltered rather than panic if a
+            // future caller builds a processor without going through it.
+            Filters::Config(_) => None,
         }
     }
 
@@ -66,18 +135,7 @@ impl ScrollProcessor {
 
         let start = std::time::Instant::now();
         let mut rng = rand::rng();
-        let query_filter = random_filter(
-            &mut rng,
-            &self.args.keywords,
-            &self.args.float_payloads,
-            &self.args.int_payloads,
-            &self.uuids,
-            self.args.match_any,
-            self.args.geo_payloads,
-            self.args.bool_payloads,
-            args.keywords_length_multiplier,
-            self.zipf.as_ref(),
-        );
+        let query_filter = self.build_filter(&mut rng, args);
 
         let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())
             .limit(self.args.search_limit as u32)
