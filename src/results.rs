@@ -5,6 +5,7 @@
 //! instead of scraping stdout or timing phases from the shell.
 
 use std::fs::File;
+use std::io::{BufWriter, Write};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -218,7 +219,13 @@ impl BenchmarkResults {
         println!("--- Writing results to json file ---");
         let file =
             File::create(path).with_context(|| format!("failed to create results file {path}"))?;
-        serde_json::to_writer_pretty(file, self)
+        // serde_json writes straight through: unbuffered, a 1M-request series
+        // takes ~45 s here, one syscall per token.
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, self)
+            .with_context(|| format!("failed to write results to {path}"))?;
+        writer
+            .flush()
             .with_context(|| format!("failed to write results to {path}"))?;
         println!("Results written to {path}");
         Ok(())
