@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use flate2::read::GzDecoder;
 use tar::Archive;
+use tempfile::NamedTempFile;
 
 use super::config::{DatasetKind, ResolvedDatasetConfig};
 
@@ -25,22 +26,22 @@ pub fn ensure_local_file(datasets_dir: &Path, path: &str) -> Result<PathBuf> {
         return Ok(PathBuf::from(path));
     }
 
-    let target = datasets_dir.join("files").join(cache_key(path));
+    let cache_dir = datasets_dir.join("files");
+    let target = cache_dir.join(cache_key(path));
     if target.exists() {
         return Ok(target);
     }
 
+    fs::create_dir_all(&cache_dir)
+        .with_context(|| format!("failed to create {}", cache_dir.display()))?;
+
     println!("Downloading {path}...");
-    let tmp = download_to_temp(path)?;
-    let parent = target
-        .parent()
-        .expect("cache path always has a `files` parent");
-    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
-    // Copy rather than rename: the temp file lives on the system temp mount,
-    // which is often a different filesystem than the datasets dir.
-    fs::copy(&tmp, &target)
-        .with_context(|| format!("failed to copy download to {}", target.display()))?;
-    let _ = fs::remove_file(&tmp);
+    // Download into the cache dir, then rename into place. The rename is atomic (same
+    // filesystem), so an interrupted or failed download never leaves a truncated file
+    // at `target` that later runs would happily reuse.
+    let tmp = download_to_temp(path, &cache_dir)?;
+    tmp.persist(&target)
+        .with_context(|| format!("failed to install download at {}", target.display()))?;
     Ok(target)
 }
 
@@ -78,14 +79,20 @@ pub fn ensure_downloaded(datasets_dir: &Path, config: &ResolvedDatasetConfig) ->
         )
     })?;
 
+    let staging_dir = target.parent().unwrap_or(datasets_dir);
+    fs::create_dir_all(staging_dir)
+        .with_context(|| format!("failed to create {}", staging_dir.display()))?;
+
     println!("Downloading dataset {:?} from {link}...", config.name);
-    let tmp = download_to_temp(link)?;
-    install_download(&tmp, &target, link, config.kind)?;
-    let _ = fs::remove_file(&tmp);
+    // Stage next to the target so installing it is a same-filesystem rename.
+    let tmp = download_to_temp(link, staging_dir)?;
+    install_download(tmp, &target, link, config.kind)?;
     Ok(target)
 }
 
-fn download_to_temp(url: &str) -> Result<PathBuf> {
+/// Download `url` into a temporary file inside `dir`. The file is deleted when the
+/// returned handle is dropped, so an aborted download leaves nothing behind.
+fn download_to_temp(url: &str, dir: &Path) -> Result<NamedTempFile> {
     let agent = ureq::Agent::new_with_config(
         ureq::config::Config::builder()
             .user_agent("Mozilla/5.0")
@@ -97,36 +104,46 @@ fn download_to_temp(url: &str) -> Result<PathBuf> {
         .with_context(|| format!("failed to download {url}"))?;
 
     let mut reader = response.into_body().into_reader();
-    let mut tmp = tempfile::NamedTempFile::new().context("failed to create temp file")?;
+    let mut tmp = NamedTempFile::new_in(dir)
+        .with_context(|| format!("failed to create temp file in {}", dir.display()))?;
     io::copy(&mut reader, tmp.as_file_mut()).context("failed to write download")?;
-    // `keep()` disables auto-deletion so the file survives until `ensure_downloaded`
-    // installs it and removes it explicitly; otherwise the `TempPath` would drop and
-    // unlink the file the moment this function returns.
-    let (_, path) = tmp.keep().context("failed to persist temp download")?;
-    Ok(path)
+    Ok(tmp)
 }
 
-fn install_download(tmp: &Path, target: &Path, link: &str, kind: DatasetKind) -> Result<()> {
+fn install_download(
+    tmp: NamedTempFile,
+    target: &Path,
+    link: &str,
+    kind: DatasetKind,
+) -> Result<()> {
     if link.ends_with(".tgz") || link.ends_with(".tar.gz") {
-        fs::create_dir_all(target)
-            .with_context(|| format!("failed to create {}", target.display()))?;
-        let file = File::open(tmp).with_context(|| format!("failed to open {}", tmp.display()))?;
+        // Extract into a staging dir and rename it into place, so a failed extraction
+        // does not leave a half-populated dataset dir that later runs treat as complete.
+        let parent = target.parent().unwrap_or(Path::new("."));
+        let staging = tempfile::TempDir::new_in(parent)
+            .with_context(|| format!("failed to create staging dir in {}", parent.display()))?;
+        let file = File::open(tmp.path())
+            .with_context(|| format!("failed to open {}", tmp.path().display()))?;
         let decoder = GzDecoder::new(file);
         let mut archive = Archive::new(decoder);
         archive
-            .unpack(target)
+            .unpack(staging.path())
             .with_context(|| format!("failed to extract archive into {}", target.display()))?;
+        let staged = staging.keep();
+        fs::rename(&staged, target).with_context(|| {
+            format!(
+                "failed to move extracted archive from {} to {}",
+                staged.display(),
+                target.display()
+            )
+        })?;
         return Ok(());
     }
 
     match kind {
         DatasetKind::H5 => {
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("failed to create {}", parent.display()))?;
-            }
-            fs::copy(tmp, target)
-                .with_context(|| format!("failed to copy download to {}", target.display()))?;
+            tmp.persist(target)
+                .with_context(|| format!("failed to install download at {}", target.display()))?;
         }
         DatasetKind::Tar | DatasetKind::Sparse => {
             bail!(
@@ -207,5 +224,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = ensure_local_file(dir.path(), "http://127.0.0.1:1/vectors.fbin").unwrap_err();
         assert!(err.to_string().contains("failed to download"), "{err}");
+    }
+
+    #[test]
+    fn failed_download_leaves_no_cache_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let url = "http://127.0.0.1:1/vectors.fbin";
+        assert!(ensure_local_file(dir.path(), url).is_err());
+
+        // A partial download must not be persisted under its cache key, otherwise every
+        // later run would short-circuit on the truncated file.
+        let cached: Vec<_> = fs::read_dir(dir.path().join("files"))
+            .map(|entries| entries.map(|e| e.unwrap().path()).collect())
+            .unwrap_or_default();
+        assert!(cached.is_empty(), "cache dir must be empty, got {cached:?}");
     }
 }
