@@ -3,6 +3,7 @@
 *.iml
 
 # Local benchmark data & outputs
+/datasets/
 /tmp-data/
 /logs/
 *.fbin
