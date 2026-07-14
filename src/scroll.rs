@@ -232,6 +232,10 @@ impl ScrollProcessor {
             request_builder = request_builder.filter(filter);
         }
 
+        if let Some(read_consistency) = self.args.read_consistency {
+            request_builder = request_builder.read_consistency(read_consistency);
+        }
+
         if let Some(timeout) = self.args.timeout {
             request_builder = request_builder.timeout(timeout as u64);
         }
