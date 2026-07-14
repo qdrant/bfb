@@ -51,7 +51,7 @@ collection:
         length: 1000
         distribution: zipf        # uniform | zipf
 
-  payloads:
+  fields:
     - name: color
       type: keyword
       source:
