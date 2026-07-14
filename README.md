@@ -108,6 +108,50 @@ scheme (point id == dataset row index), which is what `bfb upload` does for
 `id: integer` collections. See
 [`examples/search-dataset-accuracy.yaml`](examples/search-dataset-accuracy.yaml).
 
+### `scroll` — run a scroll workload as its own phase
+
+The same workload as the legacy `--scroll` flag, runnable on an existing
+collection so it can be timed and reported independently:
+
+```bash
+bfb scroll --file examples/scroll-config.yaml -n 50k -p 8 --json scroll.json
+```
+
+The YAML describes the *shape* of scroll requests: how to traverse the
+collection, and the payload filters to scroll by. One template is picked at
+random per request, with fresh random filter values — so a single run can
+compare filtered against unfiltered:
+
+```yaml
+collection:
+  name: benchmark
+
+mode: scroll             # scroll | sequential | sample
+
+requests:
+  - filters: []          # unfiltered
+  - filters:
+      - name: color
+        type: keyword
+        source: { type: random, cardinality: 100 }
+```
+
+`mode` picks the traversal, and is orthogonal to `filters`:
+
+| mode | request |
+| --- | --- |
+| `scroll` | first page matching the filter; every request starts at the top (default) |
+| `sequential` | cursor walk — each request resumes from the previous page, wrapping once exhausted. One walk per `-p` worker |
+| `sample` | a vector-less `query` with `sample: random` |
+
+Filter entries use the same payload `type` / `source` vocabulary as the upload
+and search configs. The CLI still controls *how* the benchmark runs (`-n`, `-p`,
+`--search-limit`, `--search-with-payload`, …). Results land under
+`results.scroll`. See [`examples/scroll-config.yaml`](examples/scroll-config.yaml).
+
+The flag-driven path (`bfb --scroll --keywords 100 …`) is still available when
+you prefer flat CLI flags over a YAML file.
+
 ### `schema` — print the upload-config file schema
 
 Print an annotated YAML reference enumerating every option accepted by an
