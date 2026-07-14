@@ -1,7 +1,6 @@
 //! YAML-config-driven point generation ([`ConfigGenerator`]).
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use qdrant_client::Payload;
 use qdrant_client::qdrant::point_id::PointIdOptions;
@@ -22,7 +21,7 @@ use crate::config::{
     DatatypeKind, DistributionKind, FileStrategy, IdType, PayloadSource, PayloadSourceKind,
     PayloadType, UploadConfig, VectorConfig, VectorSource,
 };
-use crate::dataset::{UploadDatasetSources, default_datasets_dir};
+use crate::dataset::{UploadDatasetSources, default_datasets_dir, ensure_local_file};
 use crate::fbin_reader::FBinReader;
 
 /// Generates points from a parsed YAML [`UploadConfig`].
@@ -71,10 +70,13 @@ impl ConfigGenerator {
             .vectors
             .iter()
             .map(|v| match &v.source {
-                VectorSource::File { path, .. } => Some(FBinReader::new(Path::new(path))),
-                _ => None,
+                VectorSource::File { path, .. } => {
+                    let local = ensure_local_file(datasets_dir, path)?;
+                    FBinReader::new(&local).map(Some)
+                }
+                _ => Ok(None),
             })
-            .collect();
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let datasets = UploadDatasetSources::open(config, datasets_dir)?;
 
@@ -384,6 +386,56 @@ mod tests {
         let config: UploadConfig = serde_yaml::from_str(yaml).unwrap();
         config.validate().unwrap();
         ConfigGenerator::new(&config).unwrap()
+    }
+
+    /// Serialize `vectors` in fbin layout: `[i32 count][i32 dim][f32 data…]`.
+    fn fbin_bytes(vectors: &[Vec<f32>]) -> Vec<u8> {
+        let dim = vectors[0].len();
+        let mut bytes = (vectors.len() as i32).to_le_bytes().to_vec();
+        bytes.extend((dim as i32).to_le_bytes());
+        for v in vectors {
+            for f in v {
+                bytes.extend(f.to_le_bytes());
+            }
+        }
+        bytes
+    }
+
+    /// A `source: {type: file}` pointing at an http(s) URL must download the
+    /// file and generate points from it, not panic opening a path named "http:".
+    #[test]
+    fn generates_vectors_from_a_remote_fbin_file() {
+        let vectors = vec![vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, 7.0, 8.0]];
+        let (url, server) = crate::dataset::test_http::serve_once(fbin_bytes(&vectors), 1);
+        let dir = tempfile::tempdir().unwrap();
+
+        let yaml = format!(
+            r#"
+collection:
+  name: t
+  vectors:
+    - size: 4
+      source:
+        type: file
+        path: {url}
+        strategy: from-start
+"#
+        );
+        let config: UploadConfig = serde_yaml::from_str(&yaml).unwrap();
+        config.validate().unwrap();
+
+        let generator = ConfigGenerator::new_with_datasets_dir(&config, dir.path()).unwrap();
+        let point = generator.make_point(0);
+
+        let data = match point.vectors.unwrap().vectors_options.unwrap() {
+            VectorsOptions::Vector(v) => match v.vector.unwrap() {
+                qdrant_client::qdrant::vector::Vector::Dense(d) => d.data,
+                _ => panic!("expected a dense vector"),
+            },
+            _ => panic!("expected the unnamed default vector"),
+        };
+        assert_eq!(data, vectors[0], "point 0 must come from the remote file");
+        assert_eq!(server.join().unwrap(), 1);
     }
 
     fn named(point: &PointStruct) -> HashMap<String, Vector> {
