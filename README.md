@@ -117,14 +117,16 @@ collection so it can be timed and reported independently:
 bfb scroll --file examples/scroll-config.yaml -n 50k -p 8 --json scroll.json
 ```
 
-The YAML describes the *shape* of scroll requests: the collection, and the
-payload filters to scroll by. One template is picked at random per request, with
-fresh random filter values — so a single run can compare filtered against
-unfiltered:
+The YAML describes the *shape* of scroll requests: how to traverse the
+collection, and the payload filters to scroll by. One template is picked at
+random per request, with fresh random filter values — so a single run can
+compare filtered against unfiltered:
 
 ```yaml
 collection:
   name: benchmark
+
+mode: scroll             # scroll | sequential | sample
 
 requests:
   - filters: []          # unfiltered
@@ -133,6 +135,14 @@ requests:
         type: keyword
         source: { type: random, cardinality: 100 }
 ```
+
+`mode` picks the traversal, and is orthogonal to `filters`:
+
+| mode | request |
+| --- | --- |
+| `scroll` | first page matching the filter; every request starts at the top (default) |
+| `sequential` | cursor walk — each request resumes from the previous page, wrapping once exhausted. One walk per `-p` worker |
+| `sample` | a vector-less `query` with `sample: random` |
 
 Filter entries use the same payload `type` / `source` vocabulary as the upload
 and search configs. The CLI still controls *how* the benchmark runs (`-n`, `-p`,

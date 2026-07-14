@@ -12,6 +12,15 @@
 collection:
   name: benchmark
 
+# How a request traverses the collection. `mode` and `filters` are orthogonal:
+#
+#   scroll      fetch the first page matching the filter; every request starts
+#               at the top (default)
+#   sequential  walk the collection — each request resumes from the previous
+#               page's cursor, wrapping once exhausted. One walk per `-p` worker
+#   sample      a vector-less `query` with `sample: random`
+mode: scroll
+
 requests:
   # Unfiltered scroll over the whole collection.
   - filters: []

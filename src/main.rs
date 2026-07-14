@@ -41,6 +41,14 @@ async fn run_scroll(
 ) -> Result<()> {
     let config = config::scroll::load(&scroll_args.file)?;
 
+    // `--rps` fires on a timer with no concurrency cap, so requests would race
+    // over the walks and keep restarting them.
+    if config.mode == config::scroll::ScrollMode::Sequential && args.rps.is_some() {
+        anyhow::bail!(
+            "`mode: sequential` walks one cursor per `--parallel` worker; it cannot be combined with `--rps`"
+        );
+    }
+
     let mut args = args;
     args.collection_name = config.collection.name.clone();
 

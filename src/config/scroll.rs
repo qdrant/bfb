@@ -9,11 +9,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::search::{FilterPayloadConfig, SearchCollectionConfig};
 
-/// Top-level document: `{ collection: { name }, requests: [ … ] }`.
+/// How a request traverses the collection. Orthogonal to `requests:` — any mode
+/// can be combined with any filter template.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScrollMode {
+    /// Fetch the first page matching the filter; every request starts at the top.
+    #[default]
+    Scroll,
+    /// Walk the collection: each request resumes from the previous page's cursor,
+    /// wrapping to the start once exhausted.
+    Sequential,
+    /// Random sample: a `query` with `sample: random` and no vector.
+    Sample,
+}
+
+/// Top-level document: `{ collection: { name }, mode, requests: [ … ] }`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScrollConfig {
     pub collection: SearchCollectionConfig,
+    #[serde(default)]
+    pub mode: ScrollMode,
     pub requests: Vec<ScrollRequestConfig>,
 }
 
@@ -58,6 +75,7 @@ mod tests {
         config.validate().unwrap();
 
         assert_eq!(config.collection.name, "x");
+        assert_eq!(config.mode, ScrollMode::Scroll);
         assert!(config.requests[0].filters.is_empty());
         assert_eq!(config.requests[1].filters[0].name, "color");
     }
@@ -67,5 +85,20 @@ mod tests {
         let config: ScrollConfig =
             serde_yaml::from_str("collection:\n  name: x\nrequests: []\n").unwrap();
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn parses_every_mode() {
+        for (text, expected) in [
+            ("sequential", ScrollMode::Sequential),
+            ("sample", ScrollMode::Sample),
+            ("scroll", ScrollMode::Scroll),
+        ] {
+            let config: ScrollConfig = serde_yaml::from_str(&format!(
+                "collection:\n  name: x\nmode: {text}\nrequests:\n  - filters: []\n"
+            ))
+            .unwrap();
+            assert_eq!(config.mode, expected);
+        }
     }
 }

@@ -3,13 +3,13 @@ use std::sync::{Arc, Mutex};
 
 use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
-use qdrant_client::qdrant::ScrollPointsBuilder;
+use qdrant_client::qdrant::{PointId, Query, QueryPointsBuilder, Sample, ScrollPointsBuilder};
 
 use rand::{Rng, RngExt};
 
 use crate::args::Args;
 use crate::client::retry_with_clients;
-use crate::config::scroll::ScrollConfig;
+use crate::config::scroll::{ScrollConfig, ScrollMode};
 use crate::generators::queries::FilterGenerator;
 use crate::generators::random::{DEFAULT_VOCAB_SIZE, create_zipf, random_filter};
 use crate::processor::{Processor, Timing};
@@ -33,6 +33,13 @@ enum Filters {
     Config(Vec<FilterGenerator>),
 }
 
+/// A `Sequential` walk in progress. The filter is held for the whole walk: a
+/// cursor only means anything against the query that produced it.
+struct Walk {
+    filter: Option<qdrant_client::qdrant::Filter>,
+    offset: PointId,
+}
+
 pub struct ScrollProcessor {
     args: Args,
     stopped: Arc<AtomicBool>,
@@ -41,6 +48,10 @@ pub struct ScrollProcessor {
     start_time: std::time::Instant,
     stats: Mutex<ScrollStats>,
     filters: Filters,
+    mode: ScrollMode,
+    /// `Sequential` only: one walk per in-flight slot, so each of the
+    /// `--parallel` workers walks its own stretch of the collection.
+    walks: Vec<Mutex<Option<Walk>>>,
 }
 
 impl ScrollProcessor {
@@ -55,7 +66,13 @@ impl ScrollProcessor {
             .text_payloads
             .then(|| create_zipf(args.text_payload_vocabulary.unwrap_or(DEFAULT_VOCAB_SIZE)));
 
-        Self::with_filters(args, stopped, clients, Filters::Flags { uuids, zipf })
+        Self::with_filters(
+            args,
+            stopped,
+            clients,
+            Filters::Flags { uuids, zipf },
+            ScrollMode::default(),
+        )
     }
 
     /// Config-driven: filters come from the YAML `requests:` templates.
@@ -72,7 +89,13 @@ impl ScrollProcessor {
             .map(|request| FilterGenerator::new(&request.filters, &mut rng))
             .collect();
 
-        Self::with_filters(args, stopped, clients, Filters::Config(generators))
+        Self::with_filters(
+            args,
+            stopped,
+            clients,
+            Filters::Config(generators),
+            config.mode,
+        )
     }
 
     fn with_filters(
@@ -80,7 +103,12 @@ impl ScrollProcessor {
         stopped: Arc<AtomicBool>,
         clients: Vec<Qdrant>,
         filters: Filters,
+        mode: ScrollMode,
     ) -> Self {
+        let walks = (0..args.parallel.max(1))
+            .map(|_| Mutex::new(None))
+            .collect();
+
         ScrollProcessor {
             args,
             stopped,
@@ -92,6 +120,8 @@ impl ScrollProcessor {
             start_time: std::time::Instant::now(),
             stats: Mutex::new(ScrollStats::default()),
             filters,
+            mode,
+            walks,
         }
     }
 
@@ -123,27 +153,24 @@ impl ScrollProcessor {
         }
     }
 
-    pub async fn scroll(
+    /// One scroll request. Returns `(points, server_secs, next_page_offset)`.
+    async fn scroll_cursor(
         &self,
-        _req_id: usize,
         args: &Args,
-        progress_bar: &ProgressBar,
-    ) -> Result<(), anyhow::Error> {
-        if self.stopped.load(std::sync::atomic::Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        let start = std::time::Instant::now();
-        let mut rng = rand::rng();
-        let query_filter = self.build_filter(&mut rng, args);
-
+        filter: Option<qdrant_client::qdrant::Filter>,
+        offset: Option<PointId>,
+    ) -> Result<(usize, f64, Option<PointId>), anyhow::Error> {
         let mut request_builder = ScrollPointsBuilder::new(self.args.collection_name.clone())
             .limit(self.args.search_limit as u32)
             .with_payload(self.args.search_with_payload)
             .with_vectors(self.args.search_with_vectors);
 
-        if let Some(filter) = query_filter {
+        if let Some(filter) = filter {
             request_builder = request_builder.filter(filter);
+        }
+
+        if let Some(offset) = offset {
+            request_builder = request_builder.offset(offset);
         }
 
         if let Some(read_consistency) = self.args.read_consistency {
@@ -158,6 +185,76 @@ impl ScrollProcessor {
         let res = retry_with_clients(&self.clients, args, |client| client.scroll(request.clone()))
             .await?;
 
+        Ok((res.result.len(), res.time, res.next_page_offset))
+    }
+
+    /// A vector-less `query` with `sample: random` — a randomly-sampled page.
+    async fn sample(
+        &self,
+        args: &Args,
+        filter: Option<qdrant_client::qdrant::Filter>,
+    ) -> Result<(usize, f64), anyhow::Error> {
+        let mut request_builder = QueryPointsBuilder::new(self.args.collection_name.clone())
+            .query(Query::new_sample(Sample::Random))
+            .limit(self.args.search_limit as u64)
+            .with_payload(self.args.search_with_payload)
+            .with_vectors(self.args.search_with_vectors);
+
+        if let Some(filter) = filter {
+            request_builder = request_builder.filter(filter);
+        }
+
+        if let Some(read_consistency) = self.args.read_consistency {
+            request_builder = request_builder.read_consistency(read_consistency);
+        }
+
+        if let Some(timeout) = self.args.timeout {
+            request_builder = request_builder.timeout(timeout as u64);
+        }
+
+        let request = request_builder.build();
+        let res =
+            retry_with_clients(&self.clients, args, |client| client.query(request.clone())).await?;
+
+        Ok((res.result.len(), res.time))
+    }
+
+    pub async fn scroll(
+        &self,
+        req_id: usize,
+        args: &Args,
+        progress_bar: &ProgressBar,
+    ) -> Result<(), anyhow::Error> {
+        if self.stopped.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let start = std::time::Instant::now();
+        let mut rng = rand::rng();
+        let filter = self.build_filter(&mut rng, args);
+
+        let (result_len, server_time) = match self.mode {
+            ScrollMode::Sample => self.sample(args, filter).await?,
+            ScrollMode::Scroll => {
+                let (len, time, _) = self.scroll_cursor(args, filter, None).await?;
+                (len, time)
+            }
+            ScrollMode::Sequential => {
+                let slot = req_id % self.walks.len();
+                // A walk in progress keeps its own filter; the fresh one is only
+                // used to start a new walk.
+                let (filter, offset) = match self.walks[slot].lock().unwrap().take() {
+                    Some(walk) => (walk.filter, Some(walk.offset)),
+                    None => (filter, None),
+                };
+
+                let (len, time, next) = self.scroll_cursor(args, filter.clone(), offset).await?;
+                // No next page: leave the slot empty so the walk restarts from the top.
+                *self.walks[slot].lock().unwrap() = next.map(|offset| Walk { filter, offset });
+                (len, time)
+            }
+        };
+
         let elapsed = start.elapsed().as_secs_f32();
         let delay_millis = self.start_time.elapsed().as_millis() as u32;
         let full_timing = Timing {
@@ -165,21 +262,20 @@ impl ScrollProcessor {
             value: elapsed,
         };
 
-        if res.time > self.args.timing_threshold {
-            progress_bar.println(format!("Slow scroll: {:?}", res.time));
+        if server_time > self.args.timing_threshold {
+            progress_bar.println(format!("Slow scroll: {server_time:?}"));
         }
 
-        if res.result.len() < self.args.search_limit {
+        if result_len < self.args.search_limit {
             progress_bar.println(format!(
-                "Scroll result is too small: {} of {}",
-                res.result.len(),
+                "Scroll result is too small: {result_len} of {}",
                 self.args.search_limit
             ));
         }
 
         let server_timing = Timing {
             delay_millis,
-            value: res.time as f32,
+            value: server_time as f32,
         };
 
         let rps_timing = Timing {
