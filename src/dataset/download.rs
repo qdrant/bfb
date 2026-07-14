@@ -186,8 +186,7 @@ mod tests {
     #[test]
     fn downloads_remote_file_once_and_caches_it() {
         let body = b"fbin-payload".to_vec();
-        // Only one request is ever served: a second download attempt would hang
-        // the accept loop rather than succeed, proving the cache is used.
+        // Only one request is served; if the cache is not used, the second call will fail.
         let (url, server) = crate::dataset::test_http::serve_once(body.clone(), 1);
 
         let dir = tempfile::tempdir().unwrap();
