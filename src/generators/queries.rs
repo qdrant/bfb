@@ -23,7 +23,7 @@ use crate::config::{
     DatatypeKind, DistributionKind, FileStrategy, PayloadSourceKind, PayloadType, SparseKind,
     VectorSource,
 };
-use crate::dataset::{DatasetReader, default_datasets_dir};
+use crate::dataset::{DatasetReader, default_datasets_dir, ensure_local_file};
 use crate::fbin_reader::FBinReader;
 
 const GEO_CENTER_LAT: f64 = 52.52437;
@@ -266,7 +266,8 @@ impl ConfigSearchGenerator {
                 } => {
                     let (dense_reader, query_dataset) = match source {
                         VectorSource::File { path, .. } => {
-                            (Some(FBinReader::new(Path::new(path))), None)
+                            let local = ensure_local_file(datasets_dir, path)?;
+                            (Some(FBinReader::new(&local)?), None)
                         }
                         VectorSource::Dataset { dataset } => {
                             (None, Some(Self::open_query_dataset(dataset, datasets_dir)?))

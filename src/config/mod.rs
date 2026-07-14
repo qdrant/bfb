@@ -74,13 +74,7 @@ impl UploadConfig {
                 bail!("duplicate vector name {n:?}");
             }
             match &v.source {
-                VectorSource::File { path, .. }
-                    if !path.starts_with("s3://")
-                        && !path.starts_with("http")
-                        && !Path::new(path).exists() =>
-                {
-                    bail!("vector source file not found: {path}");
-                }
+                VectorSource::File { path, .. } => validate_file_source_path(path)?,
                 VectorSource::Dataset { dataset } => dataset.validate_inline()?,
                 _ => {}
             }
@@ -179,6 +173,26 @@ impl UploadConfig {
 
         Ok(())
     }
+}
+
+/// Validate a `source: {type: file}` path. `http(s)://` URLs are fetched and
+/// cached on first use; local paths must already exist. Other URL schemes are
+/// rejected up front rather than failing when the file is opened.
+pub(crate) fn validate_file_source_path(path: &str) -> Result<()> {
+    if crate::dataset::is_remote_url(path) {
+        return Ok(());
+    }
+    if let Some((scheme, _)) = path.split_once("://") {
+        bail!(
+            "vector source path uses unsupported scheme {scheme:?}: {path}\n\
+             `type: file` accepts a local path or an http(s):// URL. \
+             For data hosted on S3, use its https:// URL, or a `type: dataset` source."
+        );
+    }
+    if !Path::new(path).exists() {
+        bail!("vector source file not found: {path}");
+    }
+    Ok(())
 }
 
 // --------------------------- serde helpers -------------------------------
@@ -469,6 +483,50 @@ collection:
       bogus: 1
 "#;
         assert!(serde_yaml::from_str::<UploadConfig>(yaml).is_err());
+    }
+
+    fn config_with_vector_path(path: &str) -> UploadConfig {
+        let yaml = format!(
+            r#"
+collection:
+  vectors:
+    - size: 128
+      source:
+        type: file
+        path: {path}
+"#
+        );
+        serde_yaml::from_str(&yaml).unwrap()
+    }
+
+    #[test]
+    fn accepts_http_vector_source_path() {
+        // Remote URLs are fetched lazily, so validation must not stat them.
+        config_with_vector_path("https://example.com/vectors.fbin")
+            .validate()
+            .unwrap();
+        config_with_vector_path("http://example.com/vectors.fbin")
+            .validate()
+            .unwrap();
+    }
+
+    #[test]
+    fn rejects_s3_vector_source_path() {
+        let err = config_with_vector_path("s3://bucket/vectors.fbin")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unsupported scheme"), "{err}");
+        assert!(err.contains("s3"), "{err}");
+    }
+
+    #[test]
+    fn rejects_missing_local_vector_source_path() {
+        let err = config_with_vector_path("/nonexistent/vectors.fbin")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not found"), "{err}");
     }
 
     #[test]

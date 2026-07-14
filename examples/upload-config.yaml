@@ -35,7 +35,9 @@ collection:
     - name: text-emb
       size: 384
       source: random
-      # Load real vectors from an .fbin file instead:
+      # Load real vectors from an .fbin file instead. `path` may be a local path
+      # or an http(s):// URL, which is downloaded once and cached under
+      # $BFB_DATASETS_DIR (default ./datasets).
       # source:
       #   type: file
       #   path: /data/text-emb.fbin
