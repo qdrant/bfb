@@ -64,8 +64,181 @@ struct RequestState {
     /// Reference dataset used as the query source (dense or sparse).
     query_dataset: Option<QueryDataset>,
     sparse_zipf: Option<rand_distr::Zipf<f64>>,
+    filters: FilterGenerator,
+}
+
+/// Builds a random payload filter from a list of [`FilterPayloadConfig`].
+///
+/// Shared by `bfb search --file` and `bfb scroll --file`: the filter half of a
+/// request is the same in both, only the query half differs.
+pub struct FilterGenerator {
+    filters: Vec<FilterPayloadConfig>,
+    /// Parallel to `filters`; `Some` only for zipf-distributed text fields.
     text_zipf: Vec<Option<rand_distr::Zipf<f64>>>,
+    /// Parallel to `filters`; `Some` only for clustered geo fields.
     geo_clusters: Vec<Option<Vec<(f64, f64)>>>,
+}
+
+impl FilterGenerator {
+    pub fn new(filters: &[FilterPayloadConfig], rng: &mut impl Rng) -> Self {
+        FilterGenerator {
+            filters: filters.to_vec(),
+            text_zipf: filters.iter().map(Self::maybe_text_zipf).collect(),
+            geo_clusters: filters
+                .iter()
+                .map(|f| Self::maybe_geo_clusters(f, rng))
+                .collect(),
+        }
+    }
+
+    fn maybe_text_zipf(filter: &FilterPayloadConfig) -> Option<rand_distr::Zipf<f64>> {
+        (filter.kind == PayloadType::Text && filter.source.distribution == DistributionKind::Zipf)
+            .then(|| create_zipf(filter.source.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE)))
+    }
+
+    fn maybe_geo_clusters(
+        filter: &FilterPayloadConfig,
+        rng: &mut impl Rng,
+    ) -> Option<Vec<(f64, f64)>> {
+        (filter.kind == PayloadType::Geo && filter.source.kind == PayloadSourceKind::RandomClusters)
+            .then(|| {
+                let count = filter.source.clusters.unwrap_or(10);
+                (0..count)
+                    .map(|_| {
+                        (
+                            GEO_CENTER_LAT + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                            GEO_CENTER_LON + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                        )
+                    })
+                    .collect()
+            })
+    }
+
+    /// Materialize one random filter. `None` when no filters are configured.
+    pub fn build(&self, rng: &mut impl Rng) -> Option<Filter> {
+        if self.filters.is_empty() {
+            return None;
+        }
+
+        let mut filter = Filter {
+            should: vec![],
+            must: vec![],
+            must_not: vec![],
+            min_should: None,
+        };
+
+        for (i, fp) in self.filters.iter().enumerate() {
+            let src = &fp.source;
+            match fp.kind {
+                PayloadType::Keyword => {
+                    let card = src.cardinality.unwrap_or(100);
+                    let mult = src.length_multiplier.unwrap_or(1);
+                    let condition = if let Some(match_any) = fp.match_any {
+                        MatchValue::Keywords(RepeatedStrings {
+                            strings: (0..match_any)
+                                .map(|_| random_keyword(rng, card, mult))
+                                .collect(),
+                        })
+                    } else {
+                        MatchValue::Keyword(random_keyword(rng, card, mult))
+                    };
+                    filter.must.push(Condition::matches(&fp.name, condition));
+                }
+                PayloadType::Integer => {
+                    let min = src.min.unwrap_or(0.0) as i64;
+                    let max = src.max.unwrap_or(100.0) as i64;
+                    let max = max.max(min + 1);
+                    let rand_int = rng.random_range(min..max);
+                    filter.must.push(Condition::range(
+                        &fp.name,
+                        Range {
+                            gt: None,
+                            gte: Some(rand_int as f64),
+                            lt: None,
+                            lte: None,
+                        },
+                    ));
+                }
+                PayloadType::Float => {
+                    filter.must.push(Condition::range(
+                        &fp.name,
+                        Range {
+                            gt: None,
+                            gte: Some(0.0),
+                            lt: None,
+                            lte: None,
+                        },
+                    ));
+                }
+                PayloadType::Bool => {
+                    filter.must.push(Condition::matches(
+                        &fp.name,
+                        rng.random_bool(src.true_ratio.unwrap_or(0.5)),
+                    ));
+                }
+                PayloadType::Uuid => {
+                    filter.must.push(Condition::matches(
+                        &fp.name,
+                        uuid::Uuid::new_v4().to_string(),
+                    ));
+                }
+                PayloadType::Geo => {
+                    let (lat, lon) = match self.geo_clusters.get(i).and_then(|c| c.as_ref()) {
+                        Some(centers) => {
+                            let &(clat, clon) = centers.choose(rng).unwrap();
+                            (
+                                clat + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                                clon + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                            )
+                        }
+                        None => (
+                            GEO_CENTER_LAT + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                            GEO_CENTER_LON + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
+                        ),
+                    };
+                    let radius = rng.random_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
+                    filter.must.push(Condition::geo_radius(
+                        &fp.name,
+                        GeoRadius {
+                            center: Some(GeoPoint { lat, lon }),
+                            radius: radius as f32,
+                        },
+                    ));
+                }
+                PayloadType::Text => {
+                    let min_len = src.min_length.unwrap_or(2);
+                    let max_len = src.max_length.unwrap_or(min_len).max(min_len);
+                    let len = if max_len > min_len {
+                        rng.random_range(min_len..=max_len)
+                    } else {
+                        min_len
+                    };
+                    let text = match self.text_zipf.get(i).and_then(|z| z.as_ref()) {
+                        Some(zipf) => random_text(rng, len, zipf),
+                        None => (0..len)
+                            .map(|_| {
+                                format!(
+                                    "word_{}",
+                                    rng.random_range(
+                                        0..src.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE)
+                                    )
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    };
+                    filter.must.push(Condition::matches_text(&fp.name, text));
+                }
+                PayloadType::Datetime => {}
+            }
+        }
+
+        if filter.must.is_empty() {
+            None
+        } else {
+            Some(filter)
+        }
+    }
 }
 
 /// Generates search queries from a parsed YAML [`SearchConfig`].
@@ -128,18 +301,11 @@ impl ConfigSearchGenerator {
                 }
             };
 
-            let text_zipf = filters.iter().map(Self::maybe_text_zipf).collect();
-            let geo_clusters = filters
-                .iter()
-                .map(|f| Self::maybe_geo_clusters(f, &mut rng))
-                .collect();
-
             per_request.push(RequestState {
                 dense_reader,
                 query_dataset,
                 sparse_zipf,
-                text_zipf,
-                geo_clusters,
+                filters: FilterGenerator::new(filters, &mut rng),
             });
         }
 
@@ -171,29 +337,6 @@ impl ConfigSearchGenerator {
         })
     }
 
-    fn maybe_text_zipf(filter: &FilterPayloadConfig) -> Option<rand_distr::Zipf<f64>> {
-        (filter.kind == PayloadType::Text && filter.source.distribution == DistributionKind::Zipf)
-            .then(|| create_zipf(filter.source.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE)))
-    }
-
-    fn maybe_geo_clusters(
-        filter: &FilterPayloadConfig,
-        rng: &mut impl Rng,
-    ) -> Option<Vec<(f64, f64)>> {
-        (filter.kind == PayloadType::Geo && filter.source.kind == PayloadSourceKind::RandomClusters)
-            .then(|| {
-                let count = filter.source.clusters.unwrap_or(10);
-                (0..count)
-                    .map(|_| {
-                        (
-                            GEO_CENTER_LAT + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                            GEO_CENTER_LON + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                        )
-                    })
-                    .collect()
-            })
-    }
-
     /// Pick a random request template and materialize one query from it.
     #[allow(dead_code)]
     pub fn make_query(&self, req_id: usize, rng: &mut impl Rng) -> GeneratedQuery {
@@ -221,7 +364,7 @@ impl ConfigSearchGenerator {
                 size,
                 datatype,
                 source,
-                filters,
+                filters: _,
             } => {
                 let (vector, expected_ids) = if let Some(query_dataset) = &state.query_dataset {
                     Self::read_dense_query(query_dataset)
@@ -239,14 +382,14 @@ impl ConfigSearchGenerator {
                 GeneratedQuery {
                     dense: Some((vector, using.clone())),
                     sparse: None,
-                    filter: self.build_filter(rng, filters, state),
+                    filter: state.filters.build(rng),
                     expected_ids,
                 }
             }
             SearchRequestConfig::Sparse {
                 using,
                 source,
-                filters,
+                filters: _,
             } => {
                 let ((values, indices), expected_ids) =
                     if let Some(query_dataset) = &state.query_dataset {
@@ -260,7 +403,7 @@ impl ConfigSearchGenerator {
                 GeneratedQuery {
                     dense: None,
                     sparse: Some((values, indices, using.clone())),
-                    filter: self.build_filter(rng, filters, state),
+                    filter: state.filters.build(rng),
                     expected_ids,
                 }
             }
@@ -348,136 +491,6 @@ impl ConfigSearchGenerator {
                 let (indices, values): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
                 (values, SparseIndices { data: indices })
             }
-        }
-    }
-
-    fn build_filter(
-        &self,
-        rng: &mut impl Rng,
-        filters: &[FilterPayloadConfig],
-        state: &RequestState,
-    ) -> Option<Filter> {
-        if filters.is_empty() {
-            return None;
-        }
-
-        let mut filter = Filter {
-            should: vec![],
-            must: vec![],
-            must_not: vec![],
-            min_should: None,
-        };
-
-        for (i, fp) in filters.iter().enumerate() {
-            let src = &fp.source;
-            match fp.kind {
-                PayloadType::Keyword => {
-                    let card = src.cardinality.unwrap_or(100);
-                    let mult = src.length_multiplier.unwrap_or(1);
-                    let condition = if let Some(match_any) = fp.match_any {
-                        MatchValue::Keywords(RepeatedStrings {
-                            strings: (0..match_any)
-                                .map(|_| random_keyword(rng, card, mult))
-                                .collect(),
-                        })
-                    } else {
-                        MatchValue::Keyword(random_keyword(rng, card, mult))
-                    };
-                    filter.must.push(Condition::matches(&fp.name, condition));
-                }
-                PayloadType::Integer => {
-                    let min = src.min.unwrap_or(0.0) as i64;
-                    let max = src.max.unwrap_or(100.0) as i64;
-                    let max = max.max(min + 1);
-                    let rand_int = rng.random_range(min..max);
-                    filter.must.push(Condition::range(
-                        &fp.name,
-                        Range {
-                            gt: None,
-                            gte: Some(rand_int as f64),
-                            lt: None,
-                            lte: None,
-                        },
-                    ));
-                }
-                PayloadType::Float => {
-                    filter.must.push(Condition::range(
-                        &fp.name,
-                        Range {
-                            gt: None,
-                            gte: Some(0.0),
-                            lt: None,
-                            lte: None,
-                        },
-                    ));
-                }
-                PayloadType::Bool => {
-                    filter.must.push(Condition::matches(
-                        &fp.name,
-                        rng.random_bool(src.true_ratio.unwrap_or(0.5)),
-                    ));
-                }
-                PayloadType::Uuid => {
-                    filter.must.push(Condition::matches(
-                        &fp.name,
-                        uuid::Uuid::new_v4().to_string(),
-                    ));
-                }
-                PayloadType::Geo => {
-                    let (lat, lon) = match state.geo_clusters.get(i).and_then(|c| c.as_ref()) {
-                        Some(centers) => {
-                            let &(clat, clon) = centers.choose(rng).unwrap();
-                            (
-                                clat + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                                clon + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                            )
-                        }
-                        None => (
-                            GEO_CENTER_LAT + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                            GEO_CENTER_LON + rng.random_range(-GEO_SPREAD_DEG..GEO_SPREAD_DEG),
-                        ),
-                    };
-                    let radius = rng.random_range(GEO_RADIUS_METERS_MIN..GEO_RADIUS_METERS_MAX);
-                    filter.must.push(Condition::geo_radius(
-                        &fp.name,
-                        GeoRadius {
-                            center: Some(GeoPoint { lat, lon }),
-                            radius: radius as f32,
-                        },
-                    ));
-                }
-                PayloadType::Text => {
-                    let min_len = src.min_length.unwrap_or(2);
-                    let max_len = src.max_length.unwrap_or(min_len).max(min_len);
-                    let len = if max_len > min_len {
-                        rng.random_range(min_len..=max_len)
-                    } else {
-                        min_len
-                    };
-                    let text = match state.text_zipf.get(i).and_then(|z| z.as_ref()) {
-                        Some(zipf) => random_text(rng, len, zipf),
-                        None => (0..len)
-                            .map(|_| {
-                                format!(
-                                    "word_{}",
-                                    rng.random_range(
-                                        0..src.vocab_size.unwrap_or(DEFAULT_VOCAB_SIZE)
-                                    )
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                    };
-                    filter.must.push(Condition::matches_text(&fp.name, text));
-                }
-                PayloadType::Datetime => {}
-            }
-        }
-
-        if filter.must.is_empty() {
-            None
-        } else {
-            Some(filter)
         }
     }
 }

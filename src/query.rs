@@ -8,6 +8,7 @@ use qdrant_client::qdrant::ScrollPointsBuilder;
 
 use crate::args::Args;
 use crate::client::create_clients;
+use crate::config::scroll::ScrollConfig;
 use crate::config::search::SearchConfig;
 use crate::generators::random::UUID_PAYLOAD_KEY;
 use crate::results::QueryPhase;
@@ -40,6 +41,17 @@ pub async fn scroll(args: &Args, stopped: Arc<AtomicBool>) -> Result<QueryPhase>
     let uuids = get_uuids(args, &clients[0]).await?;
 
     let scroller = ScrollProcessor::new(args.clone(), stopped.clone(), clients, uuids);
+    process(args, stopped, scroller).await
+}
+
+/// YAML-config-driven scroll (`bfb scroll --file config.yaml`).
+pub async fn scroll_with_config(
+    args: &Args,
+    config: &ScrollConfig,
+    stopped: Arc<AtomicBool>,
+) -> Result<QueryPhase> {
+    let clients = create_clients(args)?;
+    let scroller = ScrollProcessor::from_config(args.clone(), config, stopped.clone(), clients);
     process(args, stopped, scroller).await
 }
 

@@ -33,6 +33,30 @@ async fn run_wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<IndexPh
     Ok(IndexPhase { wait_secs })
 }
 
+/// `bfb scroll --file config.yaml`: YAML-config-driven scroll.
+async fn run_scroll(
+    args: Args,
+    scroll_args: args::ScrollArgs,
+    stopped: Arc<AtomicBool>,
+) -> Result<()> {
+    let config = config::scroll::load(&scroll_args.file)?;
+
+    // `--rps` fires on a timer with no concurrency cap, so requests would race
+    // over the walks and keep restarting them.
+    if config.mode == config::scroll::ScrollMode::Sequential && args.rps.is_some() {
+        anyhow::bail!(
+            "`mode: sequential` walks one cursor per `--parallel` worker; it cannot be combined with `--rps`"
+        );
+    }
+
+    let mut args = args;
+    args.collection_name = config.collection.name.clone();
+
+    let mut results = BenchmarkResults::new(&args, Some(scroll_args.file.clone()));
+    results.results.scroll = Some(query::scroll_with_config(&args, &config, stopped).await?);
+    results.write_if_requested(&args)
+}
+
 /// `bfb search --file config.yaml`: YAML-config-driven search.
 async fn run_search(
     args: Args,
@@ -91,12 +115,12 @@ async fn run_upload(
 }
 
 async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
-    if let Some(Command::Search(search_args)) = args.command.clone() {
-        return run_search(args, search_args, stopped).await;
-    }
-
-    if let Some(Command::Upload(upload_args)) = args.command.clone() {
-        return run_upload(args, upload_args, stopped).await;
+    match args.command.clone() {
+        Some(Command::Search(search_args)) => return run_search(args, search_args, stopped).await,
+        Some(Command::Upload(upload_args)) => return run_upload(args, upload_args, stopped).await,
+        Some(Command::Scroll(scroll_args)) => return run_scroll(args, scroll_args, stopped).await,
+        // `Schema` is handled before the runtime starts; `None` falls through.
+        Some(Command::Schema) | None => {}
     }
 
     if args.search_quality && args.search_exact {

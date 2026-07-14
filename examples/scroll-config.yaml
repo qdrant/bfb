@@ -1,0 +1,46 @@
+# Example bfb scroll config.
+#
+#   bfb scroll --file examples/scroll-config.yaml -n 50k -p 8 --search-limit 10
+#
+# The YAML describes the *shape* of scroll requests (collection + payload
+# filters); the CLI flags control *how* the benchmark runs (request count,
+# parallelism, limit, …). One template is picked at random per request.
+#
+# Pair this with examples/upload-config.yaml: upload first, then scroll the same
+# collection. The flag-driven path (`bfb --scroll --keywords 100`) is unchanged.
+
+collection:
+  name: benchmark
+
+# How a request traverses the collection. `mode` and `filters` are orthogonal:
+#
+#   scroll      fetch the first page matching the filter; every request starts
+#               at the top (default)
+#   sequential  walk the collection — each request resumes from the previous
+#               page's cursor, wrapping once exhausted. One walk per `-p` worker
+#   sample      a vector-less `query` with `sample: random`
+mode: scroll
+
+requests:
+  # Unfiltered scroll over the whole collection.
+  - filters: []
+
+  # Scroll points matching a random `color` keyword.
+  - filters:
+      - name: color
+        type: keyword
+        source:
+          type: random
+          cardinality: 100
+
+  # Two conditions, ANDed. The integer condition is one-sided — `price >= x`,
+  # where x is drawn at random from [min, max) per request — not a bounded
+  # [min, max] range. Widen the gap between min and max to make the filter more
+  # selective on average.
+  - filters:
+      - name: color
+        type: keyword
+        source: { type: random, cardinality: 100 }
+      - name: price
+        type: integer
+        source: { type: random, min: 0, max: 1000000 }
