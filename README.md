@@ -141,7 +141,7 @@ requests:
 | mode | request |
 | --- | --- |
 | `scroll` | first page matching the filter; every request starts at the top (default) |
-| `sequential` | cursor walk — each request resumes from the previous page, wrapping once exhausted. One walk per `-p` worker |
+| `sequential` | cursor walk — each request resumes from the previous page. Walks open at a random point, so concurrent ones cover different stretches instead of all re-reading the first page |
 | `sample` | a vector-less `query` with `sample: random` |
 
 Filter entries use the same payload `type` / `source` vocabulary as the upload
