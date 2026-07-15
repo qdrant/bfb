@@ -54,22 +54,42 @@ fn rest_uri(args: &Args) -> String {
 /// Snapshot the optimizations that have already completed, so the ones this
 /// phase triggers can be told apart from them.
 ///
-/// Best-effort, like the fetch itself: on failure we fall back to an empty
-/// baseline, which over-counts rather than failing the run.
+/// Best-effort: on failure we warn and fall back to an empty baseline, which
+/// over-counts (may attribute pre-existing optimizations to this phase) rather
+/// than failing the run.
 async fn optimization_baseline(args: &Args) -> optimizations::Baseline {
     if args.skip_server_stats {
         return optimizations::Baseline::none();
     }
     let (rest_uri, collection) = (rest_uri(args), args.collection_name.clone());
     let api_key = std::env::var("QDRANT_API_KEY").ok();
+    let timeout = optimization_http_timeout(args);
 
-    tokio::task::spawn_blocking(move || {
-        optimizations::baseline(&rest_uri, &collection, api_key.as_deref())
+    let captured = tokio::task::spawn_blocking(move || {
+        optimizations::baseline(&rest_uri, &collection, api_key.as_deref(), timeout)
     })
-    .await
-    .ok()
-    .and_then(Result::ok)
-    .unwrap_or_default()
+    .await;
+
+    match captured {
+        Ok(Ok(baseline)) => baseline,
+        Ok(Err(err)) => {
+            eprintln!("Warning: could not capture optimization baseline: {err:#}");
+            eprintln!("         (stage attribution may include pre-existing optimizations)");
+            optimizations::Baseline::none()
+        }
+        Err(err) => {
+            eprintln!("Warning: optimization-baseline task failed: {err}");
+            eprintln!("         (stage attribution may include pre-existing optimizations)");
+            optimizations::Baseline::none()
+        }
+    }
+}
+
+/// The bound applied to the best-effort optimization REST calls: the CLI
+/// `--timeout` if set, otherwise `optimizations`' own fallback.
+fn optimization_http_timeout(args: &Args) -> Option<std::time::Duration> {
+    args.timeout
+        .map(|secs| std::time::Duration::from_secs(secs as u64))
 }
 
 /// Read per-stage optimization timings from `GET /collections/{c}/optimizations`.
@@ -87,10 +107,11 @@ async fn fetch_optimization_stages(
 
     let (rest_uri, collection) = (rest_uri(args), args.collection_name.clone());
     let api_key = std::env::var("QDRANT_API_KEY").ok();
+    let timeout = optimization_http_timeout(args);
 
     // `ureq` is blocking; keep it off the async worker threads.
     let fetched = tokio::task::spawn_blocking(move || {
-        optimizations::fetch(&rest_uri, &collection, api_key.as_deref(), &baseline)
+        optimizations::fetch(&rest_uri, &collection, api_key.as_deref(), &baseline, timeout)
     })
     .await;
 

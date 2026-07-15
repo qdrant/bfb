@@ -10,6 +10,7 @@
 //! optimizations run.
 
 use std::collections::{BTreeMap, HashSet};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,9 @@ use serde::{Deserialize, Serialize};
 /// Server default for `?completed_limit=`; also the depth of the server's
 /// completed-optimization ring buffer.
 const DEFAULT_COMPLETED_LIMIT: usize = 16;
+
+/// Bound the REST call when `--timeout` is unset; `ureq` applies none by default.
+const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ------------------------- wire types (server shape) ----------------------
 
@@ -243,8 +247,13 @@ impl Baseline {
 }
 
 /// Record which optimizations have already completed, to exclude them later.
-pub fn baseline(rest_url: &str, collection: &str, api_key: Option<&str>) -> Result<Baseline> {
-    let response = get(rest_url, collection, api_key)?;
+pub fn baseline(
+    rest_url: &str,
+    collection: &str,
+    api_key: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<Baseline> {
+    let response = get(rest_url, collection, api_key, timeout)?;
     Ok(Baseline(
         response
             .completed
@@ -262,18 +271,28 @@ pub fn fetch(
     collection: &str,
     api_key: Option<&str>,
     baseline: &Baseline,
+    timeout: Option<Duration>,
 ) -> Result<OptimizationsReport> {
-    let response = get(rest_url, collection, api_key)?;
+    let response = get(rest_url, collection, api_key, timeout)?;
     Ok(OptimizationsReport::from_response(&response, baseline))
 }
 
-fn get(rest_url: &str, collection: &str, api_key: Option<&str>) -> Result<OptimizationsResponse> {
+fn get(
+    rest_url: &str,
+    collection: &str,
+    api_key: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<OptimizationsResponse> {
     let url = format!(
         "{}/collections/{collection}/optimizations?with=completed&completed_limit={DEFAULT_COMPLETED_LIMIT}",
         rest_url.trim_end_matches('/')
     );
 
-    let agent = ureq::Agent::new_with_defaults();
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .timeout_global(Some(timeout.unwrap_or(DEFAULT_HTTP_TIMEOUT)))
+            .build(),
+    );
     let mut request = agent.get(&url);
     if let Some(key) = api_key {
         request = request.header("api-key", key);
