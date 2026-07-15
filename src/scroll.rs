@@ -49,9 +49,10 @@ pub struct ScrollProcessor {
     stats: Mutex<ScrollStats>,
     filters: Filters,
     mode: ScrollMode,
-    /// `Sequential` only: one walk per in-flight slot, so each of the
-    /// `--parallel` workers walks its own stretch of the collection.
-    walks: Vec<Mutex<Option<Walk>>>,
+    /// `Sequential` only: a pool of walks in progress. A request checks one out for
+    /// the duration of its scroll and returns it advanced, so a walk is never shared.
+    /// The pool sizes itself: with N requests in flight there are at most N walks.
+    walks: Mutex<Vec<Walk>>,
 }
 
 impl ScrollProcessor {
@@ -105,10 +106,6 @@ impl ScrollProcessor {
         filters: Filters,
         mode: ScrollMode,
     ) -> Self {
-        let walks = (0..args.parallel.max(1))
-            .map(|_| Mutex::new(None))
-            .collect();
-
         ScrollProcessor {
             args,
             stopped,
@@ -121,7 +118,7 @@ impl ScrollProcessor {
             stats: Mutex::new(ScrollStats::default()),
             filters,
             mode,
-            walks,
+            walks: Mutex::new(Vec::new()),
         }
     }
 
@@ -219,9 +216,60 @@ impl ScrollProcessor {
         Ok((res.result.len(), res.time))
     }
 
+    /// One random point matching the filter, used to seed a walk.
+    async fn random_point(
+        &self,
+        args: &Args,
+        filter: Option<qdrant_client::qdrant::Filter>,
+    ) -> Result<Option<PointId>, anyhow::Error> {
+        let mut request_builder = QueryPointsBuilder::new(self.args.collection_name.clone())
+            .query(Query::new_sample(Sample::Random))
+            .limit(1)
+            .with_payload(false)
+            .with_vectors(false);
+
+        if let Some(filter) = filter {
+            request_builder = request_builder.filter(filter);
+        }
+
+        if let Some(read_consistency) = self.args.read_consistency {
+            request_builder = request_builder.read_consistency(read_consistency);
+        }
+
+        if let Some(timeout) = self.args.timeout {
+            request_builder = request_builder.timeout(timeout as u64);
+        }
+
+        let request = request_builder.build();
+        let res =
+            retry_with_clients(&self.clients, args, |client| client.query(request.clone())).await?;
+
+        Ok(res.result.first().and_then(|point| point.id.clone()))
+    }
+
+    /// Check out a walk in progress, or open a new one at a random point. Walks start
+    /// at random offsets so that concurrent ones cover different stretches of the
+    /// collection: seeded from the top they would all re-read the same pages.
+    async fn acquire_walk(
+        &self,
+        args: &Args,
+        filter: Option<qdrant_client::qdrant::Filter>,
+    ) -> Result<(Option<qdrant_client::qdrant::Filter>, Option<PointId>), anyhow::Error> {
+        // Bind before the `if let` so the guard is dropped before the await below.
+        let resumed = self.walks.lock().unwrap().pop();
+        if let Some(walk) = resumed {
+            // A walk in progress keeps its own filter: the cursor only means
+            // anything against the query that produced it.
+            return Ok((walk.filter, Some(walk.offset)));
+        }
+
+        let offset = self.random_point(args, filter.clone()).await?;
+        Ok((filter, offset))
+    }
+
     pub async fn scroll(
         &self,
-        req_id: usize,
+        _req_id: usize,
         args: &Args,
         progress_bar: &ProgressBar,
     ) -> Result<(), anyhow::Error> {
@@ -229,9 +277,17 @@ impl ScrollProcessor {
             return Ok(());
         }
 
-        let start = std::time::Instant::now();
         let mut rng = rand::rng();
         let filter = self.build_filter(&mut rng, args);
+
+        // Opening a walk costs a seeding query. That is setup, so it is resolved
+        // before the timer starts rather than charged to the request.
+        let walk = match self.mode {
+            ScrollMode::Sequential => Some(self.acquire_walk(args, filter.clone()).await?),
+            _ => None,
+        };
+
+        let start = std::time::Instant::now();
 
         let (result_len, server_time) = match self.mode {
             ScrollMode::Sample => self.sample(args, filter).await?,
@@ -240,17 +296,14 @@ impl ScrollProcessor {
                 (len, time)
             }
             ScrollMode::Sequential => {
-                let slot = req_id % self.walks.len();
-                // A walk in progress keeps its own filter; the fresh one is only
-                // used to start a new walk.
-                let (filter, offset) = match self.walks[slot].lock().unwrap().take() {
-                    Some(walk) => (walk.filter, Some(walk.offset)),
-                    None => (filter, None),
-                };
+                let (filter, offset) = walk.expect("sequential acquires its walk above");
 
                 let (len, time, next) = self.scroll_cursor(args, filter.clone(), offset).await?;
-                // No next page: leave the slot empty so the walk restarts from the top.
-                *self.walks[slot].lock().unwrap() = next.map(|offset| Walk { filter, offset });
+                // Return the walk advanced. A walk that ran off the end is not returned:
+                // the next request opens a fresh one elsewhere instead of replaying it.
+                if let Some(offset) = next {
+                    self.walks.lock().unwrap().push(Walk { filter, offset });
+                }
                 (len, time)
             }
         };

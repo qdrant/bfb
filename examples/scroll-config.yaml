@@ -17,7 +17,8 @@ collection:
 #   scroll      fetch the first page matching the filter; every request starts
 #               at the top (default)
 #   sequential  walk the collection — each request resumes from the previous
-#               page's cursor, wrapping once exhausted. One walk per `-p` worker
+#               page's cursor. Walks open at a random point, so concurrent ones
+#               cover different stretches rather than all re-reading page one
 #   sample      a vector-less `query` with `sample: random`
 mode: scroll
 
