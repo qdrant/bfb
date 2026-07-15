@@ -111,7 +111,13 @@ async fn fetch_optimization_stages(
 
     // `ureq` is blocking; keep it off the async worker threads.
     let fetched = tokio::task::spawn_blocking(move || {
-        optimizations::fetch(&rest_uri, &collection, api_key.as_deref(), &baseline, timeout)
+        optimizations::fetch(
+            &rest_uri,
+            &collection,
+            api_key.as_deref(),
+            &baseline,
+            timeout,
+        )
     })
     .await;
 
