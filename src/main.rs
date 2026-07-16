@@ -34,10 +34,11 @@ async fn run_wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<IndexPh
     Ok(IndexPhase { wait_secs })
 }
 
-/// The REST base URL used for endpoints gRPC does not expose. Derived from
-/// `--uri` by mapping Qdrant's gRPC port to its REST one.
-fn rest_uri(args: &Args) -> String {
-    memory::rest_url_from_grpc(args.uri.first().expect("clap guarantees one --uri"))
+/// The bound applied to the best-effort memory REST call: the CLI `--timeout` if
+/// set, otherwise `memory`'s own fallback.
+fn memory_http_timeout(args: &Args) -> Option<std::time::Duration> {
+    args.timeout
+        .map(|secs| std::time::Duration::from_secs(secs as u64))
 }
 
 /// Sample memory and disk usage. Best-effort: a REST failure warns rather than
@@ -46,12 +47,27 @@ async fn fetch_memory(args: &Args) -> Option<memory::MemoryReport> {
     if args.skip_server_stats {
         return None;
     }
-    let (rest_uri, collection) = (rest_uri(args), args.collection_name.clone());
+    // Map every `--uri` to its REST port and try each in turn: the client spreads
+    // work across all URIs, so the first may be down while another is healthy.
+    let rest_uris: Vec<String> = args
+        .uri
+        .iter()
+        .map(|u| memory::rest_url_from_grpc(u))
+        .collect();
+    let collection = args.collection_name.clone();
     let api_key = std::env::var("QDRANT_API_KEY").ok();
+    let timeout = memory_http_timeout(args);
 
     // `ureq` is blocking; keep it off the async worker threads.
     let fetched = tokio::task::spawn_blocking(move || {
-        memory::fetch(&rest_uri, &collection, api_key.as_deref())
+        let mut last_err = None;
+        for rest_uri in &rest_uris {
+            match memory::fetch(rest_uri, &collection, api_key.as_deref(), timeout) {
+                Ok(report) => return Ok(report),
+                Err(err) => last_err = Some(err),
+            }
+        }
+        Err(last_err.expect("clap guarantees at least one --uri"))
     })
     .await;
 

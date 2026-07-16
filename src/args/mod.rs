@@ -47,7 +47,6 @@ pub struct Args {
     #[clap(long, default_value_t = false, global = true)]
     pub skip_server_stats: bool,
 
-
     /// Source of data to upload - fbin file. Random if not specified
     #[clap(long)]
     pub fbin: Option<String>,
