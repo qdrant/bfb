@@ -2,9 +2,13 @@
 //! `GET /telemetry`. REST-only, like [`crate::optimizations`].
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+/// Bound the REST calls when `--timeout` is unset; `ureq` applies none by default.
+const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Bytes held by one component, on disk and in RAM.
 ///
@@ -71,14 +75,19 @@ impl MemoryReport {
             mib(self.total.cached_bytes),
             mib(self.total.expected_cache_bytes),
         );
-        for vector in self.vectors.iter().chain(&self.sparse_vectors) {
+        for (kind, vector) in self
+            .vectors
+            .iter()
+            .map(|v| ("vector", v))
+            .chain(self.sparse_vectors.iter().map(|v| ("sparse vector", v)))
+        {
             let name = if vector.name.is_empty() {
                 "(default)"
             } else {
                 &vector.name
             };
             println!(
-                "vector {name}: storage {} disk / {} ram, index {} disk / {} ram",
+                "{kind} {name}: storage {} disk / {} ram, index {} disk / {} ram",
                 mib(vector.storage.disk_bytes),
                 mib(vector.storage.ram_bytes),
                 mib(vector.index.disk_bytes),
@@ -145,13 +154,25 @@ struct Telemetry {
 ///
 /// The process-wide `/telemetry` half is best-effort: it is unavailable when the
 /// server runs without jemalloc, and absent then rather than failing the sample.
-pub fn fetch(rest_url: &str, collection: &str, api_key: Option<&str>) -> Result<MemoryReport> {
+pub fn fetch(
+    rest_url: &str,
+    collection: &str,
+    api_key: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<MemoryReport> {
     let base = rest_url.trim_end_matches('/');
-    let memory: CollectionMemory =
-        get(&format!("{base}/collections/{collection}/memory"), api_key)?;
-    let process = get::<Telemetry>(&format!("{base}/telemetry?details_level=1"), api_key)
-        .ok()
-        .and_then(|telemetry| telemetry.memory);
+    let memory: CollectionMemory = get(
+        &format!("{base}/collections/{collection}/memory"),
+        api_key,
+        timeout,
+    )?;
+    let process = get::<Telemetry>(
+        &format!("{base}/telemetry?details_level=1"),
+        api_key,
+        timeout,
+    )
+    .ok()
+    .and_then(|telemetry| telemetry.memory);
 
     Ok(MemoryReport {
         total: memory.total,
@@ -164,8 +185,16 @@ pub fn fetch(rest_url: &str, collection: &str, api_key: Option<&str>) -> Result<
     })
 }
 
-fn get<T: serde::de::DeserializeOwned>(url: &str, api_key: Option<&str>) -> Result<T> {
-    let agent = ureq::Agent::new_with_defaults();
+fn get<T: serde::de::DeserializeOwned>(
+    url: &str,
+    api_key: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<T> {
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .timeout_global(Some(timeout.unwrap_or(DEFAULT_HTTP_TIMEOUT)))
+            .build(),
+    );
     let mut request = agent.get(url);
     if let Some(key) = api_key {
         request = request.header("api-key", key);

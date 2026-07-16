@@ -147,10 +147,11 @@ async fn fetch_memory(args: &Args) -> Option<memory::MemoryReport> {
     }
     let (rest_uri, collection) = (rest_uri(args), args.collection_name.clone());
     let api_key = std::env::var("QDRANT_API_KEY").ok();
+    let timeout = optimization_http_timeout(args);
 
     // `ureq` is blocking; keep it off the async worker threads.
     let fetched = tokio::task::spawn_blocking(move || {
-        memory::fetch(&rest_uri, &collection, api_key.as_deref())
+        memory::fetch(&rest_uri, &collection, api_key.as_deref(), timeout)
     })
     .await;
 
