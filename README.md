@@ -271,10 +271,7 @@ bfb -n 1M --search --json results.json
 }
 ```
 
-`config.num_vectors` is the point (or query) count the run was *asked* for, from
-`-n` or the YAML config — not what the collection turned out to hold. It is
-omitted entirely for phase-only commands like `bfb create-field-index`, which
-neither upload nor query.
+`config.num_vectors` is the point (or query) count the run was *asked* for, from `-n` (or the CLI default) — not what the collection turned out to hold. It is omitted entirely for phase-only commands like `bfb create-field-index`, which neither upload nor query.
 
 Phases that did not run are omitted: `bfb search --file …` yields only
 `results.search`, and `precision` appears only when accuracy was measured
