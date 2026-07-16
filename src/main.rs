@@ -15,7 +15,6 @@ mod config;
 mod dataset;
 mod fbin_reader;
 mod generators;
-mod optimizations;
 mod processor;
 mod query;
 mod results;
@@ -26,116 +25,12 @@ mod stats;
 mod upload;
 mod upsert;
 
-/// Wait for the index, then read the server's per-stage optimization timings.
-///
-/// `baseline` must have been captured *before* the work being timed started, so
-/// optimizations left over from an earlier phase are not attributed to this one.
-async fn wait_and_report_index(
-    args: &Args,
-    stopped: Arc<AtomicBool>,
-    baseline: optimizations::Baseline,
-) -> Result<IndexPhase> {
+/// Wait for the index and record how long it took.
+async fn run_wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<IndexPhase> {
     println!("Waiting for index to be ready...");
     let wait_secs = collection::wait_index(args, stopped).await?;
     println!("Index ready in {wait_secs} seconds");
-
-    Ok(IndexPhase {
-        wait_secs,
-        optimizations: fetch_optimization_stages(args, baseline).await,
-    })
-}
-
-/// The REST base URL used for endpoints gRPC does not expose. Derived from
-/// `--uri` by mapping Qdrant's gRPC port to its REST one.
-fn rest_uri(args: &Args) -> String {
-    optimizations::rest_url_from_grpc(args.uri.first().expect("clap guarantees one --uri"))
-}
-
-/// Snapshot the optimizations that have already completed, so the ones this
-/// phase triggers can be told apart from them.
-///
-/// Best-effort: on failure we warn and fall back to an empty baseline, which
-/// over-counts (may attribute pre-existing optimizations to this phase) rather
-/// than failing the run.
-async fn optimization_baseline(args: &Args) -> optimizations::Baseline {
-    if args.skip_server_stats {
-        return optimizations::Baseline::none();
-    }
-    let (rest_uri, collection) = (rest_uri(args), args.collection_name.clone());
-    let api_key = std::env::var("QDRANT_API_KEY").ok();
-    let timeout = optimization_http_timeout(args);
-
-    let captured = tokio::task::spawn_blocking(move || {
-        optimizations::baseline(&rest_uri, &collection, api_key.as_deref(), timeout)
-    })
-    .await;
-
-    match captured {
-        Ok(Ok(baseline)) => baseline,
-        Ok(Err(err)) => {
-            eprintln!("Warning: could not capture optimization baseline: {err:#}");
-            eprintln!("         (stage attribution may include pre-existing optimizations)");
-            optimizations::Baseline::none()
-        }
-        Err(err) => {
-            eprintln!("Warning: optimization-baseline task failed: {err}");
-            eprintln!("         (stage attribution may include pre-existing optimizations)");
-            optimizations::Baseline::none()
-        }
-    }
-}
-
-/// The bound applied to the best-effort optimization REST calls: the CLI
-/// `--timeout` if set, otherwise `optimizations`' own fallback.
-fn optimization_http_timeout(args: &Args) -> Option<std::time::Duration> {
-    args.timeout
-        .map(|secs| std::time::Duration::from_secs(secs as u64))
-}
-
-/// Read per-stage optimization timings from `GET /collections/{c}/optimizations`.
-///
-/// Best-effort: a benchmark that reached a green index has its headline number
-/// already, so a REST failure (wrong port, no permission, older server) warns
-/// rather than failing the run.
-async fn fetch_optimization_stages(
-    args: &Args,
-    baseline: optimizations::Baseline,
-) -> Option<optimizations::OptimizationsReport> {
-    if args.skip_server_stats {
-        return None;
-    }
-
-    let (rest_uri, collection) = (rest_uri(args), args.collection_name.clone());
-    let api_key = std::env::var("QDRANT_API_KEY").ok();
-    let timeout = optimization_http_timeout(args);
-
-    // `ureq` is blocking; keep it off the async worker threads.
-    let fetched = tokio::task::spawn_blocking(move || {
-        optimizations::fetch(
-            &rest_uri,
-            &collection,
-            api_key.as_deref(),
-            &baseline,
-            timeout,
-        )
-    })
-    .await;
-
-    match fetched {
-        Ok(Ok(report)) => {
-            report.print();
-            Some(report)
-        }
-        Ok(Err(err)) => {
-            eprintln!("Warning: could not read optimization stages: {err:#}");
-            eprintln!("         (pass --skip-server-stats to silence)");
-            None
-        }
-        Err(err) => {
-            eprintln!("Warning: optimization-stage task failed: {err}");
-            None
-        }
-    }
+    Ok(IndexPhase { wait_secs })
 }
 
 /// `bfb scroll --file config.yaml`: YAML-config-driven scroll.
@@ -207,17 +102,13 @@ async fn run_upload(
         collection::recreate_collection_from_config(&config, &args, stopped.clone()).await?;
     }
 
-    // Indexing can start during upload, so the baseline predates it.
-    let baseline = optimization_baseline(&args).await;
-
     if !args.skip_upload && !args.skip_setup {
         results.results.upload =
             Some(upload::upload_with_config(&args, &config, stopped.clone()).await?);
     }
 
     if !args.skip_wait_index && !args.skip_setup {
-        results.results.index =
-            Some(wait_and_report_index(&args, stopped.clone(), baseline).await?);
+        results.results.index = Some(run_wait_index(&args, stopped.clone()).await?);
     }
 
     results.write_if_requested(&args)
@@ -242,16 +133,12 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         collection::recreate_collection(&args, stopped.clone()).await?;
     }
 
-    // Indexing can start during upload, so the baseline predates it.
-    let baseline = optimization_baseline(&args).await;
-
     if !args.skip_upload && !args.skip_setup {
         results.results.upload = Some(upload::upload_data(&args, stopped.clone()).await?);
     }
 
     if !args.skip_wait_index && !args.skip_setup {
-        results.results.index =
-            Some(wait_and_report_index(&args, stopped.clone(), baseline).await?);
+        results.results.index = Some(run_wait_index(&args, stopped.clone()).await?);
     }
 
     if args.search || args.search_quality {

@@ -11,7 +11,6 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::args::Args;
-use crate::optimizations::OptimizationsReport;
 use crate::processor::Timing;
 
 /// Top-level document: `{ config: {...}, results: {...} }`.
@@ -88,13 +87,10 @@ pub struct UploadPhase {
     pub points_per_sec: f64,
 }
 
-/// Time spent waiting for the collection to report a green index, plus the
-/// server's own per-stage breakdown of the optimizations it ran.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+/// M2: time spent waiting for the collection to report a green index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IndexPhase {
     pub wait_secs: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub optimizations: Option<OptimizationsReport>,
 }
 
 /// A search or scroll phase: latency/throughput series plus their summaries.
@@ -289,10 +285,7 @@ mod tests {
     #[test]
     fn skipped_phases_are_omitted_from_json() {
         let results = PhaseResults {
-            index: Some(IndexPhase {
-                wait_secs: 1.5,
-                ..Default::default()
-            }),
+            index: Some(IndexPhase { wait_secs: 1.5 }),
             ..Default::default()
         };
         let json = serde_json::to_string(&results).unwrap();
@@ -338,10 +331,7 @@ mod tests {
     fn document_roundtrips() {
         let mut doc = doc(PhaseResults {
             upload: Some(UploadPhase::new(1.0, 100)),
-            index: Some(IndexPhase {
-                wait_secs: 0.5,
-                ..Default::default()
-            }),
+            index: Some(IndexPhase { wait_secs: 0.5 }),
             search: Some(phase(1.0)),
             scroll: None,
         });
@@ -397,10 +387,7 @@ mod tests {
     fn upload_only_run_emits_no_legacy_fields() {
         let mut doc = doc(PhaseResults {
             upload: Some(UploadPhase::new(1.0, 100)),
-            index: Some(IndexPhase {
-                wait_secs: 0.5,
-                ..Default::default()
-            }),
+            index: Some(IndexPhase { wait_secs: 0.5 }),
             ..Default::default()
         });
         doc.populate_legacy_fields();

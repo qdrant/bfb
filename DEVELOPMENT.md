@@ -13,7 +13,6 @@ src/
 ├── upsert.rs        # upsert request execution + timing
 ├── scroll.rs        # scroll benchmarking processor
 ├── query.rs         # search/scroll entry points
-├── optimizations.rs # per-stage indexing timings (REST /collections/{c}/optimizations)
 ├── processor.rs     # Processor trait + Timing measurement type
 ├── results.rs       # unified `{config, results}` document written by --json
 ├── stats.rs         # benchmark run loops (parallel/RPS), stats output, throttling
