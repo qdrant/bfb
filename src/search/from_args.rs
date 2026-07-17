@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
+use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
     PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder,
     QueryPointsBuilder, SearchParamsBuilder, SparseIndices, VectorInput,
@@ -164,6 +165,11 @@ impl SearchProcessor {
 
         if let Some(read_consistency) = self.args.read_consistency {
             request_builder = request_builder.read_consistency(read_consistency);
+        }
+
+        if let Some(shard_key) = &self.args.shard_key {
+            request_builder =
+                request_builder.shard_key_selector(vec![Key::Keyword(shard_key.clone())]);
         }
 
         request_builder
