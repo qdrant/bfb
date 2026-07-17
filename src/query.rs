@@ -5,6 +5,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::ScrollPointsBuilder;
+use qdrant_client::qdrant::shard_key::Key;
 
 use crate::args::Args;
 use crate::client::create_clients;
@@ -71,6 +72,9 @@ async fn get_uuids(args: &Args, client: &Qdrant) -> Result<Vec<String>> {
     let mut scroll_builder = ScrollPointsBuilder::new(&args.collection_name)
         .with_payload(true)
         .limit(args.num_vectors_or_default() as u32);
+    if let Some(shard_key) = &args.shard_key {
+        scroll_builder = scroll_builder.shard_key_selector(vec![Key::Keyword(shard_key.clone())]);
+    }
     if let Some(timeout) = args.timeout {
         scroll_builder = scroll_builder.timeout(timeout as u64);
     }
