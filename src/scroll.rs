@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
+use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{PointId, Query, QueryPointsBuilder, Sample, ScrollPointsBuilder};
 
 use rand::{Rng, RngExt};
@@ -174,6 +175,11 @@ impl ScrollProcessor {
             request_builder = request_builder.read_consistency(read_consistency);
         }
 
+        if let Some(shard_key) = &self.args.shard_key {
+            request_builder =
+                request_builder.shard_key_selector(vec![Key::Keyword(shard_key.clone())]);
+        }
+
         if let Some(timeout) = self.args.timeout {
             request_builder = request_builder.timeout(timeout as u64);
         }
@@ -205,6 +211,11 @@ impl ScrollProcessor {
             request_builder = request_builder.read_consistency(read_consistency);
         }
 
+        if let Some(shard_key) = &self.args.shard_key {
+            request_builder =
+                request_builder.shard_key_selector(vec![Key::Keyword(shard_key.clone())]);
+        }
+
         if let Some(timeout) = self.args.timeout {
             request_builder = request_builder.timeout(timeout as u64);
         }
@@ -234,6 +245,11 @@ impl ScrollProcessor {
 
         if let Some(read_consistency) = self.args.read_consistency {
             request_builder = request_builder.read_consistency(read_consistency);
+        }
+
+        if let Some(shard_key) = &self.args.shard_key {
+            request_builder =
+                request_builder.shard_key_selector(vec![Key::Keyword(shard_key.clone())]);
         }
 
         if let Some(timeout) = self.args.timeout {
