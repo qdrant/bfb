@@ -11,10 +11,16 @@ collection:
   id: integer                 # integer | uuid
   on_disk_payload: false
 
+  # Where the payload storage lives in RAM (Qdrant 1.19+). Supersedes
+  # `on_disk_payload`, which is still sent for older servers.
+  payload:
+    memory: cached            # cold | cached
+
   hnsw:
     m: 16
     ef_construct: 100
     on_disk: true
+    memory: cold              # cold | cached | pinned; supersedes `on_disk`
 
   optimizers:
     default_segment_number: 2
@@ -25,12 +31,14 @@ collection:
                               # turbo-1bit|turbo-1.5bit|turbo-2bit|turbo-4bit|
                               # product-x4|x8|x16|x32|x64
     always_ram: true
+    memory: pinned            # supersedes `always_ram`
 
   vectors:
     - name: image
       size: 1024
       distance: cosine        # cosine | dot | euclid | manhattan
-      datatype: float32       # float32 | float16 | uint8
+      datatype: float32       # float32 | float16 | uint8 | turbo4
+      memory: cached          # cold | cached (dense storage cannot be pinned)
       source: random
     - name: text-emb
       size: 384
@@ -45,6 +53,8 @@ collection:
 
   sparse_vectors:
     - name: bm25
+      memory: pinned              # keep the inverted index resident in RAM
+      modifier: idf               # none | idf; required by search `idf_corpus`
       source:
         type: random
         vocab_size: 100000
@@ -54,6 +64,10 @@ collection:
   fields:
     - name: color
       type: keyword
+      # Build the keyword index with prefix matching, so searches may use
+      # `match_prefix` filters on this field.
+      prefix: true
+      memory: cached
       source:
         type: random
         cardinality: 100

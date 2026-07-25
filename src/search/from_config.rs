@@ -7,8 +7,9 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
-    PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder,
-    QueryPointsBuilder, SearchParamsBuilder, SparseIndices, VectorInput,
+    IdfParamsBuilder, PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query,
+    QueryBatchPointsBuilder, QueryPointsBuilder, SearchParams, SearchParamsBuilder, SparseIndices,
+    VectorInput,
 };
 
 use super::{SearchStats, compare_batch_search_results, recall_against_ground_truth};
@@ -53,11 +54,18 @@ impl ConfigSearchProcessor {
     fn create_request_builder(
         &self,
         query_filter: Option<qdrant_client::qdrant::Filter>,
+        idf_corpus: Option<qdrant_client::qdrant::Filter>,
         query_vectors: Vec<f32>,
         sparse_indices: Option<SparseIndices>,
         vector_name: Option<String>,
-        search_params: SearchParamsBuilder,
+        mut search_params: SearchParamsBuilder,
     ) -> QueryPointsBuilder {
+        // Sparse IDF statistics are computed over this sub-corpus instead of the
+        // whole collection.
+        if let Some(corpus) = idf_corpus {
+            search_params = search_params.idf(IdfParamsBuilder::default().corpus(corpus));
+        }
+
         let mut request_builder = QueryPointsBuilder::new(self.args.collection_name.clone())
             .with_payload(self.args.search_with_payload)
             .with_vectors(self.args.search_with_vectors)
@@ -163,6 +171,7 @@ impl ConfigSearchProcessor {
             .into_iter()
             .map(|generated| {
                 let query_filter = generated.filter.clone();
+                let idf_corpus = generated.idf_corpus.clone();
                 let (query_vectors, sparse_indices, vector_name) =
                     if let Some((values, indices, name)) = generated.sparse {
                         (values, Some(indices), Some(name))
@@ -174,6 +183,7 @@ impl ConfigSearchProcessor {
 
                 self.create_request_builder(
                     query_filter,
+                    idf_corpus,
                     query_vectors,
                     sparse_indices,
                     vector_name,
@@ -270,9 +280,17 @@ impl ConfigSearchProcessor {
             return Ok(());
         };
 
-        let exact_search = search_params.clone().exact(true).build();
+        // Flip only `exact`, so each query keeps its own params (notably its IDF
+        // corpus) and the reference results stay comparable.
+        let fallback = search_params.clone().exact(true).build();
         for point in &mut exact_query_points {
-            point.params = Some(exact_search);
+            point.params = Some(match point.params.take() {
+                Some(params) => SearchParams {
+                    exact: Some(true),
+                    ..params
+                },
+                None => fallback.clone(),
+            });
         }
         let mut exact_request_builder =
             QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);

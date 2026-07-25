@@ -13,11 +13,11 @@ pub mod scroll;
 pub mod search;
 pub mod vector;
 
-pub use collection::{CollectionConfig, IdType, QuantKind};
+pub use collection::{CollectionConfig, IdType, MemoryKind, QuantKind};
 pub use payload::{PayloadSource, PayloadSourceKind, PayloadType, TokenizerKind};
 pub use vector::{
-    ComparatorKind, DatatypeKind, DistanceKind, DistributionKind, FileStrategy, SparseKind,
-    SparseSource, VectorConfig, VectorSource,
+    ComparatorKind, DatatypeKind, DistanceKind, DistributionKind, FileStrategy, ModifierKind,
+    SparseKind, SparseSource, VectorConfig, VectorSource,
 };
 
 use std::fmt;
@@ -472,6 +472,28 @@ collection:
         assert_eq!(p.kind, PayloadType::Float);
         assert!(p.index);
         assert!(p.source.is_none());
+    }
+
+    /// The shipped example advertises every knob; keep it loadable so a config
+    /// copied out of it actually works.
+    #[test]
+    fn parses_upload_config_example() {
+        let cfg = super::load("examples/upload-config.yaml").unwrap();
+        assert_eq!(
+            cfg.collection.payload.memory,
+            Some(crate::config::MemoryKind::Cached)
+        );
+        assert_eq!(
+            cfg.collection.hnsw.as_ref().unwrap().memory,
+            Some(crate::config::MemoryKind::Cold)
+        );
+        let color = cfg
+            .collection
+            .fields
+            .iter()
+            .find(|f| f.name == "color")
+            .unwrap();
+        assert!(color.prefix);
     }
 
     #[test]

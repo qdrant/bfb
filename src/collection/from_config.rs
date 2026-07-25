@@ -13,28 +13,29 @@ use qdrant_client::qdrant::{
     CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     CreateShardKeyBuilder, CreateShardKeyRequestBuilder, Datatype, DatetimeIndexParamsBuilder,
     Distance, FieldType, FloatIndexParamsBuilder, GeoIndexParamsBuilder, HnswConfigDiffBuilder,
-    IntegerIndexParamsBuilder, KeywordIndexParamsBuilder, MultiVectorComparator,
-    MultiVectorConfigBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
-    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
-    SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
-    TurboQuantBitSize, TurboQuantizationBuilder, UuidIndexParamsBuilder, VectorParams,
-    VectorParamsMap, VectorsConfig, quantization_config,
+    IntegerIndexParamsBuilder, KeywordIndexParamsBuilder, Memory, Modifier, MultiVectorComparator,
+    MultiVectorConfigBuilder, OptimizersConfigDiffBuilder, PayloadStorageParamsBuilder,
+    ProductQuantizationBuilder, QuantizationType, ScalarQuantizationBuilder, ShardingMethod,
+    SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder,
+    TextIndexParamsBuilder, TokenizerType, TurboQuantBitSize, TurboQuantizationBuilder,
+    UuidIndexParamsBuilder, VectorParams, VectorParamsBuilder, VectorParamsMap, VectorsConfig,
+    quantization_config,
 };
 use tokio::time::sleep;
 
 use crate::args::Args;
 use crate::client::random_client;
 use crate::config::{
-    ComparatorKind, DatatypeKind, DistanceKind, PayloadType, QuantKind, TokenizerKind,
-    UploadConfig, VectorConfig,
+    ComparatorKind, DatatypeKind, DistanceKind, MemoryKind, ModifierKind, PayloadType, QuantKind,
+    TokenizerKind, UploadConfig, VectorConfig,
 };
 
-fn distance_to_i32(distance: DistanceKind) -> i32 {
+fn distance_to_grpc(distance: DistanceKind) -> Distance {
     match distance {
-        DistanceKind::Cosine => Distance::Cosine.into(),
-        DistanceKind::Dot => Distance::Dot.into(),
-        DistanceKind::Euclid => Distance::Euclid.into(),
-        DistanceKind::Manhattan => Distance::Manhattan.into(),
+        DistanceKind::Cosine => Distance::Cosine,
+        DistanceKind::Dot => Distance::Dot,
+        DistanceKind::Euclid => Distance::Euclid,
+        DistanceKind::Manhattan => Distance::Manhattan,
     }
 }
 
@@ -43,81 +44,126 @@ fn datatype_to_i32(datatype: DatatypeKind) -> i32 {
         DatatypeKind::Float32 => Datatype::Float32.into(),
         DatatypeKind::Float16 => Datatype::Float16.into(),
         DatatypeKind::Uint8 => Datatype::Uint8.into(),
+        DatatypeKind::Turbo4 => Datatype::Turbo4.into(),
     }
 }
 
-fn build_quantization_config(
+/// Sparse value modifier (`modifier:`). `None` ⇒ leave it unset on the request.
+fn modifier_to_grpc(modifier: ModifierKind) -> Option<Modifier> {
+    match modifier {
+        ModifierKind::None => None,
+        ModifierKind::Idf => Some(Modifier::Idf),
+    }
+}
+
+/// Memory placement (`memory:`), as the gRPC enum value.
+pub fn memory_to_i32(memory: MemoryKind) -> i32 {
+    match memory {
+        MemoryKind::Cold => Memory::Cold.into(),
+        MemoryKind::Cached => Memory::Cached.into(),
+        MemoryKind::Pinned => Memory::Pinned.into(),
+    }
+}
+
+pub fn build_quantization_config(
     kind: QuantKind,
     always_ram: bool,
+    memory: Option<MemoryKind>,
 ) -> Option<quantization_config::Quantization> {
+    // `memory` supersedes `always_ram`; both are sent so older servers still
+    // honour the boolean.
     let config: quantization_config::Quantization = match kind {
         QuantKind::None => return None,
-        QuantKind::Scalar => ScalarQuantizationBuilder::default()
-            .r#type(QuantizationType::Int8.into())
-            .quantile(0.99)
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::Binary => BinaryQuantizationBuilder::new(always_ram).into(),
-        QuantKind::Binary2bit => BinaryQuantizationBuilder::new(always_ram)
-            .encoding(BinaryQuantizationEncoding::TwoBits)
-            .into(),
-        QuantKind::Binary15bit => BinaryQuantizationBuilder::new(always_ram)
-            .encoding(BinaryQuantizationEncoding::OneAndHalfBits)
-            .into(),
-        QuantKind::Turbo1bit => TurboQuantizationBuilder::new()
-            .bits(TurboQuantBitSize::Bits1)
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::Turbo15bit => TurboQuantizationBuilder::new()
-            .bits(TurboQuantBitSize::Bits15)
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::Turbo2bit => TurboQuantizationBuilder::new()
-            .bits(TurboQuantBitSize::Bits2)
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::Turbo4bit => TurboQuantizationBuilder::new()
-            .bits(TurboQuantBitSize::Bits4)
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::ProductX4 => ProductQuantizationBuilder::new(CompressionRatio::X4.into())
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::ProductX8 => ProductQuantizationBuilder::new(CompressionRatio::X8.into())
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::ProductX16 => ProductQuantizationBuilder::new(CompressionRatio::X16.into())
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::ProductX32 => ProductQuantizationBuilder::new(CompressionRatio::X32.into())
-            .always_ram(always_ram)
-            .into(),
-        QuantKind::ProductX64 => ProductQuantizationBuilder::new(CompressionRatio::X64.into())
-            .always_ram(always_ram)
-            .into(),
+        QuantKind::Scalar => {
+            let mut builder = ScalarQuantizationBuilder::default()
+                .r#type(QuantizationType::Int8.into())
+                .quantile(0.99)
+                .always_ram(always_ram);
+            if let Some(memory) = memory {
+                builder = builder.memory(memory_to_i32(memory));
+            }
+            builder.into()
+        }
+        QuantKind::Binary | QuantKind::Binary2bit | QuantKind::Binary15bit => {
+            let mut builder = BinaryQuantizationBuilder::new(always_ram);
+            builder = match kind {
+                QuantKind::Binary2bit => builder.encoding(BinaryQuantizationEncoding::TwoBits),
+                QuantKind::Binary15bit => {
+                    builder.encoding(BinaryQuantizationEncoding::OneAndHalfBits)
+                }
+                _ => builder,
+            };
+            if let Some(memory) = memory {
+                builder = builder.memory(memory_to_i32(memory));
+            }
+            builder.into()
+        }
+        QuantKind::Turbo1bit
+        | QuantKind::Turbo15bit
+        | QuantKind::Turbo2bit
+        | QuantKind::Turbo4bit => {
+            let bits = match kind {
+                QuantKind::Turbo1bit => TurboQuantBitSize::Bits1,
+                QuantKind::Turbo15bit => TurboQuantBitSize::Bits15,
+                QuantKind::Turbo2bit => TurboQuantBitSize::Bits2,
+                _ => TurboQuantBitSize::Bits4,
+            };
+            let mut builder = TurboQuantizationBuilder::new()
+                .bits(bits)
+                .always_ram(always_ram);
+            if let Some(memory) = memory {
+                builder = builder.memory(memory_to_i32(memory));
+            }
+            builder.into()
+        }
+        QuantKind::ProductX4
+        | QuantKind::ProductX8
+        | QuantKind::ProductX16
+        | QuantKind::ProductX32
+        | QuantKind::ProductX64 => {
+            let compression = match kind {
+                QuantKind::ProductX4 => CompressionRatio::X4,
+                QuantKind::ProductX8 => CompressionRatio::X8,
+                QuantKind::ProductX16 => CompressionRatio::X16,
+                QuantKind::ProductX32 => CompressionRatio::X32,
+                _ => CompressionRatio::X64,
+            };
+            let mut builder =
+                ProductQuantizationBuilder::new(compression.into()).always_ram(always_ram);
+            if let Some(memory) = memory {
+                builder = builder.memory(memory_to_i32(memory));
+            }
+            builder.into()
+        }
     };
     Some(config)
 }
 
 fn build_vector_params(vc: &VectorConfig) -> VectorParams {
-    VectorParams {
-        size: vc.size,
-        distance: distance_to_i32(vc.distance),
-        on_disk: vc.on_disk,
-        multivector_config: vc.multivector.as_ref().map(|mv| {
-            let comparator = match mv.comparator {
-                ComparatorKind::MaxSim => MultiVectorComparator::MaxSim,
-            };
-            MultiVectorConfigBuilder::new(comparator).build()
-        }),
-        datatype: Some(datatype_to_i32(vc.datatype)),
-        quantization_config: vc
-            .quantization
-            .as_ref()
-            .and_then(|q| build_quantization_config(q.kind, q.always_ram))
-            .map(Into::into),
-        ..Default::default()
+    let mut builder = VectorParamsBuilder::new(vc.size, distance_to_grpc(vc.distance))
+        .datatype(datatype_to_i32(vc.datatype));
+
+    if let Some(on_disk) = vc.on_disk {
+        builder = builder.on_disk(on_disk);
     }
+    if let Some(memory) = vc.memory {
+        builder = builder.memory(memory_to_i32(memory));
+    }
+    if let Some(mv) = &vc.multivector {
+        let comparator = match mv.comparator {
+            ComparatorKind::MaxSim => MultiVectorComparator::MaxSim,
+        };
+        builder = builder.multivector_config(MultiVectorConfigBuilder::new(comparator));
+    }
+    if let Some(quantization) = vc
+        .quantization
+        .as_ref()
+        .and_then(|q| build_quantization_config(q.kind, q.always_ram, q.memory))
+    {
+        builder = builder.quantization_config(quantization);
+    }
+
+    builder.build()
 }
 
 pub async fn recreate_collection_from_config(
@@ -176,15 +222,17 @@ pub async fn recreate_collection_from_config(
             .sparse_vectors
             .iter()
             .map(|sc| {
-                let index_builder = SparseIndexConfigBuilder::default()
+                let mut index_builder = SparseIndexConfigBuilder::default()
                     .on_disk(sc.on_disk)
                     .datatype(datatype_to_i32(sc.datatype));
-                (
-                    sc.name.clone(),
-                    SparseVectorParamsBuilder::default()
-                        .index(index_builder)
-                        .build(),
-                )
+                if let Some(memory) = sc.memory {
+                    index_builder = index_builder.memory(memory_to_i32(memory));
+                }
+                let mut params = SparseVectorParamsBuilder::default().index(index_builder);
+                if let Some(modifier) = modifier_to_grpc(sc.modifier) {
+                    params = params.modifier(modifier);
+                }
+                (sc.name.clone(), params.build())
             })
             .collect();
         Some(SparseVectorConfig::from(params))
@@ -205,11 +253,18 @@ pub async fn recreate_collection_from_config(
     if let Some(shard_number) = collection.shard_number {
         create_collection_builder = create_collection_builder.shard_number(shard_number);
     }
+    if let Some(memory) = collection.payload.memory {
+        create_collection_builder = create_collection_builder
+            .payload(PayloadStorageParamsBuilder::default().memory(memory_to_i32(memory)));
+    }
 
     if let Some(hnsw) = &collection.hnsw {
         let mut hnsw_config = HnswConfigDiffBuilder::default()
             .on_disk(hnsw.on_disk)
             .inline_storage(hnsw.inline_storage);
+        if let Some(memory) = hnsw.memory {
+            hnsw_config = hnsw_config.memory(memory_to_i32(memory));
+        }
         if let Some(m) = hnsw.m {
             hnsw_config = hnsw_config.m(m);
         }
@@ -246,7 +301,8 @@ pub async fn recreate_collection_from_config(
     }
 
     if let Some(quant) = &collection.quantization
-        && let Some(quant_config) = build_quantization_config(quant.kind, quant.always_ram)
+        && let Some(quant_config) =
+            build_quantization_config(quant.kind, quant.always_ram, quant.memory)
     {
         create_collection_builder = create_collection_builder.quantization_config(quant_config);
     }
@@ -297,52 +353,77 @@ async fn create_field_indices_from_config(
         let name = config.collection.name.clone();
         let field = pc.name.clone();
 
+        // `memory` supersedes `on_disk` on servers that understand it; both are
+        // sent so the config keeps working against older ones.
+        let memory = pc.memory.map(memory_to_i32);
+
         let builder = match pc.kind {
             PayloadType::Keyword => {
+                let mut params = KeywordIndexParamsBuilder::default()
+                    .on_disk(pc.on_disk)
+                    .is_tenant(pc.is_tenant)
+                    .prefix(pc.prefix);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Keyword)
-                    .field_index_params(
-                        KeywordIndexParamsBuilder::default()
-                            .on_disk(pc.on_disk)
-                            .is_tenant(pc.is_tenant),
-                    )
+                    .field_index_params(params)
             }
             PayloadType::Integer => {
+                let mut params = IntegerIndexParamsBuilder::new(true, pc.range_index)
+                    .on_disk(pc.on_disk)
+                    .is_principal(pc.is_principal);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Integer)
-                    .field_index_params(
-                        IntegerIndexParamsBuilder::new(true, pc.range_index)
-                            .on_disk(pc.on_disk)
-                            .is_principal(pc.is_principal),
-                    )
+                    .field_index_params(params)
             }
             PayloadType::Float => {
+                let mut params = FloatIndexParamsBuilder::default()
+                    .on_disk(pc.on_disk)
+                    .is_principal(pc.is_principal);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Float)
-                    .field_index_params(
-                        FloatIndexParamsBuilder::default()
-                            .on_disk(pc.on_disk)
-                            .is_principal(pc.is_principal),
-                    )
+                    .field_index_params(params)
             }
             PayloadType::Bool => {
+                let mut params = BoolIndexParamsBuilder::default().on_disk(pc.on_disk);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Bool)
-                    .field_index_params(BoolIndexParamsBuilder::default().on_disk(pc.on_disk))
+                    .field_index_params(params)
             }
             PayloadType::Uuid => {
+                let mut params = UuidIndexParamsBuilder::default()
+                    .is_tenant(pc.is_tenant)
+                    .on_disk(pc.on_disk);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Uuid)
-                    .field_index_params(
-                        UuidIndexParamsBuilder::default()
-                            .is_tenant(pc.is_tenant)
-                            .on_disk(pc.on_disk),
-                    )
+                    .field_index_params(params)
             }
-            PayloadType::Geo => CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Geo)
-                .field_index_params(GeoIndexParamsBuilder::new().on_disk(pc.on_disk)),
+            PayloadType::Geo => {
+                let mut params = GeoIndexParamsBuilder::new().on_disk(pc.on_disk);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
+                CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Geo)
+                    .field_index_params(params)
+            }
             PayloadType::Datetime => {
+                let mut params = DatetimeIndexParamsBuilder::default()
+                    .on_disk(pc.on_disk)
+                    .is_principal(pc.is_principal);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Datetime)
-                    .field_index_params(
-                        DatetimeIndexParamsBuilder::default()
-                            .on_disk(pc.on_disk)
-                            .is_principal(pc.is_principal),
-                    )
+                    .field_index_params(params)
             }
             PayloadType::Text => {
                 let tokenizer = match pc.tokenizer.unwrap_or(TokenizerKind::Word) {
@@ -351,8 +432,12 @@ async fn create_field_indices_from_config(
                     TokenizerKind::Prefix => TokenizerType::Prefix,
                     TokenizerKind::Multilingual => TokenizerType::Multilingual,
                 };
+                let mut params = TextIndexParamsBuilder::new(tokenizer).on_disk(pc.on_disk);
+                if let Some(memory) = memory {
+                    params = params.memory(memory);
+                }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Text)
-                    .field_index_params(TextIndexParamsBuilder::new(tokenizer).on_disk(pc.on_disk))
+                    .field_index_params(params)
             }
         };
 
@@ -373,18 +458,12 @@ mod tests {
 
     #[test]
     fn distance_mapping() {
+        assert_eq!(distance_to_grpc(DistanceKind::Cosine), Distance::Cosine);
+        assert_eq!(distance_to_grpc(DistanceKind::Dot), Distance::Dot);
+        assert_eq!(distance_to_grpc(DistanceKind::Euclid), Distance::Euclid);
         assert_eq!(
-            distance_to_i32(DistanceKind::Cosine),
-            Distance::Cosine as i32
-        );
-        assert_eq!(distance_to_i32(DistanceKind::Dot), Distance::Dot as i32);
-        assert_eq!(
-            distance_to_i32(DistanceKind::Euclid),
-            Distance::Euclid as i32
-        );
-        assert_eq!(
-            distance_to_i32(DistanceKind::Manhattan),
-            Distance::Manhattan as i32
+            distance_to_grpc(DistanceKind::Manhattan),
+            Distance::Manhattan
         );
     }
 
@@ -399,19 +478,75 @@ mod tests {
             Datatype::Float16 as i32
         );
         assert_eq!(datatype_to_i32(DatatypeKind::Uint8), Datatype::Uint8 as i32);
+        assert_eq!(
+            datatype_to_i32(DatatypeKind::Turbo4),
+            Datatype::Turbo4 as i32
+        );
+    }
+
+    #[test]
+    fn memory_mapping() {
+        assert_eq!(memory_to_i32(MemoryKind::Cold), Memory::Cold as i32);
+        assert_eq!(memory_to_i32(MemoryKind::Cached), Memory::Cached as i32);
+        assert_eq!(memory_to_i32(MemoryKind::Pinned), Memory::Pinned as i32);
     }
 
     #[test]
     fn quantization_none_is_none() {
-        assert!(build_quantization_config(QuantKind::None, true).is_none());
+        assert!(build_quantization_config(QuantKind::None, true, None).is_none());
     }
 
     #[test]
     fn quantization_variants_build() {
-        assert!(build_quantization_config(QuantKind::Scalar, true).is_some());
-        assert!(build_quantization_config(QuantKind::Binary, false).is_some());
-        assert!(build_quantization_config(QuantKind::ProductX8, false).is_some());
-        assert!(build_quantization_config(QuantKind::Turbo4bit, true).is_some());
+        assert!(build_quantization_config(QuantKind::Scalar, true, None).is_some());
+        assert!(build_quantization_config(QuantKind::Binary, false, None).is_some());
+        assert!(build_quantization_config(QuantKind::ProductX8, false, None).is_some());
+        assert!(build_quantization_config(QuantKind::Turbo4bit, true, None).is_some());
+    }
+
+    /// Every quantization kind must carry `memory` through to the gRPC message.
+    #[test]
+    fn quantization_memory_is_passed_through() {
+        use qdrant_client::qdrant::quantization_config::Quantization;
+
+        let expected = Memory::Pinned as i32;
+        for kind in [
+            QuantKind::Scalar,
+            QuantKind::Binary,
+            QuantKind::Binary2bit,
+            QuantKind::Binary15bit,
+            QuantKind::Turbo1bit,
+            QuantKind::Turbo15bit,
+            QuantKind::Turbo2bit,
+            QuantKind::Turbo4bit,
+            QuantKind::ProductX4,
+            QuantKind::ProductX8,
+            QuantKind::ProductX16,
+            QuantKind::ProductX32,
+            QuantKind::ProductX64,
+        ] {
+            let config = build_quantization_config(kind, false, Some(MemoryKind::Pinned)).unwrap();
+            let memory = match config {
+                Quantization::Scalar(q) => q.memory,
+                Quantization::Binary(q) => q.memory,
+                Quantization::Turboquant(q) => q.memory,
+                Quantization::Product(q) => q.memory,
+            };
+            assert_eq!(memory, Some(expected), "{kind:?} dropped `memory`");
+        }
+    }
+
+    #[test]
+    fn vector_params_carry_memory_and_on_disk() {
+        let vc = vector_config(
+            "collection:\n  vectors:\n    - size: 8\n      on_disk: true\n      memory: cached\n",
+        );
+        let params = build_vector_params(&vc);
+        assert_eq!(params.memory, Some(Memory::Cached as i32));
+        #[expect(deprecated)]
+        {
+            assert_eq!(params.on_disk, Some(true));
+        }
     }
 
     #[test]

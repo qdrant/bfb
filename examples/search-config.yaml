@@ -29,6 +29,21 @@ requests:
       length: 1000
       distribution: zipf
 
+  # Same sparse search, but IDF statistics are computed over a sub-corpus
+  # (Qdrant 1.19+) instead of the whole collection — the multi-tenant case.
+  # Only meaningful for sparse vectors created with the IDF modifier.
+  - kind: sparse
+    using: bm25
+    source:
+      type: random
+      vocab_size: 100000
+      length: 1000
+      distribution: zipf
+    idf_corpus:
+      - name: color
+        type: keyword
+        source: { type: random, cardinality: 100 }
+
   # Dense search with a keyword filter on the `color` payload field.
   - kind: dense
     using: text-emb
@@ -40,6 +55,19 @@ requests:
         source:
           type: random
           cardinality: 100
+
+  # Prefix filter on `color`: matches every keyword starting with the first 9
+  # characters of a generated value, so a shorter prefix is less selective.
+  # Requires the field's keyword index to be created with `prefix: true`.
+  - kind: dense
+    using: image
+    size: 1024
+    source: random
+    filters:
+      - name: color
+        type: keyword
+        source: { type: random, cardinality: 100 }
+        match_prefix: 9
 
   # Filtered search using an integer range on `price`.
   - kind: dense

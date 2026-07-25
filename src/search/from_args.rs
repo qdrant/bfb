@@ -7,8 +7,9 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
-    PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder,
-    QueryPointsBuilder, SearchParamsBuilder, SparseIndices, VectorInput,
+    IdfParamsBuilder, PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query,
+    QueryBatchPointsBuilder, QueryPointsBuilder, SearchParams, SearchParamsBuilder, SparseIndices,
+    VectorInput,
 };
 use rand::Rng;
 use rand::RngExt;
@@ -233,6 +234,16 @@ impl SearchProcessor {
             search_params = search_params.hnsw_ef(hnsw_ef as u64);
         }
 
+        // Restrict sparse-vector IDF statistics to the filtered sub-corpus
+        // instead of the whole collection. Only valid on sparse queries — the
+        // server rejects `idf` on a dense vector.
+        if self.args.search_idf_corpus
+            && use_sparse
+            && let Some(filter) = &query_filter
+        {
+            search_params = search_params.idf(IdfParamsBuilder::default().corpus(filter.clone()));
+        }
+
         let query_points: Vec<_> = query_batch
             .into_iter()
             .map(|(query_vectors, sparse_indices, vector_name)| {
@@ -311,9 +322,17 @@ impl SearchProcessor {
             return Ok(());
         };
 
-        let exact_search = search_params.clone().exact(true).build();
+        // Flip only `exact`, so each query keeps its own params (notably its IDF
+        // corpus) and the reference results stay comparable.
+        let fallback = search_params.clone().exact(true).build();
         for point in &mut exact_query_points {
-            point.params = Some(exact_search);
+            point.params = Some(match point.params.take() {
+                Some(params) => SearchParams {
+                    exact: Some(true),
+                    ..params
+                },
+                None => fallback.clone(),
+            });
         }
         let mut exact_request_builder =
             QueryBatchPointsBuilder::new(self.args.collection_name.clone(), exact_query_points);

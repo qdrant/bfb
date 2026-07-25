@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use super::collection::QuantizationConfig;
+use super::collection::{MemoryKind, QuantizationConfig};
 use super::string_or_struct;
 use crate::dataset::DatasetConfig;
 
@@ -22,6 +22,10 @@ pub struct VectorConfig {
     #[serde(default)]
     pub datatype: DatatypeKind,
     pub on_disk: Option<bool>,
+    /// Memory placement of the vector storage. Supersedes `on_disk`.
+    /// `pinned` is not supported for dense vectors.
+    #[serde(default)]
+    pub memory: Option<MemoryKind>,
     pub multivector: Option<MultivectorConfig>,
     pub quantization: Option<QuantizationConfig>,
     #[serde(default, deserialize_with = "string_or_struct")]
@@ -45,6 +49,8 @@ pub enum DatatypeKind {
     Float32,
     Float16,
     Uint8,
+    /// 4-bit turbo-quantized storage (Qdrant 1.19+). Dense vectors only.
+    Turbo4,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -110,8 +116,25 @@ pub struct SparseVectorConfig {
     pub datatype: DatatypeKind,
     #[serde(default)]
     pub on_disk: bool,
+    /// Memory placement of the sparse inverted index. Supersedes `on_disk`.
+    #[serde(default)]
+    pub memory: Option<MemoryKind>,
+    /// Value modifier applied at query time. `idf` is required for BM25-style
+    /// scoring and for search requests that set an `idf_corpus`.
+    #[serde(default)]
+    pub modifier: ModifierKind,
     #[serde(default, deserialize_with = "string_or_struct")]
     pub source: SparseSource,
+}
+
+/// Modifier applied to sparse vector values.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModifierKind {
+    #[default]
+    None,
+    /// Inverse document frequency.
+    Idf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
