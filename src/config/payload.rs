@@ -72,8 +72,9 @@ pub struct PayloadSource {
     #[serde(default, rename = "type")]
     pub kind: PayloadSourceKind,
     /// vector-db-benchmark dataset for payload values (`type: dataset`).
+    /// Boxed so a dataset definition does not bloat every source it can appear in.
     #[serde(default)]
-    pub dataset: Option<DatasetConfig>,
+    pub dataset: Option<Box<DatasetConfig>>,
     /// Payload field name inside the dataset schema / `payloads.jsonl`.
     #[serde(default)]
     pub field: Option<String>,

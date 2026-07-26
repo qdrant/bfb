@@ -140,19 +140,12 @@ fn install_download(
         return Ok(());
     }
 
-    match kind {
-        DatasetKind::H5 => {
-            tmp.persist(target)
-                .with_context(|| format!("failed to install download at {}", target.display()))?;
-        }
-        DatasetKind::Tar | DatasetKind::Sparse => {
-            bail!(
-                "dataset archive at {link} must end with .tgz or .tar.gz for type {:?}",
-                kind
-            );
-        }
+    if kind.is_single_file() {
+        tmp.persist(target)
+            .with_context(|| format!("failed to install download at {}", target.display()))?;
+        return Ok(());
     }
-    Ok(())
+    bail!("dataset archive at {link} must end with .tgz or .tar.gz for format {kind:?}")
 }
 
 #[cfg(test)]

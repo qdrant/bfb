@@ -1,5 +1,7 @@
 mod config;
 mod download;
+#[cfg(test)]
+pub(crate) mod fixtures;
 mod payload;
 mod reader;
 mod readers;

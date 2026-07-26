@@ -438,6 +438,67 @@ collection:
         assert_eq!(server.join().unwrap(), 1);
     }
 
+    /// The LAION shape: dense vectors from a bare `.npy`, the whole payload
+    /// object from a parquet of the same row count. Both are indexed by point
+    /// id, so row *i* of each file must land on point *i*.
+    #[test]
+    fn pairs_npy_vectors_with_parquet_payloads() {
+        use crate::dataset::fixtures::{make_ramp_npy, write_parquet};
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("emb.npy"), make_ramp_npy(0, 8, 4)).unwrap();
+        write_parquet(&dir.path().join("meta.parquet"), 0, 8, 4);
+
+        let config: UploadConfig = serde_yaml::from_str(
+            "
+collection:
+  name: t
+  vectors:
+    - size: 4
+      source:
+        type: dataset
+        name: emb
+        format: npy
+        path: emb.npy
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: meta
+        format: parquet
+        path: meta.parquet
+        exclude: [url]
+  fields:
+    - name: similarity
+      type: float
+",
+        )
+        .unwrap();
+        config.validate().unwrap();
+
+        let generator = ConfigGenerator::new_with_datasets_dir(&config, dir.path()).unwrap();
+
+        let point = generator.make_point(5);
+        let data = match point.vectors.unwrap().vectors_options.unwrap() {
+            VectorsOptions::Vector(v) => match v.vector.unwrap() {
+                qdrant_client::qdrant::vector::Vector::Dense(d) => d.data,
+                _ => panic!("expected a dense vector"),
+            },
+            _ => panic!("expected the unnamed default vector"),
+        };
+        assert_eq!(data, vec![20.0, 21.0, 22.0, 23.0], "row 5 of the .npy");
+
+        let payload: serde_json::Value =
+            serde_json::to_value(point.payload.into_iter().collect::<HashMap<_, _>>()).unwrap();
+        assert_eq!(payload["id"], 5, "row 5 of the parquet");
+        assert_eq!(payload["similarity"], 5.0);
+        assert_eq!(payload["caption"], "caption 5");
+        assert!(
+            payload.get("url").is_none(),
+            "`exclude` must drop the column: {payload}"
+        );
+    }
+
     fn named(point: &PointStruct) -> HashMap<String, Vector> {
         match point.vectors.clone().unwrap().vectors_options.unwrap() {
             VectorsOptions::Vectors(nv) => nv.vectors,

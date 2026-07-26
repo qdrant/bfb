@@ -24,9 +24,34 @@ each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
 Upload configs can source dense vectors, sparse vectors, and payloads from
 inline dataset definitions (same fields as
 [vector-db-benchmark `datasets.json`](https://github.com/qdrant/vector-db-benchmark/blob/master/datasets/datasets.json)).
-Supported formats are `h5` (HDF5, pure-Rust reader — no system libraries), `tar`
-(`.tgz` with `vectors.npy` + optional `payloads.jsonl`), and `sparse` (CSR
-matrices).
+
+| `format` | Contents |
+|----------|----------|
+| `h5` | ann-benchmarks HDF5 bundle — `train`, optional `test`/`neighbors`. Pure-Rust reader, no system libraries |
+| `tar` | `.tgz` of `vectors.npy` + optional `payloads.jsonl` / `tests.jsonl` |
+| `sparse` | CSR matrices (`data.csr`, optional `queries.csr` / `results.gt`) |
+| `npy` | One 2-D float `.npy` — dense vectors only |
+| `parquet` | One parquet file — payload rows only |
+
+The first three are *bundles*: vectors, payloads, and queries all come out of a
+single artifact. `npy` and `parquet` are *components*, so a config pairs them —
+one source per slot, row *i* of each landing on point *i*:
+
+```yaml
+collection:
+  vectors:
+    - size: 512
+      source: { type: dataset, name: emb, format: npy, path: emb.npy }
+  payload:
+    source:
+      type: dataset
+      dataset: { name: meta, format: parquet, path: meta.parquet, exclude: [exif] }
+```
+
+Parquet sources accept three extra keys: `columns` (keep only these), `exclude`
+(drop these), and `fill_null` (a value substituted for nulls and for NaN/±inf
+floats, which have no JSON form — by default such fields are simply absent).
+See [`examples/upload-laion-part.yaml`](examples/upload-laion-part.yaml).
 
 Use `format` for the dataset storage type in upload configs (`type` is reserved
 for the source kind). An optional local `datasets/datasets.json` registry is

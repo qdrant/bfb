@@ -94,7 +94,12 @@ collection:
       # source:
       #   type: dataset          # inline dataset definition (vector-db-benchmark format)
       #   name: glove-25-angular
-      #   format: h5             # h5 | tar | sparse  (`type` alias accepted in nested `dataset:` maps)
+      #   format: h5             # dataset format (`type` alias accepted in nested `dataset:` maps):
+      #                          #   h5      ann-benchmarks bundle (train/test/neighbors)
+      #                          #   tar     .tgz of vectors.npy + payloads.jsonl + tests.jsonl
+      #                          #   sparse  CSR matrices
+      #                          #   npy     one 2-D float .npy — dense vectors only
+      #                          #   parquet one parquet file — payload rows only
       #   path: glove-25-angular/glove-25-angular.hdf5
       #   link: http://ann-benchmarks.com/glove-25-angular.hdf5
       #   vector_size: 25
@@ -136,6 +141,13 @@ collection:
     #     format: tar
     #     path: laion-small-clip/laion-small-clip
     #     link: https://example.com/laion-small-clip.tgz
+    # `format: parquet` reads payload rows from a parquet file, and accepts
+    # three extra keys (ignored by every other format):
+    #   columns: [url, similarity]   # list  optional  columns to keep (default: all)
+    #   exclude: [exif]              # list  default=[]  columns to drop (applied after `columns`)
+    #   fill_null: 0                 # any   optional  value substituted for nulls and for
+    #                                #   NaN/±inf floats, which have no JSON form. Omitted by
+    #                                #   default, leaving the payload field absent.
 
   # Payload field declarations (optional). Names must be unique. Each entry
   # generates a value and/or declares a field index.

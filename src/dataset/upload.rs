@@ -12,17 +12,17 @@ pub fn collect_dataset_configs(config: &UploadConfig) -> Vec<DatasetConfig> {
     let mut out = Vec::new();
     for vector in &config.collection.vectors {
         if let crate::config::VectorSource::Dataset { dataset } = &vector.source {
-            out.push(dataset.clone());
+            out.push((**dataset).clone());
         }
     }
     for sparse in &config.collection.sparse_vectors {
         if let Some(dataset) = &sparse.source.dataset {
-            out.push(dataset.clone());
+            out.push((**dataset).clone());
         }
     }
     for field in &config.collection.fields {
         if let Some(dataset) = field.source.as_ref().and_then(|s| s.dataset.as_ref()) {
-            out.push(dataset.clone());
+            out.push((**dataset).clone());
         }
     }
     if let Some(dataset) = config
@@ -32,7 +32,7 @@ pub fn collect_dataset_configs(config: &UploadConfig) -> Vec<DatasetConfig> {
         .as_ref()
         .and_then(|s| s.dataset.as_ref())
     {
-        out.push(dataset.clone());
+        out.push((**dataset).clone());
     }
     out
 }

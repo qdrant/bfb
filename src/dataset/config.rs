@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single dataset entry (inline in upload config, or from an optional local
 /// `datasets.json` registry).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatasetConfig {
     pub name: String,
@@ -28,6 +28,16 @@ pub struct DatasetConfig {
     pub distance: Option<String>,
     #[serde(default)]
     pub schema: Option<HashMap<String, String>>,
+    /// `parquet` only: columns to keep. `None` ⇒ every column.
+    #[serde(default)]
+    pub columns: Option<Vec<String>>,
+    /// `parquet` only: columns to drop (applied after `columns`).
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// `parquet` only: value substituted for nulls and non-finite floats.
+    /// Omitted by default, which leaves the payload field absent.
+    #[serde(default)]
+    pub fill_null: Option<serde_json::Value>,
 }
 
 impl DatasetConfig {
@@ -53,6 +63,9 @@ pub struct ResolvedDatasetConfig {
     pub distance: Option<String>,
     #[allow(dead_code)]
     pub schema: Option<HashMap<String, String>>,
+    pub columns: Option<Vec<String>>,
+    pub exclude: Vec<String>,
+    pub fill_null: Option<serde_json::Value>,
 }
 
 impl ResolvedDatasetConfig {
@@ -64,12 +77,7 @@ impl ResolvedDatasetConfig {
         let kind = inline
             .kind
             .or_else(|| base.and_then(|b| b.kind))
-            .with_context(|| {
-                format!(
-                    "dataset {:?}: missing `format` (h5, tar, sparse)",
-                    inline.name
-                )
-            })?;
+            .with_context(|| format!("dataset {:?}: missing `format` ({KINDS})", inline.name))?;
         let path = inline
             .path
             .or_else(|| base.and_then(|b| b.path.clone()))
@@ -92,9 +100,23 @@ impl ResolvedDatasetConfig {
             schema: inline
                 .schema
                 .or_else(|| base.and_then(|b| b.schema.clone())),
+            columns: inline
+                .columns
+                .or_else(|| base.and_then(|b| b.columns.clone())),
+            exclude: if inline.exclude.is_empty() {
+                base.map(|b| b.exclude.clone()).unwrap_or_default()
+            } else {
+                inline.exclude
+            },
+            fill_null: inline
+                .fill_null
+                .or_else(|| base.and_then(|b| b.fill_null.clone())),
         })
     }
 }
+
+/// Formats accepted by `format:`, for error messages.
+const KINDS: &str = "h5, tar, sparse, npy, parquet";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -102,6 +124,21 @@ pub enum DatasetKind {
     H5,
     Tar,
     Sparse,
+    /// A standalone 2-D float `.npy` array: dense vectors, no payloads.
+    Npy,
+    /// A parquet file of payload rows: no vectors.
+    Parquet,
+}
+
+impl DatasetKind {
+    /// Is the dataset a single file, rather than a directory of extracted
+    /// files? Single-file datasets are installed as-is on download.
+    pub fn is_single_file(self) -> bool {
+        matches!(
+            self,
+            DatasetKind::H5 | DatasetKind::Npy | DatasetKind::Parquet
+        )
+    }
 }
 
 impl DatasetConfig {
@@ -119,10 +156,7 @@ impl DatasetConfig {
             bail!("dataset source requires `name`");
         }
         if self.kind.is_none() {
-            bail!(
-                "dataset {:?} requires `format` (h5, tar, sparse)",
-                self.name
-            );
+            bail!("dataset {:?} requires `format` ({KINDS})", self.name);
         }
         if self.path.is_none() {
             bail!("dataset {:?} requires `path`", self.name);
@@ -144,7 +178,7 @@ mod tests {
             link: Some("http://ann-benchmarks.com/glove-25-angular.hdf5".to_string()),
             vector_size: Some(25),
             distance: Some("cosine".to_string()),
-            schema: None,
+            ..Default::default()
         };
 
         let resolved = DatasetConfig::resolve(inline, &HashMap::new()).unwrap();
@@ -165,18 +199,13 @@ mod tests {
                 link: Some("http://example.com/glove.hdf5".to_string()),
                 vector_size: Some(100),
                 distance: Some("cosine".to_string()),
-                schema: None,
+                ..Default::default()
             },
         );
 
         let inline = DatasetConfig {
             name: "glove-100-angular".to_string(),
-            kind: None,
-            path: None,
-            link: None,
-            vector_size: None,
-            distance: None,
-            schema: None,
+            ..Default::default()
         };
 
         let resolved = DatasetConfig::resolve(inline, &registry).unwrap();
