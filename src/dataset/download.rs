@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -90,14 +90,80 @@ pub fn ensure_downloaded(datasets_dir: &Path, config: &ResolvedDatasetConfig) ->
     Ok(target)
 }
 
-/// Download `url` into a temporary file inside `dir`. The file is deleted when the
-/// returned handle is dropped, so an aborted download leaves nothing behind.
-fn download_to_temp(url: &str, dir: &Path) -> Result<NamedTempFile> {
-    let agent = ureq::Agent::new_with_config(
+/// Download `url` to `target`, creating parent directories as needed.
+///
+/// Staged next to the target and renamed into place, so an interrupted download
+/// never leaves a truncated file that a later run would happily reuse.
+pub fn download_file_to(url: &str, target: &Path) -> Result<()> {
+    let parent = target.parent().unwrap_or(Path::new("."));
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
+
+    println!("Downloading {url}...");
+    let tmp = download_to_temp(url, parent)?;
+    tmp.persist(target)
+        .with_context(|| format!("failed to install download at {}", target.display()))?;
+    Ok(())
+}
+
+/// A byte range fetched from a remote file, plus the file's full length as
+/// reported in `Content-Range`.
+pub struct RangeResponse {
+    pub body: Vec<u8>,
+    pub total_len: u64,
+}
+
+/// Fetch `range` (a `Range:` header value such as `bytes=0-511` or `bytes=-65536`)
+/// from `url`.
+///
+/// This is what lets a remote part be *sized* without being downloaded: both the
+/// `.npy` header and the parquet footer live at a known end of the file. A server
+/// that ignores the range is rejected rather than silently streaming gigabytes.
+pub fn fetch_range(url: &str, range: &str) -> Result<RangeResponse> {
+    let response = agent()
+        .get(url)
+        .header("Range", range)
+        .call()
+        .with_context(|| format!("failed to fetch {range} of {url}"))?;
+
+    if response.status() != 206 {
+        bail!(
+            "{url} answered {} to a `Range: {range}` request; \
+             ranged requests are required to size dataset parts without downloading them",
+            response.status()
+        );
+    }
+
+    // `Content-Range: bytes <start>-<end>/<total>`
+    let total_len = response
+        .headers()
+        .get("content-range")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.rsplit_once('/'))
+        .and_then(|(_, total)| total.trim().parse::<u64>().ok())
+        .with_context(|| format!("{url} returned a Content-Range without a total length"))?;
+
+    let mut body = Vec::new();
+    response
+        .into_body()
+        .into_reader()
+        .read_to_end(&mut body)
+        .with_context(|| format!("failed to read {range} of {url}"))?;
+
+    Ok(RangeResponse { body, total_len })
+}
+
+fn agent() -> ureq::Agent {
+    ureq::Agent::new_with_config(
         ureq::config::Config::builder()
             .user_agent("Mozilla/5.0")
             .build(),
-    );
+    )
+}
+
+/// Download `url` into a temporary file inside `dir`. The file is deleted when the
+/// returned handle is dropped, so an aborted download leaves nothing behind.
+fn download_to_temp(url: &str, dir: &Path) -> Result<NamedTempFile> {
+    let agent = agent();
     let response = agent
         .get(url)
         .call()
@@ -140,19 +206,12 @@ fn install_download(
         return Ok(());
     }
 
-    match kind {
-        DatasetKind::H5 => {
-            tmp.persist(target)
-                .with_context(|| format!("failed to install download at {}", target.display()))?;
-        }
-        DatasetKind::Tar | DatasetKind::Sparse => {
-            bail!(
-                "dataset archive at {link} must end with .tgz or .tar.gz for type {:?}",
-                kind
-            );
-        }
+    if kind.is_single_file() {
+        tmp.persist(target)
+            .with_context(|| format!("failed to install download at {}", target.display()))?;
+        return Ok(());
     }
-    Ok(())
+    bail!("dataset archive at {link} must end with .tgz or .tar.gz for format {kind:?}")
 }
 
 #[cfg(test)]

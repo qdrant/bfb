@@ -80,9 +80,10 @@ pub enum VectorSource {
         strategy: FileStrategy,
     },
     /// vector-db-benchmark dataset (specified inline in the source definition).
+    /// Boxed to keep the enum from being sized by its largest variant.
     Dataset {
         #[serde(flatten)]
-        dataset: DatasetConfig,
+        dataset: Box<DatasetConfig>,
     },
 }
 
@@ -149,8 +150,9 @@ pub struct SparseSource {
     #[serde(default)]
     pub distribution: DistributionKind,
     /// vector-db-benchmark dataset (specified inline under `dataset`).
+    /// Boxed so a dataset definition does not bloat every source it can appear in.
     #[serde(default)]
-    pub dataset: Option<DatasetConfig>,
+    pub dataset: Option<Box<DatasetConfig>>,
 }
 
 impl Default for SparseSource {

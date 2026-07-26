@@ -5,13 +5,19 @@ use serde_json::Value;
 
 use super::config::{DatasetConfig, DatasetKind};
 use super::download::ensure_downloaded;
-use super::readers::{H5Reader, SparseReader, TarReader};
+use super::parts::PartitionedReader;
+use super::readers::{H5Reader, NpyReader, ParquetReader, SparseReader, TarReader};
 use super::registry::load_registry;
 
 enum DatasetReaderInner {
     H5(H5Reader),
     Tar(TarReader),
     Sparse(SparseReader),
+    Npy(NpyReader),
+    Parquet(ParquetReader),
+    /// A `parts:` family read as one row space; the part format is `npy` or
+    /// `parquet`, so it answers the same accessors as those two.
+    Partitioned(PartitionedReader),
 }
 
 /// Random access to points from a vector-db-benchmark dataset.
@@ -24,6 +30,16 @@ impl DatasetReader {
     pub fn open(datasets_dir: &Path, config: &DatasetConfig) -> Result<Self> {
         let registry = load_registry(datasets_dir)?;
         let config = DatasetConfig::resolve(config.clone(), &registry)?;
+
+        if config.parts.is_some() {
+            let reader = PartitionedReader::open(datasets_dir, &config)?;
+            let n = reader.num_points();
+            return Ok(DatasetReader {
+                inner: DatasetReaderInner::Partitioned(reader),
+                num_points: n,
+            });
+        }
+
         let local_path = ensure_downloaded(datasets_dir, &config)?;
         let (inner, num_points) = match config.kind {
             DatasetKind::H5 => {
@@ -41,6 +57,21 @@ impl DatasetReader {
                 let n = reader.num_points();
                 (DatasetReaderInner::Sparse(reader), n)
             }
+            DatasetKind::Npy => {
+                let reader = NpyReader::open(&local_path)?;
+                let n = reader.num_points();
+                (DatasetReaderInner::Npy(reader), n)
+            }
+            DatasetKind::Parquet => {
+                let reader = ParquetReader::open(
+                    &local_path,
+                    config.columns.as_deref(),
+                    &config.exclude,
+                    config.fill_null.as_ref(),
+                )?;
+                let n = reader.num_points();
+                (DatasetReaderInner::Parquet(reader), n)
+            }
         };
         Ok(DatasetReader { inner, num_points })
     }
@@ -49,7 +80,11 @@ impl DatasetReader {
         match &self.inner {
             DatasetReaderInner::H5(r) => r.vector_at(idx),
             DatasetReaderInner::Tar(r) => r.vector_at(idx),
-            DatasetReaderInner::Sparse(_) => bail!("dataset does not contain dense vectors"),
+            DatasetReaderInner::Npy(r) => r.vector_at(idx),
+            DatasetReaderInner::Partitioned(r) => r.vector_at(idx),
+            DatasetReaderInner::Sparse(_) | DatasetReaderInner::Parquet(_) => {
+                bail!("dataset does not contain dense vectors")
+            }
         }
     }
 
@@ -63,6 +98,8 @@ impl DatasetReader {
     pub fn payload_field(&self, idx: usize, field: &str) -> Result<Option<Value>> {
         match &self.inner {
             DatasetReaderInner::Tar(r) => r.payload_field(idx, field),
+            DatasetReaderInner::Parquet(r) => r.payload_field(idx, field),
+            DatasetReaderInner::Partitioned(r) => r.payload_field(idx, field),
             _ => bail!("dataset does not contain payloads"),
         }
     }
@@ -70,6 +107,8 @@ impl DatasetReader {
     pub fn payload_object(&self, idx: usize) -> Result<Option<Value>> {
         match &self.inner {
             DatasetReaderInner::Tar(r) => r.payload_object(idx),
+            DatasetReaderInner::Parquet(r) => r.payload_object(idx),
+            DatasetReaderInner::Partitioned(r) => r.payload_object(idx),
             _ => bail!("dataset does not contain payloads"),
         }
     }
@@ -80,6 +119,11 @@ impl DatasetReader {
             DatasetReaderInner::H5(r) => r.num_queries(),
             DatasetReaderInner::Tar(r) => r.num_queries(),
             DatasetReaderInner::Sparse(r) => r.num_queries(),
+            // Component formats hold corpus rows only; a query set is a
+            // separate file, declared as its own source.
+            DatasetReaderInner::Npy(_)
+            | DatasetReaderInner::Parquet(_)
+            | DatasetReaderInner::Partitioned(_) => 0,
         }
     }
 
@@ -89,6 +133,9 @@ impl DatasetReader {
             DatasetReaderInner::H5(r) => r.query_at(idx),
             DatasetReaderInner::Tar(r) => r.query_at(idx),
             DatasetReaderInner::Sparse(_) => bail!("sparse dataset has no dense queries"),
+            DatasetReaderInner::Npy(_)
+            | DatasetReaderInner::Parquet(_)
+            | DatasetReaderInner::Partitioned(_) => bail!("dataset has no query set"),
         }
     }
 
@@ -106,6 +153,9 @@ impl DatasetReader {
             DatasetReaderInner::H5(r) => r.neighbors_at(idx),
             DatasetReaderInner::Tar(r) => r.query_ground_truth(idx),
             DatasetReaderInner::Sparse(r) => r.query_ground_truth(idx),
+            DatasetReaderInner::Npy(_)
+            | DatasetReaderInner::Parquet(_)
+            | DatasetReaderInner::Partitioned(_) => bail!("dataset has no ground truth"),
         }
     }
 }

@@ -1,0 +1,70 @@
+# One part of the LAION-400M benchmark corpus
+# (https://github.com/qdrant/laion-400m-benchmark), uploaded straight from the
+# files LAION publishes: dense vectors from a bare `.npy`, payloads from the
+# matching `.parquet`. No repacking step.
+#
+#   bfb upload --file examples/upload-laion-part.yaml -b 256 -p 16 -t 8 \
+#       --uri http://localhost:6334
+#
+# The two sources are row-aligned: row *i* of `img_emb_0.npy` is the same image
+# as row *i* of `metadata_0.parquet`, and becomes point *i*. Omit `-n` to upload
+# the whole part (~1,000,448 points — the parts are not round millions).
+#
+# Both files are downloaded on first use into `./datasets/` (override with
+# BFB_DATASETS_DIR) and total ~1.2 GB. For all 410 parts at once, see
+# `upload-laion-400m.yaml`, which streams them without keeping them on disk.
+#
+# The collection matches the reference benchmark's `upload.py`: fp16 vectors on
+# disk, binary quantization pinned in RAM, a small HNSW graph (m=6) and large
+# segments.
+
+collection:
+  name: laion
+  on_disk_payload: true
+
+  quantization:
+    type: binary
+    always_ram: true
+
+  hnsw:
+    m: 6
+    on_disk: false
+
+  optimizers:
+    default_segment_number: 2
+    # Bigger segments search faster, at the cost of slower indexing.
+    max_segment_size: 5000000
+
+  vectors:
+    - size: 512
+      distance: cosine
+      datatype: float16
+      on_disk: true
+      source:
+        type: dataset
+        name: laion-img-emb-0
+        format: npy
+        path: laion/img_emb_0.npy
+        link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/img_emb/img_emb_0.npy
+
+  # Whole-payload source: every column becomes a payload field. Fields not
+  # listed under `fields` are still uploaded, just left unindexed.
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: laion-metadata-0
+        format: parquet
+        path: laion/metadata_0.parquet
+        link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/metadata/metadata_0.parquet
+        # `exif` is the bulk of the metadata and is useless as a filter — the
+        # reference `upload.py` drops it too.
+        exclude: [exif]
+        # `upload.py` does `df.fillna(0)`; drop this line to leave fields with
+        # no value absent instead, which is usually what you want for filtering.
+        fill_null: 0
+
+  fields:
+    # Index-only declaration: the value comes from `payload.source` above.
+    - name: similarity
+      type: float

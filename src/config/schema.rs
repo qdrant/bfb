@@ -94,11 +94,34 @@ collection:
       # source:
       #   type: dataset          # inline dataset definition (vector-db-benchmark format)
       #   name: glove-25-angular
-      #   format: h5             # h5 | tar | sparse  (`type` alias accepted in nested `dataset:` maps)
+      #   format: h5             # dataset format (`type` alias accepted in nested `dataset:` maps):
+      #                          #   h5      ann-benchmarks bundle (train/test/neighbors)
+      #                          #   tar     .tgz of vectors.npy + payloads.jsonl + tests.jsonl
+      #                          #   sparse  CSR matrices
+      #                          #   npy     one 2-D float .npy — dense vectors only
+      #                          #   parquet one parquet file — payload rows only
       #   path: glove-25-angular/glove-25-angular.hdf5
       #   link: http://ann-benchmarks.com/glove-25-angular.hdf5
       #   vector_size: 25
       #   distance: cosine
+      # A sharded dataset (`npy` / `parquet` only) replaces `path`/`link` with a
+      # `parts` block; the files are read as one row space and `{i}` is
+      # substituted with each part's number. Row counts per part are measured,
+      # not configured — one ranged request per part, cached thereafter.
+      # source:
+      #   type: dataset
+      #   name: laion-400m-img-emb
+      #   format: npy
+      #   parts:
+      #     count: 410           # uint     required   number of parts
+      #     start: 0             # uint     default=0  index of the first part
+      #     path: laion/img_emb_{i}.npy     # string   required
+      #     link: https://host/img_emb_{i}.npy  # string  optional
+      #   cache: keep          # enum  default=keep  [keep | evict] (sharded only)
+      #                        #   evict deletes each downloaded part once the reader
+      #                        #   moves past it, and prefetches the next one, so a
+      #                        #   corpus larger than the disk can still be streamed.
+      #                        #   Only parts bfb downloaded are ever deleted.
 
   # Sparse vectors (optional). Names must be unique across all vectors.
   sparse_vectors:
@@ -136,6 +159,13 @@ collection:
     #     format: tar
     #     path: laion-small-clip/laion-small-clip
     #     link: https://example.com/laion-small-clip.tgz
+    # `format: parquet` reads payload rows from a parquet file, and accepts
+    # three extra keys (ignored by every other format):
+    #   columns: [url, similarity]   # list  optional  columns to keep (default: all)
+    #   exclude: [exif]              # list  default=[]  columns to drop (applied after `columns`)
+    #   fill_null: 0                 # any   optional  value substituted for nulls and for
+    #                                #   NaN/±inf floats, which have no JSON form. Omitted by
+    #                                #   default, leaving the payload field absent.
 
   # Payload field declarations (optional). Names must be unique. Each entry
   # generates a value and/or declares a field index.
