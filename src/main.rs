@@ -80,6 +80,7 @@ async fn run_upload(
     let mut args = args;
     args.num_vectors = Some(dataset::resolve_num_vectors(
         args.num_vectors,
+        args.offset,
         &config,
         &dataset::default_datasets_dir(),
     )?);

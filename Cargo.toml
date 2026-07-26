@@ -7,6 +7,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
+bytes = "1.11"
 chrono = { version = "0.4.44", default-features = false, features = [
     "now",
     "std",
@@ -20,6 +21,15 @@ half = "2.7"
 hdf5-pure-rust = "0.3.10"
 indicatif = "0.18.4"
 memmap2 = "0.9.10"
+# `arrow` deliberately off: the record API is enough to read payload rows, and
+# skipping it keeps the dependency tree (and build time) an order smaller.
+parquet = { version = "59.1", default-features = false, features = [
+    "snap",
+    "brotli",
+    "flate2-zlib-rs",
+    "lz4",
+    "zstd",
+] }
 qdrant-client = { git = "https://github.com/qdrant/rust-client", branch = "dev" }
 rand = "0.10.1"
 rand_distr = "0.6.0"

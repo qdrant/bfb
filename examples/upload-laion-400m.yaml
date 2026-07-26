@@ -1,0 +1,80 @@
+# The full LAION-400M benchmark corpus
+# (https://github.com/qdrant/laion-400m-benchmark) — 407,314,954 points across
+# 410 published parts, uploaded as one collection with global point ids.
+#
+#   bfb upload --file examples/upload-laion-400m.yaml -b 256 -p 16 -t 8 \
+#       --uri http://localhost:6334
+#
+# On first use bfb sizes every part with one ranged request each (~1.5 minutes
+# for all 820, no downloads) and caches the result in `datasets/.parts-index/`.
+# Part row counts are *not* uniform: 404 parts hold 1,000,448 rows, one holds
+# 1,000,501, and parts 8, 107, 220, 319 and 409 are short (189,159 to 642,675).
+# They are measured rather than assumed — a fixed size would go wrong at part 8
+# and misalign payloads against vectors for the rest of the corpus.
+#
+# Resuming: point ids are dataset rows, so an interrupted run continues with
+# `--offset <points already uploaded>`; `-n` is then capped by what is left.
+#
+# Disk: `cache: evict` streams the corpus — each part is fetched as it is
+# reached, the next one is fetched in the background while the current one
+# uploads, and parts already passed are deleted. Peak usage is a few parts
+# (~4 GB) rather than the ~600 GB the full corpus would occupy. Drop
+# `cache: evict` to keep every part for repeat runs.
+#
+# Eviction only ever deletes parts bfb downloaded; a file you staged in the
+# datasets dir yourself is left alone.
+
+collection:
+  name: laion
+  on_disk_payload: true
+
+  quantization:
+    type: binary
+    always_ram: true
+
+  hnsw:
+    m: 6
+    on_disk: false
+
+  optimizers:
+    default_segment_number: 2
+    # Bigger segments search faster, at the cost of slower indexing.
+    max_segment_size: 5000000
+
+  vectors:
+    - size: 512
+      distance: cosine
+      datatype: float16
+      on_disk: true
+      source:
+        type: dataset
+        name: laion-400m-img-emb
+        format: npy
+        parts:
+          count: 410           # parts 0..409 inclusive
+          path: laion/img_emb_{i}.npy
+          link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/img_emb/img_emb_{i}.npy
+        cache: evict
+
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: laion-400m-metadata
+        format: parquet
+        parts:
+          count: 410
+          path: laion/metadata_{i}.parquet
+          link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/metadata/metadata_{i}.parquet
+        cache: evict
+        # `exif` is the bulk of the metadata and useless as a filter; excluding
+        # it also skips decoding the column. The reference `upload.py` drops it.
+        exclude: [exif]
+        # `upload.py` does `df.fillna(0)`. Drop this line to leave fields with
+        # no value absent instead, which filters more predictably.
+        fill_null: 0
+
+  fields:
+    # Index-only declaration: the value comes from `payload.source` above.
+    - name: similarity
+      type: float

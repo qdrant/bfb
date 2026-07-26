@@ -24,9 +24,91 @@ each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
 Upload configs can source dense vectors, sparse vectors, and payloads from
 inline dataset definitions (same fields as
 [vector-db-benchmark `datasets.json`](https://github.com/qdrant/vector-db-benchmark/blob/master/datasets/datasets.json)).
-Supported formats are `h5` (HDF5, pure-Rust reader — no system libraries), `tar`
-(`.tgz` with `vectors.npy` + optional `payloads.jsonl`), and `sparse` (CSR
-matrices).
+
+| `format` | Contents |
+|----------|----------|
+| `h5` | ann-benchmarks HDF5 bundle — `train`, optional `test`/`neighbors`. Pure-Rust reader, no system libraries |
+| `tar` | `.tgz` of `vectors.npy` + optional `payloads.jsonl` / `tests.jsonl` |
+| `sparse` | CSR matrices (`data.csr`, optional `queries.csr` / `results.gt`) |
+| `npy` | One 2-D float `.npy` — dense vectors only |
+| `parquet` | One parquet file — payload rows only |
+
+The first three are *bundles*: vectors, payloads, and queries all come out of a
+single artifact. `npy` and `parquet` are *components*, so a config pairs them —
+one source per slot, row *i* of each landing on point *i*:
+
+```yaml
+collection:
+  vectors:
+    - size: 512
+      source: { type: dataset, name: emb, format: npy, path: emb.npy }
+  payload:
+    source:
+      type: dataset
+      dataset: { name: meta, format: parquet, path: meta.parquet, exclude: [exif] }
+```
+
+Parquet sources accept three extra keys: `columns` (keep only these), `exclude`
+(drop these), and `fill_null` (a value substituted for nulls and for NaN/±inf
+floats, which have no JSON form — by default such fields are simply absent).
+See [`examples/upload-laion-part.yaml`](examples/upload-laion-part.yaml).
+
+#### Sharded datasets
+
+Corpora published as numbered parts are read as one row space with a `parts:`
+block, so point ids stay global across the whole set. `npy` and `parquet`
+sources support it; `{i}` is substituted with each part's number:
+
+```yaml
+source:
+  type: dataset
+  name: laion-400m-img-emb
+  format: npy
+  parts:
+    count: 410                 # parts 0..409; `start:` moves the first index
+    path: laion/img_emb_{i}.npy
+    link: https://deploy.laion.ai/.../img_emb_{i}.npy
+```
+
+Part row counts are **measured, never configured**. Both formats keep their
+shape at a known end of the file — the `.npy` header at the front, the parquet
+footer at the back — so bfb sizes every part with one ranged HTTP request each
+and downloads none of them (820 LAION parts in ~1.5 minutes). The result is
+cached in `datasets/.parts-index/<name>.json`, keyed on the parts spec, so later
+runs issue no requests at all.
+
+There is deliberately no "rows per part" setting. LAION-400M turns out to have
+seven distinct part sizes — 404 parts of 1,000,448 rows, one of 1,000,501, and
+five short ones (parts 8, 107, 220, 319 and 409, from 189,159 to 642,675 rows)
+— so a fixed guess would go wrong at part 8 and silently pair payloads with the
+wrong vectors across ~98% of the corpus. The host must support ranged requests;
+one that answers `200` to a `Range:` request is reported rather than silently
+downloaded.
+
+Because a point's id *is* its dataset row, `--offset` resumes an interrupted
+upload — it skips that many rows as well as ids, and `-n` is capped by what
+remains. See [`examples/upload-laion-400m.yaml`](examples/upload-laion-400m.yaml)
+for the full 410-part, ~409.7M-point corpus.
+
+##### Streaming a corpus larger than the disk
+
+Parts are downloaded as they are reached, and by default they accumulate.
+`cache: evict` streams instead — the next part is fetched in the background
+while the current one uploads, and parts already passed are deleted:
+
+```yaml
+source:
+  type: dataset
+  name: laion-400m-img-emb
+  format: npy
+  parts: { count: 410, path: laion/img_emb_{i}.npy, link: "https://…/img_emb_{i}.npy" }
+  cache: evict               # keep | evict (default: keep)
+```
+
+That holds peak disk to the few parts in flight (~4 GB for LAION) instead of
+the ~600 GB the whole corpus occupies. Eviction only ever removes parts bfb
+downloaded itself — a file staged in the datasets dir by hand is never deleted,
+and a part still being read is left until nothing references it.
 
 Use `format` for the dataset storage type in upload configs (`type` is reserved
 for the source kind). An optional local `datasets/datasets.json` registry is
