@@ -1,20 +1,28 @@
 # The full LAION-400M benchmark corpus
-# (https://github.com/qdrant/laion-400m-benchmark) — ~409.7M points across 410
-# published parts, uploaded as one collection with global point ids.
+# (https://github.com/qdrant/laion-400m-benchmark) — 407,314,954 points across
+# 410 published parts, uploaded as one collection with global point ids.
 #
 #   bfb upload --file examples/upload-laion-400m.yaml -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
 #
-# On first use bfb sizes every part with one ranged request each (a few seconds,
-# no downloads) and caches the result in `datasets/.parts-index/`. Part row
-# counts are *not* uniform — most are 1,000,448 rows, part 408 is 1,000,501 and
-# part 409 is 518,720 — so they are measured rather than assumed.
+# On first use bfb sizes every part with one ranged request each (~1.5 minutes
+# for all 820, no downloads) and caches the result in `datasets/.parts-index/`.
+# Part row counts are *not* uniform: 404 parts hold 1,000,448 rows, one holds
+# 1,000,501, and parts 8, 107, 220, 319 and 409 are short (189,159 to 642,675).
+# They are measured rather than assumed — a fixed size would go wrong at part 8
+# and misalign payloads against vectors for the rest of the corpus.
 #
 # Resuming: point ids are dataset rows, so an interrupted run continues with
 # `--offset <points already uploaded>`; `-n` is then capped by what is left.
 #
-# Disk: parts are downloaded as they are reached. Without `cache:` they all
-# accumulate (~600 GB); see the `cache: evict` note at the bottom.
+# Disk: `cache: evict` streams the corpus — each part is fetched as it is
+# reached, the next one is fetched in the background while the current one
+# uploads, and parts already passed are deleted. Peak usage is a few parts
+# (~4 GB) rather than the ~600 GB the full corpus would occupy. Drop
+# `cache: evict` to keep every part for repeat runs.
+#
+# Eviction only ever deletes parts bfb downloaded; a file you staged in the
+# datasets dir yourself is left alone.
 
 collection:
   name: laion
@@ -46,6 +54,7 @@ collection:
           count: 410           # parts 0..409 inclusive
           path: laion/img_emb_{i}.npy
           link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/img_emb/img_emb_{i}.npy
+        cache: evict
 
   payload:
     source:
@@ -57,6 +66,7 @@ collection:
           count: 410
           path: laion/metadata_{i}.parquet
           link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/metadata/metadata_{i}.parquet
+        cache: evict
         # `exif` is the bulk of the metadata and useless as a filter; excluding
         # it also skips decoding the column. The reference `upload.py` drops it.
         exclude: [exif]

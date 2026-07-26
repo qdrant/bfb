@@ -73,18 +73,42 @@ source:
 Part row counts are **measured, never configured**. Both formats keep their
 shape at a known end of the file — the `.npy` header at the front, the parquet
 footer at the back — so bfb sizes every part with one ranged HTTP request each
-and downloads none of them. The result is cached in
-`datasets/.parts-index/<name>.json`, keyed on the parts spec, so later runs
-issue no requests at all. (Assuming a uniform part size would be wrong in
-practice: LAION's parts are 1,000,448 rows except part 408 at 1,000,501 and
-part 409 at 518,720, so any fixed guess misaligns payloads against vectors near
-the end of the corpus.) The host must support ranged requests; one that answers
-`200` to a `Range:` request is reported rather than silently downloaded.
+and downloads none of them (820 LAION parts in ~1.5 minutes). The result is
+cached in `datasets/.parts-index/<name>.json`, keyed on the parts spec, so later
+runs issue no requests at all.
+
+There is deliberately no "rows per part" setting. LAION-400M turns out to have
+seven distinct part sizes — 404 parts of 1,000,448 rows, one of 1,000,501, and
+five short ones (parts 8, 107, 220, 319 and 409, from 189,159 to 642,675 rows)
+— so a fixed guess would go wrong at part 8 and silently pair payloads with the
+wrong vectors across ~98% of the corpus. The host must support ranged requests;
+one that answers `200` to a `Range:` request is reported rather than silently
+downloaded.
 
 Because a point's id *is* its dataset row, `--offset` resumes an interrupted
 upload — it skips that many rows as well as ids, and `-n` is capped by what
 remains. See [`examples/upload-laion-400m.yaml`](examples/upload-laion-400m.yaml)
 for the full 410-part, ~409.7M-point corpus.
+
+##### Streaming a corpus larger than the disk
+
+Parts are downloaded as they are reached, and by default they accumulate.
+`cache: evict` streams instead — the next part is fetched in the background
+while the current one uploads, and parts already passed are deleted:
+
+```yaml
+source:
+  type: dataset
+  name: laion-400m-img-emb
+  format: npy
+  parts: { count: 410, path: laion/img_emb_{i}.npy, link: "https://…/img_emb_{i}.npy" }
+  cache: evict               # keep | evict (default: keep)
+```
+
+That holds peak disk to the few parts in flight (~4 GB for LAION) instead of
+the ~600 GB the whole corpus occupies. Eviction only ever removes parts bfb
+downloaded itself — a file staged in the datasets dir by hand is never deleted,
+and a part still being read is left until nothing references it.
 
 Use `format` for the dataset storage type in upload configs (`type` is reserved
 for the source kind). An optional local `datasets/datasets.json` registry is

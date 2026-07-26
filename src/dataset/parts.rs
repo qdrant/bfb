@@ -8,29 +8,34 @@
 //! # Sizing
 //!
 //! Mapping a global row to a part needs every part's row count up front, and
-//! the counts are *not* uniform: LAION's parts are 1,000,448 rows except part
-//! 408 (1,000,501) and the last (518,720). A configured "rows per part" would
-//! therefore be wrong for the tail of the corpus, silently misaligning payloads
-//! against vectors, so the counts are always measured instead.
+//! the counts are *not* uniform. LAION-400M has seven distinct part sizes: 404
+//! parts of 1,000,448 rows, one of 1,000,501, and five short ones — parts 8,
+//! 107, 220, 319 and 409, holding between 189,159 and 642,675 rows.
+//!
+//! That is why a configured "rows per part" is not offered. It would look
+//! reasonable and be wrong from part 8 onward: every later part would be
+//! addressed at the wrong offset, silently pairing payloads with the wrong
+//! vectors across ~98% of the corpus, and overcounting the total by 2.9M rows.
+//! The counts are therefore always measured.
 //!
 //! Measuring is cheap because both formats keep their shape at a known end of
 //! the file: the `.npy` header is the first ~128 bytes, and the parquet footer
 //! the last few KB. One ranged request per part sizes the whole corpus without
-//! downloading any of it, and the result is cached in a sidecar so later runs
-//! do no requests at all.
+//! downloading any of it — 820 parts of LAION in ~1.5 minutes — and the result
+//! is cached in a sidecar so later runs do no requests at all.
 
-use std::collections::VecDeque;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::config::{DatasetKind, PartsConfig, ResolvedDatasetConfig};
+use super::config::{CacheMode, DatasetKind, PartsConfig, ResolvedDatasetConfig};
 use super::download::fetch_range;
 use super::readers::{NpyReader, ParquetReader, parquet_row_count, parse_npy_header};
 
@@ -76,6 +81,15 @@ pub struct PartSource {
     columns: Option<Vec<String>>,
     exclude: Vec<String>,
     fill_null: Option<Value>,
+    cache: CacheMode,
+    /// One lock per part, so fetching part *n+1* in the background never blocks
+    /// a reader that wants part *n*.
+    guards: Mutex<HashMap<usize, Arc<Mutex<()>>>>,
+    /// Parts bfb downloaded itself. Eviction consults this and nothing else, so
+    /// a file the user placed in the datasets dir is never deleted.
+    downloaded: Mutex<HashSet<usize>>,
+    /// Parts with a prefetch in flight, so one is not started twice.
+    prefetching: Mutex<HashSet<usize>>,
 }
 
 impl PartSource {
@@ -88,6 +102,10 @@ impl PartSource {
             columns: config.columns.clone(),
             exclude: config.exclude.clone(),
             fill_null: config.fill_null.clone(),
+            cache: config.cache,
+            guards: Mutex::new(HashMap::new()),
+            downloaded: Mutex::new(HashSet::new()),
+            prefetching: Mutex::new(HashSet::new()),
         }
     }
 
@@ -122,11 +140,23 @@ impl PartSource {
     }
 
     /// Ensure part `index` is present locally, downloading it if needed.
+    ///
+    /// Guarded per part, so a prefetch already fetching this part is waited on
+    /// rather than duplicated — and a prefetch of a *different* part does not
+    /// hold anyone up.
     pub fn ensure_downloaded(&self, index: usize) -> Result<PathBuf> {
         let target = self.local_path(index);
         if target.exists() {
             return Ok(target);
         }
+
+        let guard = self.guard_for(index);
+        let _held = guard.lock().unwrap();
+        // Whoever held the guard may have just finished fetching it.
+        if target.exists() {
+            return Ok(target);
+        }
+
         let link = self.link(index).with_context(|| {
             format!(
                 "dataset {:?} part {index} is missing at {} and no `parts.link` is configured",
@@ -135,7 +165,60 @@ impl PartSource {
             )
         })?;
         super::download::download_file_to(&link, &target)?;
+        self.downloaded.lock().unwrap().insert(index);
         Ok(target)
+    }
+
+    fn guard_for(&self, index: usize) -> Arc<Mutex<()>> {
+        self.guards
+            .lock()
+            .unwrap()
+            .entry(index)
+            .or_default()
+            .clone()
+    }
+
+    fn is_valid(&self, index: usize) -> bool {
+        (self.parts.start..self.parts.start + self.parts.count).contains(&index)
+    }
+
+    /// Start fetching part `index` in the background, if it is worth doing:
+    /// upload spends minutes on a part, which is ample time to have the next
+    /// one on disk before it is reached.
+    fn prefetch(self: &Arc<Self>, index: usize) {
+        if !self.is_valid(index) || self.link(index).is_none() || self.local_path(index).exists() {
+            return;
+        }
+        if !self.prefetching.lock().unwrap().insert(index) {
+            return;
+        }
+
+        let source = Arc::clone(self);
+        std::thread::spawn(move || {
+            if let Err(e) = source.ensure_downloaded(index) {
+                // Not fatal: the reader will retry (and report) when it gets there.
+                tracing::warn!("prefetch of part {index} failed: {e:#}");
+            }
+            source.prefetching.lock().unwrap().remove(&index);
+        });
+    }
+
+    /// Delete a part bfb downloaded, once nothing is reading it.
+    ///
+    /// Files that were already in the datasets dir are left alone — the whole
+    /// point of tracking `downloaded` is that eviction can never destroy data
+    /// bfb cannot fetch again.
+    fn evict(&self, index: usize) {
+        if self.cache != CacheMode::Evict {
+            return;
+        }
+        if !self.downloaded.lock().unwrap().remove(&index) {
+            return;
+        }
+        let path = self.local_path(index);
+        if let Err(e) = std::fs::remove_file(&path) {
+            tracing::warn!("failed to evict {}: {e}", path.display());
+        }
     }
 
     fn open_reader(&self, path: &Path) -> Result<PartReader> {
@@ -345,15 +428,19 @@ impl PartReader {
 
 /// A family of parts addressed as one contiguous row space.
 pub struct PartitionedReader {
-    source: PartSource,
+    source: Arc<PartSource>,
     entries: Vec<PartEntry>,
     /// Global index of each part's first row, plus a final total.
     starts: Vec<usize>,
-    open: RwLock<VecDeque<(usize, std::sync::Arc<PartReader>)>>,
+    open: RwLock<VecDeque<(usize, Arc<PartReader>)>>,
     /// Serializes the open-a-new-part path so concurrent readers crossing a
     /// boundary fetch it once. Held *outside* `open`, so readers still working
     /// on the previous part are never blocked behind a download.
     opening: Mutex<()>,
+    /// Parts dropped from the LRU and awaiting deletion. A reader may still
+    /// hold the `Arc` — the parquet reader reopens its file by path on a
+    /// rewind — so the file is only removed once every reference is gone.
+    pending_evict: Mutex<Vec<(usize, Weak<PartReader>)>>,
 }
 
 impl PartitionedReader {
@@ -374,11 +461,12 @@ impl PartitionedReader {
         starts.push(running);
 
         Ok(PartitionedReader {
-            source,
+            source: Arc::new(source),
             entries,
             starts,
             open: RwLock::new(VecDeque::new()),
             opening: Mutex::new(()),
+            pending_evict: Mutex::new(Vec::new()),
         })
     }
 
@@ -402,7 +490,7 @@ impl PartitionedReader {
         Ok((slot, idx - self.starts[slot]))
     }
 
-    fn reader_for(&self, slot: usize) -> Result<std::sync::Arc<PartReader>> {
+    fn reader_for(&self, slot: usize) -> Result<Arc<PartReader>> {
         let index = self.entries[slot].index;
         if let Some((_, reader)) = self
             .open
@@ -442,13 +530,44 @@ impl PartitionedReader {
             );
         }
 
-        let reader = std::sync::Arc::new(reader);
-        let mut open = self.open.write().unwrap();
-        open.push_back((index, reader.clone()));
-        while open.len() > OPEN_PARTS {
-            open.pop_front();
+        let reader = Arc::new(reader);
+        {
+            let mut open = self.open.write().unwrap();
+            open.push_back((index, reader.clone()));
+            let mut pending = self.pending_evict.lock().unwrap();
+            while open.len() > OPEN_PARTS {
+                if let Some((dropped, evicted)) = open.pop_front() {
+                    pending.push((dropped, Arc::downgrade(&evicted)));
+                }
+            }
         }
+
+        // Fetch the next part while this one is being uploaded, and reclaim the
+        // disk of any part nothing is reading any more.
+        self.source.prefetch(self.next_part_index(slot));
+        self.sweep_evictions();
         Ok(reader)
+    }
+
+    /// Part number following the one at `slot`, or a value outside the range
+    /// when this is the last part (`prefetch` ignores it).
+    fn next_part_index(&self, slot: usize) -> usize {
+        self.entries
+            .get(slot + 1)
+            .map(|entry| entry.index)
+            .unwrap_or(usize::MAX)
+    }
+
+    /// Delete the files of parts nothing holds a reader for any more.
+    fn sweep_evictions(&self) {
+        let mut pending = self.pending_evict.lock().unwrap();
+        pending.retain(|(index, reader)| {
+            if reader.strong_count() > 0 {
+                return true; // still in use; try again next time round
+            }
+            self.source.evict(*index);
+            false
+        });
     }
 
     pub fn vector_at(&self, idx: usize) -> Result<Vec<f32>> {
@@ -666,6 +785,104 @@ mod tests {
             stats.bytes_served <= PARQUET_TAIL_PROBE && stats.bytes_served < total,
             "the footer request served {} bytes of a {total}-byte file",
             stats.bytes_served
+        );
+    }
+
+    /// Serve `count` npy parts and return the config that reads them.
+    /// The server thread is left running; tests here assert on the filesystem.
+    fn remote_parts(dir: &Path, count: usize, cache: CacheMode) -> ResolvedDatasetConfig {
+        let files: Vec<(String, Vec<u8>)> = (0..count)
+            .map(|i| (format!("p_{i}.npy"), make_ramp_npy(i * 100, 4, 2)))
+            .collect();
+        let (base, _server) = crate::dataset::test_http::serve_ranges(files, 1000);
+        let _ = dir;
+
+        let config = DatasetConfig {
+            name: format!("evictable-{count}-{cache:?}"),
+            kind: Some(DatasetKind::Npy),
+            parts: Some(PartsConfig {
+                count,
+                start: 0,
+                path: "p_{i}.npy".to_string(),
+                link: Some(format!("{base}/p_{{i}}.npy")),
+            }),
+            cache,
+            ..Default::default()
+        };
+        DatasetConfig::resolve(config, &Default::default()).unwrap()
+    }
+
+    /// With `cache: evict`, a part downloaded by bfb is deleted once the reader
+    /// has moved past it — this is what keeps a 600 GB corpus off a 1 TB disk.
+    #[test]
+    fn evicts_downloaded_parts_once_the_reader_moves_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = remote_parts(dir.path(), 4, CacheMode::Evict);
+        let reader = PartitionedReader::open(dir.path(), &config).unwrap();
+
+        // Parts are 4 rows each; walk into parts 0, 1, then 2.
+        reader.vector_at(0).unwrap();
+        assert!(dir.path().join("p_0.npy").exists());
+        reader.vector_at(4).unwrap();
+        assert!(dir.path().join("p_0.npy").exists(), "still within the LRU");
+
+        reader.vector_at(8).unwrap();
+        assert!(
+            !dir.path().join("p_0.npy").exists(),
+            "part 0 fell out of the LRU and should have been reclaimed"
+        );
+        assert!(dir.path().join("p_2.npy").exists(), "the live part stays");
+    }
+
+    #[test]
+    fn keeps_parts_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = remote_parts(dir.path(), 4, CacheMode::Keep);
+        let reader = PartitionedReader::open(dir.path(), &config).unwrap();
+
+        for row in [0, 4, 8] {
+            reader.vector_at(row).unwrap();
+        }
+        assert!(dir.path().join("p_0.npy").exists(), "default keeps parts");
+    }
+
+    /// Eviction must never delete a file the user put there: bfb cannot get it
+    /// back, and `parts.link` may not even point at it.
+    #[test]
+    fn never_evicts_a_file_it_did_not_download() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = remote_parts(dir.path(), 4, CacheMode::Evict);
+        // Pre-place part 0 as if the user had staged it themselves.
+        std::fs::write(dir.path().join("p_0.npy"), make_ramp_npy(0, 4, 2)).unwrap();
+
+        let reader = PartitionedReader::open(dir.path(), &config).unwrap();
+        for row in [0, 4, 8] {
+            reader.vector_at(row).unwrap();
+        }
+        assert!(
+            dir.path().join("p_0.npy").exists(),
+            "a user-supplied part must survive eviction"
+        );
+    }
+
+    /// Opening a part starts fetching the next one, so the upload does not
+    /// stall on a download every time it crosses a boundary.
+    #[test]
+    fn prefetches_the_next_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = remote_parts(dir.path(), 3, CacheMode::Keep);
+        let reader = PartitionedReader::open(dir.path(), &config).unwrap();
+
+        reader.vector_at(0).unwrap();
+
+        let next = dir.path().join("p_1.npy");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !next.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            next.exists(),
+            "reading part 0 should have prefetched part 1"
         );
     }
 

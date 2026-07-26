@@ -42,6 +42,21 @@ pub struct DatasetConfig {
     /// Omitted by default, which leaves the payload field absent.
     #[serde(default)]
     pub fill_null: Option<serde_json::Value>,
+    /// What to do with downloaded parts once the upload has moved past them.
+    #[serde(default)]
+    pub cache: CacheMode,
+}
+
+/// Disk policy for a sharded dataset's downloaded parts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheMode {
+    /// Keep every part that gets downloaded (default).
+    #[default]
+    Keep,
+    /// Delete each part once the reader has moved past it, bounding disk use to
+    /// the few parts in flight. Only ever deletes files bfb downloaded itself.
+    Evict,
 }
 
 impl DatasetConfig {
@@ -92,6 +107,7 @@ pub struct ResolvedDatasetConfig {
     pub columns: Option<Vec<String>>,
     pub exclude: Vec<String>,
     pub fill_null: Option<serde_json::Value>,
+    pub cache: CacheMode,
 }
 
 impl ResolvedDatasetConfig {
@@ -144,6 +160,10 @@ impl ResolvedDatasetConfig {
             fill_null: inline
                 .fill_null
                 .or_else(|| base.and_then(|b| b.fill_null.clone())),
+            cache: match inline.cache {
+                CacheMode::Keep => base.map(|b| b.cache).unwrap_or_default(),
+                explicit => explicit,
+            },
         })
     }
 }
@@ -233,6 +253,12 @@ impl DatasetConfig {
             return Ok(());
         }
 
+        if self.cache == CacheMode::Evict {
+            bail!(
+                "dataset {:?}: `cache: evict` only applies to a sharded (`parts:`) dataset",
+                self.name
+            );
+        }
         if self.path.is_none() {
             bail!("dataset {:?} requires `path` (or `parts`)", self.name);
         }
@@ -343,6 +369,25 @@ mod tests {
         let config = parts_config(template("d_{i}", 3), DatasetKind::Tar);
         let err = config.validate_inline().unwrap_err().to_string();
         assert!(err.contains("only supported for"), "{err}");
+    }
+
+    /// `cache: evict` has nothing to act on without `parts`, so accepting it
+    /// there would be a silent no-op on a setting about deleting files.
+    #[test]
+    fn evict_requires_a_sharded_dataset() {
+        let config = DatasetConfig {
+            name: "single".to_string(),
+            kind: Some(DatasetKind::Npy),
+            path: Some("v.npy".to_string()),
+            cache: CacheMode::Evict,
+            ..Default::default()
+        };
+        let err = config.validate_inline().unwrap_err().to_string();
+        assert!(err.contains("only applies to a sharded"), "{err}");
+
+        let mut sharded = parts_config(template("p_{i}.npy", 3), DatasetKind::Npy);
+        sharded.cache = CacheMode::Evict;
+        sharded.validate_inline().unwrap();
     }
 
     #[test]

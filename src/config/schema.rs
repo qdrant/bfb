@@ -117,6 +117,11 @@ collection:
       #     start: 0             # uint     default=0  index of the first part
       #     path: laion/img_emb_{i}.npy     # string   required
       #     link: https://host/img_emb_{i}.npy  # string  optional
+      #   cache: keep          # enum  default=keep  [keep | evict] (sharded only)
+      #                        #   evict deletes each downloaded part once the reader
+      #                        #   moves past it, and prefetches the next one, so a
+      #                        #   corpus larger than the disk can still be streamed.
+      #                        #   Only parts bfb downloaded are ever deleted.
 
   # Sparse vectors (optional). Names must be unique across all vectors.
   sparse_vectors:
