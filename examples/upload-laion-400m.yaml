@@ -1,0 +1,70 @@
+# The full LAION-400M benchmark corpus
+# (https://github.com/qdrant/laion-400m-benchmark) — ~409.7M points across 410
+# published parts, uploaded as one collection with global point ids.
+#
+#   bfb upload --file examples/upload-laion-400m.yaml -b 256 -p 16 -t 8 \
+#       --uri http://localhost:6334
+#
+# On first use bfb sizes every part with one ranged request each (a few seconds,
+# no downloads) and caches the result in `datasets/.parts-index/`. Part row
+# counts are *not* uniform — most are 1,000,448 rows, part 408 is 1,000,501 and
+# part 409 is 518,720 — so they are measured rather than assumed.
+#
+# Resuming: point ids are dataset rows, so an interrupted run continues with
+# `--offset <points already uploaded>`; `-n` is then capped by what is left.
+#
+# Disk: parts are downloaded as they are reached. Without `cache:` they all
+# accumulate (~600 GB); see the `cache: evict` note at the bottom.
+
+collection:
+  name: laion
+  on_disk_payload: true
+
+  quantization:
+    type: binary
+    always_ram: true
+
+  hnsw:
+    m: 6
+    on_disk: false
+
+  optimizers:
+    default_segment_number: 2
+    # Bigger segments search faster, at the cost of slower indexing.
+    max_segment_size: 5000000
+
+  vectors:
+    - size: 512
+      distance: cosine
+      datatype: float16
+      on_disk: true
+      source:
+        type: dataset
+        name: laion-400m-img-emb
+        format: npy
+        parts:
+          count: 410           # parts 0..409 inclusive
+          path: laion/img_emb_{i}.npy
+          link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/img_emb/img_emb_{i}.npy
+
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: laion-400m-metadata
+        format: parquet
+        parts:
+          count: 410
+          path: laion/metadata_{i}.parquet
+          link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/metadata/metadata_{i}.parquet
+        # `exif` is the bulk of the metadata and useless as a filter; excluding
+        # it also skips decoding the column. The reference `upload.py` drops it.
+        exclude: [exif]
+        # `upload.py` does `df.fillna(0)`. Drop this line to leave fields with
+        # no value absent instead, which filters more predictably.
+        fill_null: 0
+
+  fields:
+    # Index-only declaration: the value comes from `payload.source` above.
+    - name: similarity
+      type: float

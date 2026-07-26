@@ -7,7 +7,9 @@ mod sparse;
 mod tar;
 
 pub use h5::H5Reader;
-pub use npy::NpyReader;
-pub use parquet::ParquetReader;
+pub use npy::{NpyReader, parse_npy_header};
+pub use parquet::{
+    ParquetReader, parquet_footer_len, parquet_row_count, parquet_row_count_from_tail,
+};
 pub use sparse::SparseReader;
 pub use tar::TarReader;

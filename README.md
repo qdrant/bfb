@@ -53,6 +53,39 @@ Parquet sources accept three extra keys: `columns` (keep only these), `exclude`
 floats, which have no JSON form — by default such fields are simply absent).
 See [`examples/upload-laion-part.yaml`](examples/upload-laion-part.yaml).
 
+#### Sharded datasets
+
+Corpora published as numbered parts are read as one row space with a `parts:`
+block, so point ids stay global across the whole set. `npy` and `parquet`
+sources support it; `{i}` is substituted with each part's number:
+
+```yaml
+source:
+  type: dataset
+  name: laion-400m-img-emb
+  format: npy
+  parts:
+    count: 410                 # parts 0..409; `start:` moves the first index
+    path: laion/img_emb_{i}.npy
+    link: https://deploy.laion.ai/.../img_emb_{i}.npy
+```
+
+Part row counts are **measured, never configured**. Both formats keep their
+shape at a known end of the file — the `.npy` header at the front, the parquet
+footer at the back — so bfb sizes every part with one ranged HTTP request each
+and downloads none of them. The result is cached in
+`datasets/.parts-index/<name>.json`, keyed on the parts spec, so later runs
+issue no requests at all. (Assuming a uniform part size would be wrong in
+practice: LAION's parts are 1,000,448 rows except part 408 at 1,000,501 and
+part 409 at 518,720, so any fixed guess misaligns payloads against vectors near
+the end of the corpus.) The host must support ranged requests; one that answers
+`200` to a `Range:` request is reported rather than silently downloaded.
+
+Because a point's id *is* its dataset row, `--offset` resumes an interrupted
+upload — it skips that many rows as well as ids, and `-n` is capped by what
+remains. See [`examples/upload-laion-400m.yaml`](examples/upload-laion-400m.yaml)
+for the full 410-part, ~409.7M-point corpus.
+
 Use `format` for the dataset storage type in upload configs (`type` is reserved
 for the source kind). An optional local `datasets/datasets.json` registry is
 still supported for name-only shorthand.

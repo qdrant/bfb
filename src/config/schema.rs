@@ -104,6 +104,19 @@ collection:
       #   link: http://ann-benchmarks.com/glove-25-angular.hdf5
       #   vector_size: 25
       #   distance: cosine
+      # A sharded dataset (`npy` / `parquet` only) replaces `path`/`link` with a
+      # `parts` block; the files are read as one row space and `{i}` is
+      # substituted with each part's number. Row counts per part are measured,
+      # not configured — one ranged request per part, cached thereafter.
+      # source:
+      #   type: dataset
+      #   name: laion-400m-img-emb
+      #   format: npy
+      #   parts:
+      #     count: 410           # uint     required   number of parts
+      #     start: 0             # uint     default=0  index of the first part
+      #     path: laion/img_emb_{i}.npy     # string   required
+      #     link: https://host/img_emb_{i}.npy  # string  optional
 
   # Sparse vectors (optional). Names must be unique across all vectors.
   sparse_vectors:

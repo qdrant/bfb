@@ -20,7 +20,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
-use parquet::file::reader::{FileReader, SerializedFileReader};
+use bytes::Bytes;
+use parquet::errors::ParquetError;
+use parquet::file::metadata::ParquetMetaDataReader;
+use parquet::file::reader::{ChunkReader, FileReader, Length, SerializedFileReader};
 use parquet::file::serialized_reader::ReadOptionsBuilder;
 use parquet::record::reader::RowIter;
 use parquet::record::{Field, List, Map, Row};
@@ -256,6 +259,111 @@ impl ParquetReader {
     }
 }
 
+/// Row count of a local parquet file, read from its footer.
+pub fn parquet_row_count(path: &Path) -> Result<usize> {
+    let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let reader = SerializedFileReader::new(file)
+        .with_context(|| format!("failed to read parquet metadata from {}", path.display()))?;
+    Ok(reader.metadata().file_metadata().num_rows().max(0) as usize)
+}
+
+/// Length of the thrift footer described by the last 8 bytes of a parquet file,
+/// *including* those 8 bytes — i.e. the smallest tail that holds the metadata.
+///
+/// `None` when `tail` is too short to hold even the trailer.
+pub fn parquet_footer_len(tail: &[u8]) -> Result<Option<usize>> {
+    if tail.len() < FOOTER_TRAILER {
+        return Ok(None);
+    }
+    let trailer = &tail[tail.len() - FOOTER_TRAILER..];
+    if &trailer[4..] != PARQUET_MAGIC {
+        bail!("not a parquet file (missing PAR1 trailer)");
+    }
+    let len = u32::from_le_bytes(trailer[..4].try_into().unwrap()) as usize;
+    Ok(Some(len + FOOTER_TRAILER))
+}
+
+/// Row count read from the *tail* of a parquet file of `total_len` bytes.
+///
+/// Parquet keeps its metadata at the end, so this sizes a remote part from one
+/// ranged request instead of a download. `tail` must reach back at least
+/// [`parquet_footer_len`] bytes from the end.
+pub fn parquet_row_count_from_tail(tail: &[u8], total_len: u64) -> Result<usize> {
+    let needed =
+        parquet_footer_len(tail)?.context("tail is too short to hold a parquet trailer")?;
+    if needed > tail.len() {
+        bail!(
+            "parquet footer is {needed} bytes but only {} were fetched",
+            tail.len()
+        );
+    }
+    if (tail.len() as u64) > total_len {
+        bail!(
+            "tail of {} bytes exceeds the file length {total_len}",
+            tail.len()
+        );
+    }
+
+    let reader = TailChunkReader {
+        total_len,
+        start: total_len - tail.len() as u64,
+        tail: Bytes::copy_from_slice(tail),
+    };
+    let metadata = ParquetMetaDataReader::new()
+        .parse_and_finish(&reader)
+        .context("failed to decode the parquet footer")?;
+    Ok(metadata.file_metadata().num_rows().max(0) as usize)
+}
+
+const FOOTER_TRAILER: usize = 8;
+const PARQUET_MAGIC: &[u8] = b"PAR1";
+
+/// Presents the last `tail.len()` bytes of a file as if the whole file were
+/// available, so the parquet metadata reader — which only ever seeks from the
+/// end — can work against a ranged response.
+struct TailChunkReader {
+    total_len: u64,
+    start: u64,
+    tail: Bytes,
+}
+
+impl TailChunkReader {
+    fn slice_from(&self, start: u64) -> parquet::errors::Result<Bytes> {
+        if start < self.start || start > self.total_len {
+            return Err(ParquetError::General(format!(
+                "parquet metadata read at {start} falls outside the fetched tail \
+                 [{}, {})",
+                self.start, self.total_len
+            )));
+        }
+        Ok(self.tail.slice((start - self.start) as usize..))
+    }
+}
+
+impl Length for TailChunkReader {
+    fn len(&self) -> u64 {
+        self.total_len
+    }
+}
+
+impl ChunkReader for TailChunkReader {
+    type T = bytes::buf::Reader<Bytes>;
+
+    fn get_read(&self, start: u64) -> parquet::errors::Result<Self::T> {
+        self.slice_from(start).map(bytes::Buf::reader)
+    }
+
+    fn get_bytes(&self, start: u64, length: usize) -> parquet::errors::Result<Bytes> {
+        let slice = self.slice_from(start)?;
+        if slice.len() < length {
+            return Err(ParquetError::General(format!(
+                "parquet metadata read of {length} bytes at {start} runs past the fetched tail"
+            )));
+        }
+        Ok(slice.slice(..length))
+    }
+}
+
 /// JSON has no NaN or infinity — those become "no value", same as null.
 fn number(value: f64) -> Option<Value> {
     Number::from_f64(value).map(Value::Number)
@@ -456,4 +564,3 @@ mod tests {
         assert_eq!(open(&path).payload_object(10).unwrap(), None);
     }
 }
-
