@@ -9,20 +9,19 @@ use anyhow::Result;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::vectors_config::Config;
 use qdrant_client::qdrant::{
-    BinaryQuantizationBuilder, BinaryQuantizationEncoding, BoolIndexParamsBuilder,
-    CompressionRatio, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
+    BoolIndexParamsBuilder, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     CreateShardKeyBuilder, CreateShardKeyRequestBuilder, Datatype, DatetimeIndexParamsBuilder,
     Distance, FieldType, FloatIndexParamsBuilder, GeoIndexParamsBuilder, HnswConfigDiffBuilder,
-    IntegerIndexParamsBuilder, KeywordIndexParamsBuilder, MultiVectorComparator,
-    MultiVectorConfigBuilder, OptimizersConfigDiffBuilder, ProductQuantizationBuilder,
-    QuantizationType, ScalarQuantizationBuilder, ShardingMethod, SparseIndexConfigBuilder,
-    SparseVectorConfig, SparseVectorParamsBuilder, TextIndexParamsBuilder, TokenizerType,
-    TurboQuantBitSize, TurboQuantizationBuilder, UuidIndexParamsBuilder, VectorParams,
+    IntegerIndexParamsBuilder, KeywordIndexParamsBuilder, Modifier, MultiVectorComparator,
+    MultiVectorConfigBuilder, OptimizersConfigDiffBuilder, PayloadStorageParamsBuilder,
+    ShardingMethod, SparseIndexConfigBuilder, SparseVectorConfig, SparseVectorParamsBuilder,
+    TextIndexParamsBuilder, TokenizerType, UuidIndexParamsBuilder, VectorParamsBuilder,
     VectorParamsMap, VectorsConfig,
 };
 use tokio::time::sleep;
 
-use crate::args::{Args, QuantizationArg};
+use super::from_config::{build_quantization_config, memory_to_i32};
+use crate::args::Args;
 use crate::client::random_client;
 use crate::generators::random::{
     BOOL_PAYLOAD_KEY, FLOAT_PAYLOAD_KEY, GEO_PAYLOAD_KEY, INTEGERS_PAYLOAD_KEY,
@@ -56,13 +55,14 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
         return Ok(());
     }
 
-    let datatype = args
+    let datatype: Option<i32> = args
         .datatype
         .as_ref()
         .map(|datatype| match datatype.as_str() {
             "Uint8" => Datatype::Uint8.into(),
             "Float16" => Datatype::Float16.into(),
             "Float32" => Datatype::Float32.into(),
+            "Turbo4" => Datatype::Turbo4.into(),
             _ => {
                 panic!("Unknown vector datatype {datatype}")
             }
@@ -72,22 +72,30 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
         MultiVectorConfigBuilder::new(MultiVectorComparator::MaxSim).build()
     });
 
-    let vector_param = VectorParams {
-        size: args.dim as u64,
-        distance: match args.distance.as_str() {
-            "Cosine" => Distance::Cosine.into(),
-            "Dot" => Distance::Dot.into(),
-            "Euclid" => Distance::Euclid.into(),
-            "Manhattan" => Distance::Manhattan.into(),
-            _ => {
-                panic!("Unknown distance {}", args.distance)
-            }
-        },
-        on_disk: args.on_disk_vectors,
-        multivector_config,
-        datatype,
-        ..Default::default()
+    let distance = match args.distance.as_str() {
+        "Cosine" => Distance::Cosine,
+        "Dot" => Distance::Dot,
+        "Euclid" => Distance::Euclid,
+        "Manhattan" => Distance::Manhattan,
+        _ => {
+            panic!("Unknown distance {}", args.distance)
+        }
     };
+
+    let mut vector_param_builder = VectorParamsBuilder::new(args.dim as u64, distance);
+    if let Some(on_disk) = args.on_disk_vectors {
+        vector_param_builder = vector_param_builder.on_disk(on_disk);
+    }
+    if let Some(memory) = args.memory_vectors {
+        vector_param_builder = vector_param_builder.memory(memory_to_i32(memory.into()));
+    }
+    if let Some(multivector_config) = multivector_config {
+        vector_param_builder = vector_param_builder.multivector_config(multivector_config);
+    }
+    if let Some(datatype) = datatype {
+        vector_param_builder = vector_param_builder.datatype(datatype);
+    }
+    let vector_param = vector_param_builder.build();
 
     let dense_vector_params = if args.vectors_per_point == 1 {
         Config::Params(vector_param)
@@ -110,11 +118,15 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
                 if let Some(datatype) = datatype {
                     index_builder = index_builder.datatype(datatype);
                 }
-                let config = SparseVectorParamsBuilder::default()
-                    .index(index_builder)
-                    .build();
+                if let Some(memory) = args.memory_index {
+                    index_builder = index_builder.memory(memory_to_i32(memory.into()));
+                }
+                let mut config = SparseVectorParamsBuilder::default().index(index_builder);
+                if args.sparse_idf {
+                    config = config.modifier(Modifier::Idf);
+                }
 
-                (key, config)
+                (key, config.build())
             })
             .collect();
 
@@ -140,6 +152,9 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
     }
     if args.hnsw_inline_storage {
         hnsw_config = hnsw_config.inline_storage(true);
+    }
+    if let Some(memory) = args.memory_index {
+        hnsw_config = hnsw_config.memory(memory_to_i32(memory.into()));
     }
 
     let mut optimizers_config = OptimizersConfigDiffBuilder::default();
@@ -171,6 +186,11 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
         create_collection_builder = create_collection_builder.shard_number(shard_number as u32);
     }
 
+    if let Some(memory) = args.memory_payload {
+        create_collection_builder = create_collection_builder
+            .payload(PayloadStorageParamsBuilder::default().memory(memory_to_i32(memory.into())));
+    }
+
     if let Some(sparse_vector_config) = sparse_vectors_config {
         create_collection_builder =
             create_collection_builder.sparse_vectors_config(sparse_vector_config);
@@ -181,71 +201,15 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
             create_collection_builder.sharding_method(ShardingMethod::Custom.into());
     }
 
-    if let Some(quantization) = args.quantization {
-        create_collection_builder = match quantization {
-            QuantizationArg::Scalar => create_collection_builder.quantization_config(
-                ScalarQuantizationBuilder::default()
-                    .r#type(QuantizationType::Int8.into())
-                    .quantile(0.99)
-                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
-            ),
-            QuantizationArg::None => create_collection_builder,
-            QuantizationArg::Binary => create_collection_builder.quantization_config(
-                BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default()),
-            ),
-            QuantizationArg::Binary2bit => create_collection_builder.quantization_config(
-                BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default())
-                    .encoding(BinaryQuantizationEncoding::TwoBits),
-            ),
-            QuantizationArg::Binary1p5bit => create_collection_builder.quantization_config(
-                BinaryQuantizationBuilder::new(args.quantization_in_ram.unwrap_or_default())
-                    .encoding(BinaryQuantizationEncoding::OneAndHalfBits),
-            ),
-            QuantizationArg::Turbo1bit => create_collection_builder.quantization_config(
-                TurboQuantizationBuilder::new()
-                    .bits(TurboQuantBitSize::Bits1)
-                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
-            ),
-            QuantizationArg::Turbo1p5bit => create_collection_builder.quantization_config(
-                TurboQuantizationBuilder::new()
-                    .bits(TurboQuantBitSize::Bits15)
-                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
-            ),
-            QuantizationArg::Turbo2bit => create_collection_builder.quantization_config(
-                TurboQuantizationBuilder::new()
-                    .bits(TurboQuantBitSize::Bits2)
-                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
-            ),
-            QuantizationArg::Turbo4bit => create_collection_builder.quantization_config(
-                TurboQuantizationBuilder::new()
-                    .bits(TurboQuantBitSize::Bits4)
-                    .always_ram(args.quantization_in_ram.unwrap_or_default()),
-            ),
-            quantization => {
-                let compression = match quantization {
-                    QuantizationArg::ProductX4 => CompressionRatio::X4,
-                    QuantizationArg::ProductX8 => CompressionRatio::X8,
-                    QuantizationArg::ProductX16 => CompressionRatio::X16,
-                    QuantizationArg::ProductX32 => CompressionRatio::X32,
-                    QuantizationArg::ProductX64 => CompressionRatio::X64,
-                    QuantizationArg::Scalar
-                    | QuantizationArg::Binary
-                    | QuantizationArg::Binary2bit
-                    | QuantizationArg::Binary1p5bit
-                    | QuantizationArg::Turbo1bit
-                    | QuantizationArg::Turbo1p5bit
-                    | QuantizationArg::Turbo2bit
-                    | QuantizationArg::Turbo4bit
-                    | QuantizationArg::None => {
-                        unreachable!()
-                    }
-                };
-                create_collection_builder.quantization_config(
-                    ProductQuantizationBuilder::new(compression.into())
-                        .always_ram(args.quantization_in_ram.unwrap_or_default()),
-                )
-            }
-        };
+    if let Some(quantization) = args.quantization
+        && let Some(quantization_config) = build_quantization_config(
+            quantization.into(),
+            args.quantization_in_ram.unwrap_or_default(),
+            args.memory_quantization.map(Into::into),
+        )
+    {
+        create_collection_builder =
+            create_collection_builder.quantization_config(quantization_config);
     }
 
     client.create_collection(create_collection_builder).await?;
@@ -280,7 +244,17 @@ pub async fn recreate_collection(args: &Args, stopped: Arc<AtomicBool>) -> Resul
 }
 
 async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Result<()> {
+    // `memory` supersedes `on_disk` on servers that understand it; both are sent
+    // so the same flags keep working against older ones.
+    let memory = args.memory_payload_index.map(|m| memory_to_i32(m.into()));
+
     for (idx, _) in args.keywords.iter().enumerate() {
+        let mut params = KeywordIndexParamsBuilder::default()
+            .on_disk(args.on_disk_payload_index)
+            .is_tenant(args.tenants.unwrap_or_default());
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -288,11 +262,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     format!("{}{}", payload_prefixes(idx), KEYWORD_PAYLOAD_KEY),
                     FieldType::Keyword,
                 )
-                .field_index_params(
-                    KeywordIndexParamsBuilder::default()
-                        .on_disk(args.on_disk_payload_index)
-                        .is_tenant(args.tenants.unwrap_or_default()),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await
@@ -300,6 +270,12 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
     }
 
     for (idx, _) in args.float_payloads.iter().enumerate() {
+        let mut params = FloatIndexParamsBuilder::default()
+            .on_disk(args.on_disk_payload_index)
+            .is_principal(args.tenants.unwrap_or_default());
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -307,11 +283,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     format!("{}{}", payload_prefixes(idx), FLOAT_PAYLOAD_KEY),
                     FieldType::Float,
                 )
-                .field_index_params(
-                    FloatIndexParamsBuilder::default()
-                        .on_disk(args.on_disk_payload_index)
-                        .is_principal(args.tenants.unwrap_or_default()),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await
@@ -319,6 +291,12 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
     }
 
     for (idx, _) in args.int_payloads.iter().enumerate() {
+        let mut params = IntegerIndexParamsBuilder::new(true, args.int_payloads_range)
+            .on_disk(args.on_disk_payload_index)
+            .is_principal(args.tenants.unwrap_or_default());
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -326,11 +304,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     format!("{}{}", payload_prefixes(idx), INTEGERS_PAYLOAD_KEY),
                     FieldType::Integer,
                 )
-                .field_index_params(
-                    IntegerIndexParamsBuilder::new(true, args.int_payloads_range)
-                        .on_disk(args.on_disk_payload_index)
-                        .is_principal(args.tenants.unwrap_or_default()),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await
@@ -338,6 +312,12 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
     }
 
     if args.timestamp_payload {
+        let mut params = DatetimeIndexParamsBuilder::default()
+            .on_disk(args.on_disk_payload_index)
+            .is_principal(args.tenants.unwrap_or_default());
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -345,11 +325,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     "timestamp",
                     FieldType::Datetime,
                 )
-                .field_index_params(
-                    DatetimeIndexParamsBuilder::default()
-                        .on_disk(args.on_disk_payload_index)
-                        .is_principal(args.tenants.unwrap_or_default()),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await
@@ -357,6 +333,12 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
     }
 
     if args.uuid_payloads {
+        let mut params = UuidIndexParamsBuilder::default()
+            .is_tenant(args.tenants.unwrap_or_default())
+            .on_disk(args.on_disk_payload_index);
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -364,11 +346,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     UUID_PAYLOAD_KEY,
                     FieldType::Uuid,
                 )
-                .field_index_params(
-                    UuidIndexParamsBuilder::default()
-                        .is_tenant(args.tenants.unwrap_or_default())
-                        .on_disk(args.on_disk_payload_index),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await
@@ -376,6 +354,10 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
     }
 
     if args.geo_payloads {
+        let mut params = GeoIndexParamsBuilder::new().on_disk(args.on_disk_payload_index);
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -383,9 +365,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     GEO_PAYLOAD_KEY,
                     FieldType::Geo,
                 )
-                .field_index_params(
-                    GeoIndexParamsBuilder::new().on_disk(args.on_disk_payload_index),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await
@@ -393,6 +373,10 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
     }
 
     if args.bool_payloads {
+        let mut params = BoolIndexParamsBuilder::default().on_disk(args.on_disk_payload_index);
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -400,9 +384,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     BOOL_PAYLOAD_KEY,
                     FieldType::Bool,
                 )
-                .field_index_params(
-                    BoolIndexParamsBuilder::default().on_disk(args.on_disk_payload_index),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await
@@ -410,6 +392,11 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
     }
 
     if args.text_payloads {
+        let mut params =
+            TextIndexParamsBuilder::new(TokenizerType::Word).on_disk(args.on_disk_payload_index);
+        if let Some(memory) = memory {
+            params = params.memory(memory);
+        }
         client
             .create_field_index(
                 CreateFieldIndexCollectionBuilder::new(
@@ -417,10 +404,7 @@ async fn create_field_indices(args: &Args, client: &qdrant_client::Qdrant) -> Re
                     TEXT_PAYLOAD_KEY,
                     FieldType::Text,
                 )
-                .field_index_params(
-                    TextIndexParamsBuilder::new(TokenizerType::Word)
-                        .on_disk(args.on_disk_payload_index),
-                )
+                .field_index_params(params)
                 .wait(true),
             )
             .await

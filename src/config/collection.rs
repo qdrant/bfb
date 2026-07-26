@@ -46,6 +46,9 @@ pub struct PayloadSection {
     /// their own `source`); fields not listed are uploaded but left unindexed.
     #[serde(default)]
     pub source: Option<PayloadSource>,
+    /// Memory placement of the payload storage. Supersedes `on_disk_payload`.
+    #[serde(default)]
+    pub memory: Option<MemoryKind>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
@@ -54,6 +57,22 @@ pub enum IdType {
     #[default]
     Integer,
     Uuid,
+}
+
+/// Memory placement of a component's data (Qdrant 1.19+). Data is always
+/// persisted on disk; this only controls how it is held in RAM. Supersedes the
+/// older `on_disk` / `always_ram` booleans, which stay available for older
+/// servers — when both are given, `memory` wins.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryKind {
+    /// Not pre-loaded from disk; cached with usage.
+    Cold,
+    /// Pre-loaded into disk-cache RAM on start, may be evicted under pressure.
+    Cached,
+    /// Loaded in RAM and never evicted. Unsupported for dense vector storage
+    /// and payload storage.
+    Pinned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +94,9 @@ pub struct HnswConfig {
     pub on_disk: bool,
     #[serde(default)]
     pub inline_storage: bool,
+    /// Memory placement of the HNSW graph. Supersedes `on_disk`.
+    #[serde(default)]
+    pub memory: Option<MemoryKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +117,9 @@ pub struct QuantizationConfig {
     pub kind: QuantKind,
     #[serde(default)]
     pub always_ram: bool,
+    /// Memory placement of the quantized vectors. Supersedes `always_ram`.
+    #[serde(default)]
+    pub memory: Option<MemoryKind>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

@@ -292,7 +292,7 @@ Options:
       --distance <DISTANCE>
           Distance function used for comparing vectors [default: Cosine]
       --datatype <DATATYPE>
-          Vector datatypes (Uint8, Float16, Float32)
+          Vector datatypes (Uint8, Float16, Float32, Turbo4)
       --mmap-threshold <MMAP_THRESHOLD>
           Store vectors on disk
       --indexing-threshold <INDEXING_THRESHOLD>
@@ -309,6 +309,16 @@ Options:
           On disk index [possible values: true, false]
       --on-disk-vectors <ON_DISK_VECTORS>
           On disk vectors [possible values: true, false]
+      --memory-payload <PLACEMENT>
+          Memory placement of the payload storage (supersedes --on-disk-payload) [possible values: cold, cached, pinned]
+      --memory-payload-index <PLACEMENT>
+          Memory placement of the payload field indices (supersedes --on-disk-payload-index) [possible values: cold, cached, pinned]
+      --memory-index <PLACEMENT>
+          Memory placement of the HNSW graph and sparse index (supersedes --on-disk-index) [possible values: cold, cached, pinned]
+      --memory-vectors <PLACEMENT>
+          Memory placement of the vector storage (supersedes --on-disk-vectors) [possible values: cold, cached, pinned]
+      --memory-quantization <PLACEMENT>
+          Memory placement of the quantized vectors (supersedes --quantization-in-ram) [possible values: cold, cached, pinned]
       --timing-threshold <TIMING_THRESHOLD>
           Log requests if the take longer than this [default: 0.1]
       --uuids
@@ -399,6 +409,8 @@ Options:
           Whether to set dense vectors as multivectors
       --sparse-dim <SPARSE_DIM>
           Max dimension for sparse vectors (overrides --dim)
+      --sparse-idf
+          Create sparse vectors with the IDF modifier (BM25-style scoring). Required by --search-idf-corpus
       --jsonl-updates <JSONL_UPDATES>
           Path to the jsonl file to save update timings TIP: Use `qdrant/mri` to visualize the timings
       --jsonl-searches <JSONL_SEARCHES>
@@ -417,6 +429,8 @@ Options:
           Bench for search quality / accurracy too
       --full-scan-threshold <FULL_SCAN_THRESHOLD>
           Set a custom full-scan threshold
+      --search-idf-corpus
+          Compute sparse-vector IDF statistics over the points matching the query filter instead of the whole collection. Requires a filter to be generated (e.g. `-k`), and sparse vectors created with the IDF modifier
   -h, --help
           Print help
   -V, --version

@@ -58,6 +58,11 @@ impl ScrollConfig {
         if self.requests.is_empty() {
             bail!("scroll config must declare at least one entry under `requests`");
         }
+        for (index, request) in self.requests.iter().enumerate() {
+            for filter in &request.filters {
+                filter.validate(&format!("requests[{index}]"))?;
+            }
+        }
         Ok(())
     }
 }

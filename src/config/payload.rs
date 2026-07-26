@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use super::collection::MemoryKind;
 use super::vector::DistributionKind;
 use super::{default_true, option_string_or_struct};
 use crate::dataset::DatasetConfig;
@@ -19,6 +20,9 @@ pub struct PayloadConfig {
     pub index: bool,
     #[serde(default)]
     pub on_disk: bool,
+    /// Memory placement of the field index. Supersedes `on_disk`.
+    #[serde(default)]
+    pub memory: Option<MemoryKind>,
     #[serde(default)]
     pub is_tenant: bool,
     #[serde(default)]
@@ -26,6 +30,10 @@ pub struct PayloadConfig {
     /// Integer payloads: also build a range index.
     #[serde(default = "default_true")]
     pub range_index: bool,
+    /// Keyword payloads: build the index with prefix matching enabled, so
+    /// searches may use `match_prefix` filters on this field.
+    #[serde(default)]
+    pub prefix: bool,
     /// Text payloads: tokenizer.
     pub tokenizer: Option<TokenizerKind>,
     /// Per-field value source. May be omitted when `collection.payload.source`
