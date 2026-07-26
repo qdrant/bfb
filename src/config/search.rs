@@ -54,6 +54,12 @@ pub enum SearchRequestConfig {
         source: SparseSource,
         #[serde(default)]
         filters: Vec<FilterPayloadConfig>,
+        /// IDF corpus (Qdrant 1.19+): restricts the population sparse-vector IDF
+        /// statistics are computed over to the points matching these conditions.
+        /// Empty ⇒ collection-wide (global) statistics. Only meaningful for
+        /// sparse vectors created with the IDF modifier.
+        #[serde(default)]
+        idf_corpus: Vec<FilterPayloadConfig>,
     },
 }
 
@@ -68,6 +74,24 @@ pub struct FilterPayloadConfig {
     pub source: PayloadSource,
     /// Keyword filters: match any of N random values instead of one.
     pub match_any: Option<usize>,
+    /// Keyword filters: match a prefix of this many characters instead of a
+    /// whole value. Requires the field's keyword index to be created with
+    /// `prefix: true`. Takes precedence over `match_any`.
+    pub match_prefix: Option<usize>,
+}
+
+impl FilterPayloadConfig {
+    /// Validate one filter condition. `context` names where it came from, e.g.
+    /// `"requests[0]"` or `"requests[0].idf_corpus"`.
+    pub fn validate(&self, context: &str) -> Result<()> {
+        if self.match_prefix.is_some() && self.kind != PayloadType::Keyword {
+            bail!("{context}: `match_prefix` only applies to `type: keyword` filters");
+        }
+        if self.match_prefix == Some(0) {
+            bail!("{context}: `match_prefix` must be > 0");
+        }
+        Ok(())
+    }
 }
 
 /// Read and validate a YAML search config file.
@@ -95,7 +119,24 @@ impl SearchConfig {
 }
 
 impl SearchRequestConfig {
+    /// Payload conditions applied to the query itself.
+    pub fn filters(&self) -> &[FilterPayloadConfig] {
+        match self {
+            SearchRequestConfig::Dense { filters, .. }
+            | SearchRequestConfig::Sparse { filters, .. } => filters,
+        }
+    }
+
     fn validate(&self, index: usize) -> Result<()> {
+        for filter in self.filters() {
+            filter.validate(&format!("requests[{index}]"))?;
+        }
+        if let SearchRequestConfig::Sparse { idf_corpus, .. } = self {
+            for filter in idf_corpus {
+                filter.validate(&format!("requests[{index}].idf_corpus"))?;
+            }
+        }
+
         match self {
             SearchRequestConfig::Dense { size, source, .. } => {
                 match source {
@@ -274,6 +315,109 @@ requests:
             .unwrap_err()
             .to_string();
         assert!(err.contains("requests[0]"), "{err}");
+    }
+
+    #[test]
+    fn parses_match_prefix_and_idf_corpus() {
+        let yaml = r#"
+collection:
+  name: bench
+requests:
+  - kind: sparse
+    using: bm25
+    filters:
+      - name: color
+        type: keyword
+        source: { cardinality: 100 }
+        match_prefix: 9
+    idf_corpus:
+      - name: tenant
+        type: keyword
+        source: { cardinality: 10 }
+"#;
+        let cfg: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        cfg.validate().unwrap();
+        match &cfg.requests[0] {
+            SearchRequestConfig::Sparse {
+                filters,
+                idf_corpus,
+                ..
+            } => {
+                assert_eq!(filters[0].match_prefix, Some(9));
+                assert_eq!(idf_corpus.len(), 1);
+                assert_eq!(idf_corpus[0].name, "tenant");
+            }
+            _ => panic!("expected sparse request"),
+        }
+    }
+
+    #[test]
+    fn rejects_match_prefix_on_non_keyword_field() {
+        let yaml = r#"
+collection:
+  name: bench
+requests:
+  - kind: dense
+    size: 4
+    filters:
+      - name: age
+        type: integer
+        match_prefix: 3
+"#;
+        let cfg: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("match_prefix"), "{err}");
+    }
+
+    #[test]
+    fn rejects_zero_length_match_prefix() {
+        let yaml = r#"
+collection:
+  name: bench
+requests:
+  - kind: dense
+    size: 4
+    filters:
+      - name: color
+        type: keyword
+        match_prefix: 0
+"#;
+        let cfg: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_idf_corpus_on_dense_requests() {
+        let yaml = r#"
+collection:
+  name: bench
+requests:
+  - kind: dense
+    size: 4
+    idf_corpus: []
+"#;
+        assert!(serde_yaml::from_str::<SearchConfig>(yaml).is_err());
+    }
+
+    /// Same contract as the upload example: the shipped search config must stay
+    /// loadable.
+    #[test]
+    fn parses_search_config_example() {
+        let cfg = super::load("examples/search-config.yaml").unwrap();
+        assert!(
+            cfg.requests.iter().any(|r| matches!(
+                r,
+                SearchRequestConfig::Sparse { idf_corpus, .. } if !idf_corpus.is_empty()
+            )),
+            "example lost its idf_corpus request"
+        );
+        assert!(
+            cfg.requests
+                .iter()
+                .flat_map(SearchRequestConfig::filters)
+                .any(|f| f.match_prefix.is_some()),
+            "example lost its match_prefix filter"
+        );
     }
 
     #[test]

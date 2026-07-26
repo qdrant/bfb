@@ -38,6 +38,9 @@ pub struct GeneratedQuery {
     pub dense: Option<(Vec<f32>, Option<String>)>,
     pub sparse: Option<(Vec<f32>, SparseIndices, String)>,
     pub filter: Option<Filter>,
+    /// Sparse-vector IDF corpus: restricts which points the IDF statistics are
+    /// computed over. `None` ⇒ collection-wide (global) statistics.
+    pub idf_corpus: Option<Filter>,
     /// Ground-truth nearest-neighbor point ids for this query, present only
     /// when the request draws queries from a reference dataset. Used to measure
     /// search accuracy (recall) against the dataset's known answers.
@@ -65,6 +68,8 @@ struct RequestState {
     query_dataset: Option<QueryDataset>,
     sparse_zipf: Option<rand_distr::Zipf<f64>>,
     filters: FilterGenerator,
+    /// Sparse requests only: conditions defining the IDF corpus.
+    idf_corpus: FilterGenerator,
 }
 
 /// Builds a random payload filter from a list of [`FilterPayloadConfig`].
@@ -133,7 +138,13 @@ impl FilterGenerator {
                 PayloadType::Keyword => {
                     let card = src.cardinality.unwrap_or(100);
                     let mult = src.length_multiplier.unwrap_or(1);
-                    let condition = if let Some(match_any) = fp.match_any {
+                    let condition = if let Some(len) = fp.match_prefix {
+                        // Truncate a generated value: shorter prefixes match more
+                        // keywords, which is the selectivity knob here.
+                        let keyword = random_keyword(rng, card, mult);
+                        let prefix: String = keyword.chars().take(len).collect();
+                        MatchValue::Prefix(prefix)
+                    } else if let Some(match_any) = fp.match_any {
                         MatchValue::Keywords(RepeatedStrings {
                             strings: (0..match_any)
                                 .map(|_| random_keyword(rng, card, mult))
@@ -260,7 +271,7 @@ impl ConfigSearchGenerator {
         let mut per_request = Vec::with_capacity(config.requests.len());
 
         for req in &config.requests {
-            let (dense_reader, query_dataset, sparse_zipf, filters) = match req {
+            let (dense_reader, query_dataset, sparse_zipf, filters, idf_corpus) = match req {
                 SearchRequestConfig::Dense {
                     source, filters, ..
                 } => {
@@ -274,10 +285,13 @@ impl ConfigSearchGenerator {
                         }
                         VectorSource::Random => (None, None),
                     };
-                    (dense_reader, query_dataset, None, filters)
+                    (dense_reader, query_dataset, None, filters, [].as_slice())
                 }
                 SearchRequestConfig::Sparse {
-                    source, filters, ..
+                    source,
+                    filters,
+                    idf_corpus,
+                    ..
                 } => {
                     if source.kind == SparseKind::Dataset {
                         let dataset = source
@@ -289,6 +303,7 @@ impl ConfigSearchGenerator {
                             Some(Self::open_query_dataset(dataset, datasets_dir)?),
                             None,
                             filters,
+                            idf_corpus.as_slice(),
                         )
                     } else {
                         (
@@ -297,6 +312,7 @@ impl ConfigSearchGenerator {
                             (source.distribution == DistributionKind::Zipf)
                                 .then(|| create_zipf(source.vocab_size)),
                             filters,
+                            idf_corpus.as_slice(),
                         )
                     }
                 }
@@ -307,6 +323,7 @@ impl ConfigSearchGenerator {
                 query_dataset,
                 sparse_zipf,
                 filters: FilterGenerator::new(filters, &mut rng),
+                idf_corpus: FilterGenerator::new(idf_corpus, &mut rng),
             });
         }
 
@@ -384,6 +401,7 @@ impl ConfigSearchGenerator {
                     dense: Some((vector, using.clone())),
                     sparse: None,
                     filter: state.filters.build(rng),
+                    idf_corpus: None,
                     expected_ids,
                 }
             }
@@ -391,6 +409,7 @@ impl ConfigSearchGenerator {
                 using,
                 source,
                 filters: _,
+                idf_corpus: _,
             } => {
                 let ((values, indices), expected_ids) =
                     if let Some(query_dataset) = &state.query_dataset {
@@ -405,6 +424,7 @@ impl ConfigSearchGenerator {
                     dense: None,
                     sparse: Some((values, indices, using.clone())),
                     filter: state.filters.build(rng),
+                    idf_corpus: state.idf_corpus.build(rng),
                     expected_ids,
                 }
             }
@@ -498,6 +518,8 @@ impl ConfigSearchGenerator {
 
 #[cfg(test)]
 mod tests {
+    use qdrant_client::qdrant::condition::ConditionOneOf;
+
     use super::*;
 
     fn build_gen(yaml: &str) -> ConfigSearchGenerator {
@@ -574,5 +596,58 @@ mod tests {
         let q = generator.make_query(0, &mut rng);
         assert!(q.filter.is_some());
         assert!(!q.filter.as_ref().unwrap().must.is_empty());
+    }
+
+    /// The generated condition matches a truncated keyword, so the prefix length
+    /// is the selectivity knob.
+    #[test]
+    fn match_prefix_truncates_the_generated_keyword() {
+        let generator = build_gen(
+            "collection:\n  name: x\nrequests:\n  - kind: dense\n    size: 4\n    filters:\n      - name: color\n        type: keyword\n        source: { cardinality: 500 }\n        match_prefix: 9\n",
+        );
+        let mut rng = rand::rng();
+
+        for _ in 0..20 {
+            let q = generator.make_query(0, &mut rng);
+            let condition = &q.filter.as_ref().unwrap().must[0];
+            let Some(ConditionOneOf::Field(field)) = &condition.condition_one_of else {
+                panic!("expected a field condition");
+            };
+            match &field.r#match.as_ref().unwrap().match_value {
+                // "keyword_<n>" truncated to its first 9 characters.
+                Some(MatchValue::Prefix(prefix)) => {
+                    assert_eq!(prefix.chars().count(), 9, "{prefix}");
+                    assert!(prefix.starts_with("keyword_"), "{prefix}");
+                }
+                other => panic!("expected a prefix match, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn idf_corpus_is_generated_for_sparse_requests_only() {
+        let generator = build_gen(
+            "collection:\n  name: x\nrequests:\n  - kind: sparse\n    using: bm25\n    source: { vocab_size: 32, length: 4 }\n    idf_corpus:\n      - name: tenant\n        type: keyword\n        source: { cardinality: 5 }\n  - kind: dense\n    size: 4\n",
+        );
+        let mut rng = rand::rng();
+
+        let sparse = generator.make_query_for(0, 0, &mut rng);
+        assert!(sparse.sparse.is_some());
+        assert_eq!(sparse.idf_corpus.as_ref().unwrap().must.len(), 1);
+        // The corpus is separate from the query filter, which stays unset here.
+        assert!(sparse.filter.is_none());
+
+        let dense = generator.make_query_for(1, 0, &mut rng);
+        assert!(dense.idf_corpus.is_none());
+    }
+
+    /// No `idf_corpus:` ⇒ no IDF params, i.e. collection-wide statistics.
+    #[test]
+    fn sparse_requests_have_no_idf_corpus_by_default() {
+        let generator = build_gen(
+            "collection:\n  name: x\nrequests:\n  - kind: sparse\n    using: bm25\n    source: { vocab_size: 32, length: 4 }\n",
+        );
+        let mut rng = rand::rng();
+        assert!(generator.make_query(0, &mut rng).idf_corpus.is_none());
     }
 }

@@ -7,6 +7,8 @@ pub use consistency::{ReadConsistency, WriteOrdering};
 use clap::{ArgAction, Parser, Subcommand};
 use qdrant_client::qdrant;
 
+use crate::config::{MemoryKind, QuantKind};
+
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
 pub enum QuantizationArg {
     #[default]
@@ -24,6 +26,49 @@ pub enum QuantizationArg {
     ProductX16,
     ProductX32,
     ProductX64,
+}
+
+impl From<QuantizationArg> for QuantKind {
+    fn from(arg: QuantizationArg) -> Self {
+        match arg {
+            QuantizationArg::None => QuantKind::None,
+            QuantizationArg::Binary => QuantKind::Binary,
+            QuantizationArg::Binary2bit => QuantKind::Binary2bit,
+            QuantizationArg::Binary1p5bit => QuantKind::Binary15bit,
+            QuantizationArg::Turbo1bit => QuantKind::Turbo1bit,
+            QuantizationArg::Turbo1p5bit => QuantKind::Turbo15bit,
+            QuantizationArg::Turbo2bit => QuantKind::Turbo2bit,
+            QuantizationArg::Turbo4bit => QuantKind::Turbo4bit,
+            QuantizationArg::Scalar => QuantKind::Scalar,
+            QuantizationArg::ProductX4 => QuantKind::ProductX4,
+            QuantizationArg::ProductX8 => QuantKind::ProductX8,
+            QuantizationArg::ProductX16 => QuantKind::ProductX16,
+            QuantizationArg::ProductX32 => QuantKind::ProductX32,
+            QuantizationArg::ProductX64 => QuantKind::ProductX64,
+        }
+    }
+}
+
+/// Memory placement of a component's data (Qdrant 1.19+). Data is always
+/// persisted on disk; this only controls how it is held in RAM.
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
+pub enum MemoryArg {
+    /// Not pre-loaded from disk; cached with usage.
+    Cold,
+    /// Pre-loaded into disk-cache RAM on start, may be evicted under pressure.
+    Cached,
+    /// Loaded in RAM and never evicted. Unsupported for dense vectors and payload storage.
+    Pinned,
+}
+
+impl From<MemoryArg> for MemoryKind {
+    fn from(arg: MemoryArg) -> Self {
+        match arg {
+            MemoryArg::Cold => MemoryKind::Cold,
+            MemoryArg::Cached => MemoryKind::Cached,
+            MemoryArg::Pinned => MemoryKind::Pinned,
+        }
+    }
 }
 
 /// Big F*cking Benchmark tool for stress-testing Qdrant
@@ -154,7 +199,7 @@ pub struct Args {
     #[clap(long, default_value = "Cosine")]
     pub distance: String,
 
-    /// Vector datatypes (Uint8, Float16, Float32)
+    /// Vector datatypes (Uint8, Float16, Float32, Turbo4)
     #[clap(long)]
     pub datatype: Option<String>,
 
@@ -189,6 +234,26 @@ pub struct Args {
     /// On disk vectors
     #[clap(long)]
     pub on_disk_vectors: Option<bool>,
+
+    /// Memory placement of the payload storage (supersedes --on-disk-payload)
+    #[clap(long, value_name = "PLACEMENT")]
+    pub memory_payload: Option<MemoryArg>,
+
+    /// Memory placement of the payload field indices (supersedes --on-disk-payload-index)
+    #[clap(long, value_name = "PLACEMENT")]
+    pub memory_payload_index: Option<MemoryArg>,
+
+    /// Memory placement of the HNSW graph and sparse index (supersedes --on-disk-index)
+    #[clap(long, value_name = "PLACEMENT")]
+    pub memory_index: Option<MemoryArg>,
+
+    /// Memory placement of the vector storage (supersedes --on-disk-vectors)
+    #[clap(long, value_name = "PLACEMENT")]
+    pub memory_vectors: Option<MemoryArg>,
+
+    /// Memory placement of the quantized vectors (supersedes --quantization-in-ram)
+    #[clap(long, value_name = "PLACEMENT")]
+    pub memory_quantization: Option<MemoryArg>,
 
     /// Log requests if the take longer than this
     #[clap(long, default_value_t = 0.1, global = true)]
@@ -378,6 +443,11 @@ pub struct Args {
     #[clap(long, value_parser = parse_number)]
     pub sparse_dim: Option<usize>,
 
+    /// Create sparse vectors with the IDF modifier (BM25-style scoring).
+    /// Required by --search-idf-corpus.
+    #[clap(long, default_value_t = false)]
+    pub sparse_idf: bool,
+
     /// Path to the jsonl file to save update timings
     /// TIP: Use `qdrant/mri` to visualize the timings
     #[clap(long, global = true)]
@@ -417,6 +487,12 @@ pub struct Args {
     /// Set a custom full-scan threshold.
     #[clap(long)]
     pub full_scan_threshold: Option<usize>,
+
+    /// Compute sparse-vector IDF statistics over the points matching the query
+    /// filter instead of the whole collection. Requires a filter to be generated
+    /// (e.g. `-k`), and sparse vectors created with the IDF modifier.
+    #[clap(long, default_value_t = false, global = true)]
+    pub search_idf_corpus: bool,
 }
 
 /// Subcommands. Absent ⇒ legacy flag-driven benchmark.

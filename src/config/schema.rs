@@ -22,6 +22,14 @@ const SCHEMA_REFERENCE: &str = r#"# bfb upload-config file schema (`bfb upload -
 #
 # Legend:  <type>  default=<value>  [allowed | values]   (Option ⇒ optional)
 # Unknown fields are rejected. At least one dense or sparse vector is required.
+#
+# `memory:` (Qdrant 1.19+) is accepted wherever an `on_disk` / `always_ram`
+# boolean is, and supersedes it when the server understands it:
+#   cold    data is not pre-loaded from disk to RAM; cached with usage
+#   cached  pre-loaded into disk-cache RAM on start, may be evicted under pressure
+#   pinned  loaded in RAM and never evicted (not supported for dense vectors
+#           or the payload storage)
+# Both are sent, so configs stay usable against older servers.
 
 collection:
   name: benchmark                # string         default="benchmark"  collection name
@@ -44,6 +52,7 @@ collection:
     full_scan_threshold: null    # uint64         optional
     on_disk: false               # bool           default=false        store HNSW graph on disk
     inline_storage: false        # bool           default=false
+    memory: null                 # enum           optional             [cold | cached | pinned] supersedes `on_disk`
 
   # Optimizer parameters (optional).
   optimizers:
@@ -60,6 +69,7 @@ collection:
                                  #   turbo-2bit | turbo-4bit | product-x4 | product-x8 |
                                  #   product-x16 | product-x32 | product-x64]
     always_ram: false            # bool           default=false        keep quantized vectors in RAM
+    memory: null                 # enum           optional             [cold | cached | pinned] supersedes `always_ram`
 
   # Dense vectors. At most one may omit `name` (the unnamed default vector);
   # otherwise every entry must have a unique `name`.
@@ -67,8 +77,9 @@ collection:
     - name: image                # string         optional             omit for the unnamed default vector
       size: 512                  # uint64         required             dimensionality
       distance: cosine           # enum           default=cosine       [cosine | dot | euclid | manhattan]
-      datatype: float32          # enum           default=float32      [float32 | float16 | uint8]
+      datatype: float32          # enum           default=float32      [float32 | float16 | uint8 | turbo4]
       on_disk: null              # bool           optional             store vectors on disk
+      memory: null               # enum           optional             [cold | cached] supersedes `on_disk`
       quantization: null         # map            optional             same shape as `collection.quantization`
       # Multivectors (optional): generate several sub-vectors per point.
       multivector:
@@ -94,6 +105,9 @@ collection:
     - name: bm25                 # string         required
       datatype: float32          # enum           default=float32      [float32 | float16 | uint8]
       on_disk: false             # bool           default=false
+      memory: null               # enum           optional             [cold | cached | pinned] supersedes `on_disk`
+      modifier: none             # enum           default=none         [none | idf] `idf` enables BM25-style
+                                 #   scoring, and is required by search `idf_corpus`
       # Value source. Shorthand string `random`, or a map:
       source:
         type: random             # enum           default=random       [random | dataset]
@@ -114,6 +128,7 @@ collection:
   # fields to index (and may omit their own `source`); fields present in the
   # object but not listed are uploaded but left unindexed.
   payload:
+    memory: null                 # enum           optional             [cold | cached] supersedes `on_disk_payload`
     source: null                 # optional            whole-payload dataset source, e.g.:
     #   type: dataset
     #   dataset:
@@ -130,9 +145,12 @@ collection:
                                  #   bool | uuid | geo | text | datetime]
       index: true                # bool           default=true         build a field index (false ⇒ filler)
       on_disk: false             # bool           default=false        store the index on disk
+      memory: null               # enum           optional             [cold | cached | pinned] supersedes `on_disk`
       is_tenant: false           # bool           default=false        tenant-isolating index
       is_principal: false        # bool           default=false        principal (primary) index
       range_index: true          # bool           default=true         integer payloads: also build a range index
+      prefix: false              # bool           default=false        keyword payloads: enable prefix matching
+                                 #   (required for search `match_prefix` filters)
       tokenizer: null            # enum           optional (text)      [word | whitespace | prefix | multilingual]
       # Value source (optional when `payload.source` is set — then the entry is
       # index-only). Shorthand string `random` / `random-clusters` / `now`, or a
@@ -183,6 +201,7 @@ mod tests {
                     full_scan_threshold: Some(10000),
                     on_disk: false,
                     inline_storage: false,
+                    memory: Some(MemoryKind::Cached),
                 }),
                 optimizers: Some(OptimizersConfig {
                     default_segment_number: Some(2),
@@ -194,6 +213,7 @@ mod tests {
                 quantization: Some(QuantizationConfig {
                     kind: QuantKind::Scalar,
                     always_ram: false,
+                    memory: Some(MemoryKind::Pinned),
                 }),
                 vectors: vec![VectorConfig {
                     name: Some("image".to_string()),
@@ -201,6 +221,7 @@ mod tests {
                     distance: DistanceKind::Cosine,
                     datatype: DatatypeKind::Float32,
                     on_disk: Some(false),
+                    memory: Some(MemoryKind::Cached),
                     multivector: Some(MultivectorConfig {
                         comparator: ComparatorKind::MaxSim,
                         count: 4,
@@ -208,6 +229,7 @@ mod tests {
                     quantization: Some(QuantizationConfig {
                         kind: QuantKind::Scalar,
                         always_ram: false,
+                        memory: Some(MemoryKind::Pinned),
                     }),
                     // File source so `path`/`strategy` are exercised too;
                     // a remote path keeps `validate()` from checking existence.
@@ -220,6 +242,8 @@ mod tests {
                     name: "bm25".to_string(),
                     datatype: DatatypeKind::Float32,
                     on_disk: false,
+                    memory: Some(MemoryKind::Cached),
+                    modifier: ModifierKind::Idf,
                     source: SparseSource {
                         kind: SparseKind::Random,
                         vocab_size: 1000,
@@ -228,15 +252,20 @@ mod tests {
                         dataset: None,
                     },
                 }],
-                payload: PayloadSection { source: None },
+                payload: PayloadSection {
+                    source: None,
+                    memory: Some(MemoryKind::Cached),
+                },
                 fields: vec![PayloadConfig {
                     name: "color".to_string(),
                     kind: PayloadType::Keyword,
                     index: true,
                     on_disk: false,
+                    memory: Some(MemoryKind::Cached),
                     is_tenant: false,
                     is_principal: false,
                     range_index: true,
+                    prefix: true,
                     tokenizer: Some(TokenizerKind::Word),
                     source: Some(PayloadSource {
                         kind: PayloadSourceKind::Random,
