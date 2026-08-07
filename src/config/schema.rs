@@ -60,6 +60,10 @@ collection:
     indexing_threshold: null     # uint64         optional
     memmap_threshold: null       # uint64         optional
     max_segment_size: null       # uint64         optional
+    deleted_threshold: null      # double         optional             fraction of a segment that must be
+                                 #   deleted before the vacuum optimizer rebuilds it (server default 0.2)
+    vacuum_min_vector_number: null # uint64       optional             smallest segment, in vectors, the
+                                 #   vacuum optimizer will consider (server default 1000)
     prevent_unoptimized: false   # bool           default=false        wait for a fully optimized collection
 
   # Collection-wide quantization (optional). Also settable per dense vector.
@@ -238,6 +242,8 @@ mod tests {
                     indexing_threshold: Some(20000),
                     memmap_threshold: Some(20000),
                     max_segment_size: Some(200000),
+                    deleted_threshold: Some(0.2),
+                    vacuum_min_vector_number: Some(1000),
                     prevent_unoptimized: false,
                 }),
                 quantization: Some(QuantizationConfig {
