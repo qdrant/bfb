@@ -294,6 +294,12 @@ pub async fn recreate_collection_from_config(
         if let Some(s) = opt.max_segment_size {
             optimizers_config = optimizers_config.max_segment_size(s);
         }
+        if let Some(t) = opt.deleted_threshold {
+            optimizers_config = optimizers_config.deleted_threshold(t);
+        }
+        if let Some(n) = opt.vacuum_min_vector_number {
+            optimizers_config = optimizers_config.vacuum_min_vector_number(n);
+        }
         if opt.prevent_unoptimized {
             optimizers_config = optimizers_config.prevent_unoptimized(true);
         }
