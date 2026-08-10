@@ -60,7 +60,7 @@ collection:
     indexing_threshold: null     # uint64         optional
     memmap_threshold: null       # uint64         optional
     max_segment_size: null       # uint64         optional
-    deleted_threshold: null      # double         optional             fraction of a segment that must be
+    deleted_threshold: null      # float          optional             fraction of a segment that must be
                                  #   deleted before the vacuum optimizer rebuilds it (server default 0.2)
     vacuum_min_vector_number: null # uint64       optional             smallest segment, in vectors, the
                                  #   vacuum optimizer will consider (server default 1000)
