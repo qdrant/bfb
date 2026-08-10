@@ -106,6 +106,12 @@ pub struct OptimizersConfig {
     pub indexing_threshold: Option<u64>,
     pub memmap_threshold: Option<u64>,
     pub max_segment_size: Option<u64>,
+    /// Fraction of a segment that must be deleted before the vacuum optimizer rebuilds it.
+    /// Qdrant's default is 0.2; lower it to make deletions heal promptly.
+    pub deleted_threshold: Option<f64>,
+    /// Minimum segment size (in vectors) for the vacuum optimizer to consider it at all.
+    /// Qdrant's default is 1000.
+    pub vacuum_min_vector_number: Option<u64>,
     #[serde(default)]
     pub prevent_unoptimized: bool,
 }
