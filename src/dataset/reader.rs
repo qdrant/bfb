@@ -147,6 +147,36 @@ impl DatasetReader {
         }
     }
 
+    /// The whole dense query set with its ground truth, read in one pass.
+    ///
+    /// Text-backed formats get a sequential fast path; the rest fall back to
+    /// indexed reads, which for a binary format cost the same either way.
+    pub fn read_dense_query_set(&self) -> Result<(Vec<Vec<f32>>, Vec<Vec<u64>>)> {
+        if let DatasetReaderInner::Tar(reader) = &self.inner {
+            return reader.read_query_set();
+        }
+        let mut vectors = Vec::with_capacity(self.num_queries());
+        let mut ground_truth = Vec::with_capacity(self.num_queries());
+        for idx in 0..self.num_queries() {
+            vectors.push(self.query_dense_vector(idx)?);
+            ground_truth.push(self.query_ground_truth(idx)?);
+        }
+        Ok((vectors, ground_truth))
+    }
+
+    /// The whole sparse query set with its ground truth. Sparse queries live in
+    /// binary CSR files, so there is nothing to gain from a bulk path.
+    #[allow(clippy::type_complexity)]
+    pub fn read_sparse_query_set(&self) -> Result<(Vec<Vec<(u32, f32)>>, Vec<Vec<u64>>)> {
+        let mut vectors = Vec::with_capacity(self.num_queries());
+        let mut ground_truth = Vec::with_capacity(self.num_queries());
+        for idx in 0..self.num_queries() {
+            vectors.push(self.query_sparse_vector(idx)?);
+            ground_truth.push(self.query_ground_truth(idx)?);
+        }
+        Ok((vectors, ground_truth))
+    }
+
     /// Ground-truth nearest-neighbor ids for a query (indices into the corpus).
     pub fn query_ground_truth(&self, idx: usize) -> Result<Vec<u64>> {
         match &self.inner {

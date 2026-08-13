@@ -92,6 +92,24 @@ impl TarReader {
         parse_f32_array(query).context("tests.jsonl `query` is not an array of numbers")
     }
 
+    /// The whole query set: every query vector with its ground-truth ids.
+    ///
+    /// Reads each row exactly once. Going through [`Self::query_at`] and
+    /// [`Self::query_ground_truth`] per index would reopen the file and re-parse
+    /// the same row twice — once per field — which dominated startup on a query
+    /// set of 2048-d vectors.
+    pub fn read_query_set(&self) -> Result<(Vec<Vec<f32>>, Vec<Vec<u64>>)> {
+        let store = self
+            .queries
+            .as_ref()
+            .context("dataset has no tests.jsonl (no query set)")?;
+        let rows: Vec<QueryRow> = store.deserialize_all()?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.query, row.closest_ids))
+            .unzip())
+    }
+
     /// Ground-truth nearest-neighbor ids for a query (`closest_ids` field).
     pub fn query_ground_truth(&self, idx: usize) -> Result<Vec<u64>> {
         let line = self.query_line(idx)?;
@@ -107,6 +125,14 @@ impl TarReader {
             })
             .collect()
     }
+}
+
+/// The fields of a `tests.jsonl` row that a benchmark run needs. `conditions`
+/// and `closest_scores` are deliberately absent so serde skips them.
+#[derive(serde::Deserialize)]
+struct QueryRow {
+    query: Vec<f32>,
+    closest_ids: Vec<u64>,
 }
 
 fn parse_f32_array(value: &Value) -> Option<Vec<f32>> {
@@ -152,6 +178,11 @@ mod tests {
         assert_eq!(reader.query_at(0).unwrap(), vec![1.0, 2.0, 3.0]);
         assert_eq!(reader.query_ground_truth(0).unwrap(), vec![1, 0]);
         assert_eq!(reader.query_ground_truth(1).unwrap(), vec![0]);
+
+        // The bulk pass must agree with the indexed reads it replaces.
+        let (vectors, ground_truth) = reader.read_query_set().unwrap();
+        assert_eq!(vectors, vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]]);
+        assert_eq!(ground_truth, vec![vec![1, 0], vec![0]]);
     }
 
     #[test]

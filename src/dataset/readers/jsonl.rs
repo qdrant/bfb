@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// Line-oriented JSON store with byte-offset index for random access.
@@ -38,6 +39,36 @@ impl JsonlStore {
     /// Number of lines (records) in the store.
     pub fn len(&self) -> usize {
         self.offsets.len()
+    }
+
+    /// Deserialize every line, in order, into `T`.
+    ///
+    /// The bulk counterpart to [`Self::value_at`]: one open and one sequential
+    /// pass over the file, versus an open plus a seek per row. `T` should name
+    /// only the fields it needs, so serde can write them directly instead of
+    /// materializing a [`Value`] tree — for a row holding a 2048-element vector
+    /// that tree is 2048 separately boxed numbers.
+    pub fn deserialize_all<T: DeserializeOwned>(&self) -> Result<Vec<T>> {
+        let file = File::open(&self.path)
+            .with_context(|| format!("failed to open {}", self.path.display()))?;
+        // Rows can be tens of KB; a large buffer keeps one row to one refill.
+        let mut reader = BufReader::with_capacity(1 << 20, file);
+        let mut rows = Vec::with_capacity(self.offsets.len());
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if reader.read_line(&mut line)? == 0 {
+                break;
+            }
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            rows.push(serde_json::from_str(trimmed).with_context(|| {
+                format!("failed to parse {} line {}", self.path.display(), rows.len())
+            })?);
+        }
+        Ok(rows)
     }
 
     pub fn value_at(&self, idx: usize) -> Result<Option<Value>> {
