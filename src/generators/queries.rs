@@ -47,12 +47,34 @@ pub struct GeneratedQuery {
     pub expected_ids: Option<Vec<u64>>,
 }
 
-/// A reference dataset used as a query source, together with a cursor that
-/// hands out consecutive query indices so every query in the set is exercised.
+/// A reference dataset's query set, held in memory, with a cursor that hands out
+/// consecutive query indices so every query in the set is exercised.
+///
+/// The whole set is read once when the dataset is opened rather than a row at a
+/// time during the benchmark. Resolving a row on demand meant reopening the
+/// file and parsing the JSON twice per search — for a 2048-d query that is
+/// ~45 KB of text each way, enough client-side work to outweigh the search being
+/// timed. Parsed form is far smaller than the file: a 10k x 2048-d set is ~82 MB.
 struct QueryDataset {
-    reader: DatasetReader,
+    vectors: QueryVectors,
+    /// Ground-truth nearest-neighbor ids per query, used to score recall.
+    ground_truth: Vec<Vec<u64>>,
     num_queries: usize,
     cursor: AtomicUsize,
+}
+
+/// Query vectors in whichever form the request that opened the dataset needs.
+enum QueryVectors {
+    Dense(Vec<Vec<f32>>),
+    /// Kept pre-split as (values, indices) so no per-request unzip is needed.
+    Sparse(Vec<(Vec<f32>, Vec<u32>)>),
+}
+
+/// Which kind of query a request will draw from a dataset.
+#[derive(Clone, Copy)]
+enum QueryKind {
+    Dense,
+    Sparse,
 }
 
 impl QueryDataset {
@@ -280,9 +302,14 @@ impl ConfigSearchGenerator {
                             let local = ensure_local_file(datasets_dir, path)?;
                             (Some(FBinReader::new(&local)?), None)
                         }
-                        VectorSource::Dataset { dataset } => {
-                            (None, Some(Self::open_query_dataset(dataset, datasets_dir)?))
-                        }
+                        VectorSource::Dataset { dataset } => (
+                            None,
+                            Some(Self::open_query_dataset(
+                                dataset,
+                                datasets_dir,
+                                QueryKind::Dense,
+                            )?),
+                        ),
                         VectorSource::Random => (None, None),
                     };
                     (dense_reader, query_dataset, None, filters, [].as_slice())
@@ -300,7 +327,11 @@ impl ConfigSearchGenerator {
                             .context("sparse dataset query source is missing dataset fields")?;
                         (
                             None,
-                            Some(Self::open_query_dataset(dataset, datasets_dir)?),
+                            Some(Self::open_query_dataset(
+                                dataset,
+                                datasets_dir,
+                                QueryKind::Sparse,
+                            )?),
                             None,
                             filters,
                             idf_corpus.as_slice(),
@@ -333,12 +364,17 @@ impl ConfigSearchGenerator {
         })
     }
 
-    /// Open a reference dataset as a query source, requiring it to ship a query
-    /// set (ann-benchmarks `test`/`neighbors`, or `tests.jsonl` /
-    /// `queries.csr`+`results.gt`).
+    /// Open a reference dataset as a query source and read its entire query set
+    /// into memory, requiring it to ship one (ann-benchmarks `test`/`neighbors`,
+    /// or `tests.jsonl` / `queries.csr`+`results.gt`).
+    ///
+    /// Reading it all here is what keeps file I/O and JSON parsing out of the
+    /// timed request path, so a query set that is missing, truncated, or of the
+    /// wrong kind fails at startup rather than part-way through a benchmark.
     fn open_query_dataset(
         dataset: &crate::dataset::DatasetConfig,
         datasets_dir: &Path,
+        kind: QueryKind,
     ) -> anyhow::Result<QueryDataset> {
         let reader = DatasetReader::open(datasets_dir, dataset)?;
         let num_queries = reader.num_queries();
@@ -348,8 +384,45 @@ impl ConfigSearchGenerator {
                 dataset.name
             );
         }
+
+        let (vectors, ground_truth) = match kind {
+            QueryKind::Dense => {
+                let rows = reader.read_dense_query_set().with_context(|| {
+                    format!(
+                        "failed to read dense query set of dataset {:?}",
+                        dataset.name
+                    )
+                })?;
+                let mut vectors = Vec::with_capacity(rows.len());
+                let mut ground_truth = Vec::with_capacity(rows.len());
+                for row in rows {
+                    vectors.push(row.vector);
+                    ground_truth.push(row.ground_truth);
+                }
+                (QueryVectors::Dense(vectors), ground_truth)
+            }
+            QueryKind::Sparse => {
+                let rows = reader.read_sparse_query_set().with_context(|| {
+                    format!(
+                        "failed to read sparse query set of dataset {:?}",
+                        dataset.name
+                    )
+                })?;
+                let mut vectors = Vec::with_capacity(rows.len());
+                let mut ground_truth = Vec::with_capacity(rows.len());
+                for row in rows {
+                    // Pre-split into (values, indices) so no per-request unzip is needed.
+                    let (indices, values): (Vec<u32>, Vec<f32>) = row.vector.into_iter().unzip();
+                    vectors.push((values, indices));
+                    ground_truth.push(row.ground_truth);
+                }
+                (QueryVectors::Sparse(vectors), ground_truth)
+            }
+        };
+
         Ok(QueryDataset {
-            reader,
+            vectors,
+            ground_truth,
             num_queries,
             cursor: AtomicUsize::new(0),
         })
@@ -431,35 +504,39 @@ impl ConfigSearchGenerator {
         }
     }
 
-    /// Read the next dense query vector and its ground-truth ids from a dataset.
+    /// Take the next dense query vector and its ground-truth ids from a dataset.
+    ///
+    /// The kind mismatch cannot happen: the request template that opened the
+    /// dataset is the same one reading from it here.
     fn read_dense_query(query_dataset: &QueryDataset) -> (Vec<f32>, Option<Vec<u64>>) {
         let idx = query_dataset.next_index();
-        let vector = query_dataset
-            .reader
-            .query_dense_vector(idx)
-            .unwrap_or_else(|e| panic!("failed to read dataset query vector at {idx}: {e}"));
-        let expected = query_dataset
-            .reader
-            .query_ground_truth(idx)
-            .unwrap_or_else(|e| panic!("failed to read dataset ground truth at {idx}: {e}"));
-        (vector, Some(expected))
+        let QueryVectors::Dense(vectors) = &query_dataset.vectors else {
+            panic!("dense request drew from a query set opened as sparse");
+        };
+        (
+            vectors[idx].clone(),
+            Some(query_dataset.ground_truth[idx].clone()),
+        )
     }
 
-    /// Read the next sparse query vector and its ground-truth ids from a dataset.
+    /// Take the next sparse query vector and its ground-truth ids from a dataset.
     fn read_sparse_query(
         query_dataset: &QueryDataset,
     ) -> ((Vec<f32>, SparseIndices), Option<Vec<u64>>) {
         let idx = query_dataset.next_index();
-        let pairs = query_dataset
-            .reader
-            .query_sparse_vector(idx)
-            .unwrap_or_else(|e| panic!("failed to read dataset sparse query at {idx}: {e}"));
-        let (indices, values): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
-        let expected = query_dataset
-            .reader
-            .query_ground_truth(idx)
-            .unwrap_or_else(|e| panic!("failed to read dataset ground truth at {idx}: {e}"));
-        ((values, SparseIndices { data: indices }), Some(expected))
+        let QueryVectors::Sparse(vectors) = &query_dataset.vectors else {
+            panic!("sparse request drew from a query set opened as dense");
+        };
+        let (values, indices) = &vectors[idx];
+        (
+            (
+                values.clone(),
+                SparseIndices {
+                    data: indices.clone(),
+                },
+            ),
+            Some(query_dataset.ground_truth[idx].clone()),
+        )
     }
 
     fn gen_dense_vector(

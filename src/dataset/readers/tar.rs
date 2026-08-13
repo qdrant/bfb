@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use super::jsonl::JsonlStore;
 use super::npy::NpyMatrix;
+use super::query::QueryEntry;
 
 /// An extracted `.tgz` bundle: `vectors.npy` plus optional `payloads.jsonl` and
 /// `tests.jsonl` (ann-filtering-benchmark-datasets layout).
@@ -92,6 +93,27 @@ impl TarReader {
         parse_f32_array(query).context("tests.jsonl `query` is not an array of numbers")
     }
 
+    /// The whole query set: every query vector with its ground-truth ids.
+    ///
+    /// Reads each row exactly once. Going through [`Self::query_at`] and
+    /// [`Self::query_ground_truth`] per index would reopen the file and re-parse
+    /// the same row twice — once per field — which dominated startup on a query
+    /// set of 2048-d vectors.
+    pub fn read_query_set(&self) -> Result<Vec<QueryEntry<Vec<f32>>>> {
+        let store = self
+            .queries
+            .as_ref()
+            .context("dataset has no tests.jsonl (no query set)")?;
+        let rows: Vec<QueryRow> = store.deserialize_all()?;
+        Ok(rows
+            .into_iter()
+            .map(|row| QueryEntry {
+                vector: row.query,
+                ground_truth: row.closest_ids,
+            })
+            .collect())
+    }
+
     /// Ground-truth nearest-neighbor ids for a query (`closest_ids` field).
     pub fn query_ground_truth(&self, idx: usize) -> Result<Vec<u64>> {
         let line = self.query_line(idx)?;
@@ -107,6 +129,14 @@ impl TarReader {
             })
             .collect()
     }
+}
+
+/// The fields of a `tests.jsonl` row that a benchmark run needs. `conditions`
+/// and `closest_scores` are deliberately absent so serde skips them.
+#[derive(serde::Deserialize)]
+struct QueryRow {
+    query: Vec<f32>,
+    closest_ids: Vec<u64>,
 }
 
 fn parse_f32_array(value: &Value) -> Option<Vec<f32>> {
@@ -152,6 +182,14 @@ mod tests {
         assert_eq!(reader.query_at(0).unwrap(), vec![1.0, 2.0, 3.0]);
         assert_eq!(reader.query_ground_truth(0).unwrap(), vec![1, 0]);
         assert_eq!(reader.query_ground_truth(1).unwrap(), vec![0]);
+
+        // The bulk pass must agree with the indexed reads it replaces.
+        let entries = reader.read_query_set().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].vector, vec![1.0, 2.0, 3.0]);
+        assert_eq!(entries[0].ground_truth, vec![1, 0]);
+        assert_eq!(entries[1].vector, vec![4.0, 5.0, 6.0]);
+        assert_eq!(entries[1].ground_truth, vec![0]);
     }
 
     #[test]
