@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use super::jsonl::JsonlStore;
 use super::npy::NpyMatrix;
+use super::query::QueryEntry;
 
 /// An extracted `.tgz` bundle: `vectors.npy` plus optional `payloads.jsonl` and
 /// `tests.jsonl` (ann-filtering-benchmark-datasets layout).
@@ -98,7 +99,7 @@ impl TarReader {
     /// [`Self::query_ground_truth`] per index would reopen the file and re-parse
     /// the same row twice — once per field — which dominated startup on a query
     /// set of 2048-d vectors.
-    pub fn read_query_set(&self) -> Result<(Vec<Vec<f32>>, Vec<Vec<u64>>)> {
+    pub fn read_query_set(&self) -> Result<Vec<QueryEntry<Vec<f32>>>> {
         let store = self
             .queries
             .as_ref()
@@ -106,8 +107,11 @@ impl TarReader {
         let rows: Vec<QueryRow> = store.deserialize_all()?;
         Ok(rows
             .into_iter()
-            .map(|row| (row.query, row.closest_ids))
-            .unzip())
+            .map(|row| QueryEntry {
+                vector: row.query,
+                ground_truth: row.closest_ids,
+            })
+            .collect())
     }
 
     /// Ground-truth nearest-neighbor ids for a query (`closest_ids` field).
@@ -180,9 +184,12 @@ mod tests {
         assert_eq!(reader.query_ground_truth(1).unwrap(), vec![0]);
 
         // The bulk pass must agree with the indexed reads it replaces.
-        let (vectors, ground_truth) = reader.read_query_set().unwrap();
-        assert_eq!(vectors, vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]]);
-        assert_eq!(ground_truth, vec![vec![1, 0], vec![0]]);
+        let entries = reader.read_query_set().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].vector, vec![1.0, 2.0, 3.0]);
+        assert_eq!(entries[0].ground_truth, vec![1, 0]);
+        assert_eq!(entries[1].vector, vec![4.0, 5.0, 6.0]);
+        assert_eq!(entries[1].ground_truth, vec![0]);
     }
 
     #[test]

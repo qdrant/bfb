@@ -65,7 +65,11 @@ impl JsonlStore {
                 continue;
             }
             rows.push(serde_json::from_str(trimmed).with_context(|| {
-                format!("failed to parse {} line {}", self.path.display(), rows.len())
+                format!(
+                    "failed to parse {} line {}",
+                    self.path.display(),
+                    rows.len()
+                )
             })?);
         }
         Ok(rows)

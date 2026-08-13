@@ -6,7 +6,9 @@ use serde_json::Value;
 use super::config::{DatasetConfig, DatasetKind};
 use super::download::ensure_downloaded;
 use super::parts::PartitionedReader;
-use super::readers::{H5Reader, NpyReader, ParquetReader, SparseReader, TarReader};
+use super::readers::{
+    H5Reader, NpyReader, ParquetReader, QueryEntry, SparseReader, SparseVector, TarReader,
+};
 use super::registry::load_registry;
 
 enum DatasetReaderInner {
@@ -151,30 +153,31 @@ impl DatasetReader {
     ///
     /// Text-backed formats get a sequential fast path; the rest fall back to
     /// indexed reads, which for a binary format cost the same either way.
-    pub fn read_dense_query_set(&self) -> Result<(Vec<Vec<f32>>, Vec<Vec<u64>>)> {
+    pub fn read_dense_query_set(&self) -> Result<Vec<QueryEntry<Vec<f32>>>> {
         if let DatasetReaderInner::Tar(reader) = &self.inner {
             return reader.read_query_set();
         }
-        let mut vectors = Vec::with_capacity(self.num_queries());
-        let mut ground_truth = Vec::with_capacity(self.num_queries());
+        let mut rows = Vec::with_capacity(self.num_queries());
         for idx in 0..self.num_queries() {
-            vectors.push(self.query_dense_vector(idx)?);
-            ground_truth.push(self.query_ground_truth(idx)?);
+            rows.push(QueryEntry {
+                vector: self.query_dense_vector(idx)?,
+                ground_truth: self.query_ground_truth(idx)?,
+            });
         }
-        Ok((vectors, ground_truth))
+        Ok(rows)
     }
 
     /// The whole sparse query set with its ground truth. Sparse queries live in
     /// binary CSR files, so there is nothing to gain from a bulk path.
-    #[allow(clippy::type_complexity)]
-    pub fn read_sparse_query_set(&self) -> Result<(Vec<Vec<(u32, f32)>>, Vec<Vec<u64>>)> {
-        let mut vectors = Vec::with_capacity(self.num_queries());
-        let mut ground_truth = Vec::with_capacity(self.num_queries());
+    pub fn read_sparse_query_set(&self) -> Result<Vec<QueryEntry<SparseVector>>> {
+        let mut rows = Vec::with_capacity(self.num_queries());
         for idx in 0..self.num_queries() {
-            vectors.push(self.query_sparse_vector(idx)?);
-            ground_truth.push(self.query_ground_truth(idx)?);
+            rows.push(QueryEntry {
+                vector: self.query_sparse_vector(idx)?,
+                ground_truth: self.query_ground_truth(idx)?,
+            });
         }
-        Ok((vectors, ground_truth))
+        Ok(rows)
     }
 
     /// Ground-truth nearest-neighbor ids for a query (indices into the corpus).

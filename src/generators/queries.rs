@@ -387,26 +387,36 @@ impl ConfigSearchGenerator {
 
         let (vectors, ground_truth) = match kind {
             QueryKind::Dense => {
-                let (vectors, ground_truth) =
-                    reader.read_dense_query_set().with_context(|| {
-                        format!("failed to read dense query set of dataset {:?}", dataset.name)
-                    })?;
+                let rows = reader.read_dense_query_set().with_context(|| {
+                    format!(
+                        "failed to read dense query set of dataset {:?}",
+                        dataset.name
+                    )
+                })?;
+                let mut vectors = Vec::with_capacity(rows.len());
+                let mut ground_truth = Vec::with_capacity(rows.len());
+                for row in rows {
+                    vectors.push(row.vector);
+                    ground_truth.push(row.ground_truth);
+                }
                 (QueryVectors::Dense(vectors), ground_truth)
             }
             QueryKind::Sparse => {
-                let (pairs, ground_truth) =
-                    reader.read_sparse_query_set().with_context(|| {
-                        format!(
-                            "failed to read sparse query set of dataset {:?}",
-                            dataset.name
-                        )
-                    })?;
-                let split = pairs
-                    .into_iter()
-                    .map(|row| row.into_iter().unzip())
-                    .map(|(indices, values): (Vec<u32>, Vec<f32>)| (values, indices))
-                    .collect();
-                (QueryVectors::Sparse(split), ground_truth)
+                let rows = reader.read_sparse_query_set().with_context(|| {
+                    format!(
+                        "failed to read sparse query set of dataset {:?}",
+                        dataset.name
+                    )
+                })?;
+                let mut vectors = Vec::with_capacity(rows.len());
+                let mut ground_truth = Vec::with_capacity(rows.len());
+                for row in rows {
+                    // Pre-split into (values, indices) so no per-request unzip is needed.
+                    let (indices, values): (Vec<u32>, Vec<f32>) = row.vector.into_iter().unzip();
+                    vectors.push((values, indices));
+                    ground_truth.push(row.ground_truth);
+                }
+                (QueryVectors::Sparse(vectors), ground_truth)
             }
         };
 
