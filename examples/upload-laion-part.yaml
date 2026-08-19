@@ -3,7 +3,7 @@
 # files LAION publishes: dense vectors from a bare `.npy`, payloads from the
 # matching `.parquet`. No repacking step.
 #
-#   bfb upload --file examples/upload-laion-part.yaml -b 256 -p 16 -t 8 \
+#   bfb upload --example upload-laion-part -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
 #
 # The two sources are row-aligned: row *i* of `img_emb_0.npy` is the same image

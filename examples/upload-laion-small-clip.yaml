@@ -4,7 +4,7 @@
 # and builds a float field index on `similarity` (matching the dataset's
 # `"schema": { "similarity": "float" }` in vector-db-benchmark).
 #
-#   bfb upload --file examples/upload-laion-small-clip.yaml -b 256 -p 16 -t 8 \
+#   bfb upload --example upload-laion-small-clip -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
 #
 # Omit `-n` to upload the full dataset (capped by the smallest configured source).

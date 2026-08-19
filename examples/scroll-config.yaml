@@ -1,12 +1,12 @@
 # Example bfb scroll config.
 #
-#   bfb scroll --file examples/scroll-config.yaml -n 50k -p 8 --search-limit 10
+#   bfb scroll --example scroll-config -n 50k -p 8 --search-limit 10
 #
 # The YAML describes the *shape* of scroll requests (collection + payload
 # filters); the CLI flags control *how* the benchmark runs (request count,
 # parallelism, limit, …). One template is picked at random per request.
 #
-# Pair this with examples/upload-config.yaml: upload first, then scroll the same
+# Pair this with `--example upload-config`: upload first, then scroll the same
 # collection. The flag-driven path (`bfb --scroll --keywords 100`) is unchanged.
 
 collection:

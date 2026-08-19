@@ -1,4 +1,4 @@
-//! YAML scroll configuration for `bfb scroll --file config.yaml`.
+//! YAML scroll configuration for `bfb scroll --file` / `--example`.
 //!
 //! Describes only the *shape* of scroll requests (which collection, which
 //! payload filters). The *how* (number of requests, limit, parallelism, uri, …)
@@ -44,11 +44,9 @@ pub struct ScrollRequestConfig {
     pub filters: Vec<FilterPayloadConfig>,
 }
 
-pub fn load(path: &str) -> Result<ScrollConfig> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read scroll config file {path}"))?;
-    let config: ScrollConfig = serde_yaml::from_str(&text)
-        .with_context(|| format!("failed to parse scroll config file {path}"))?;
+pub fn parse(text: &str, origin: &str) -> Result<ScrollConfig> {
+    let config: ScrollConfig = serde_yaml::from_str(text)
+        .with_context(|| format!("failed to parse scroll config {origin}"))?;
     config.validate()?;
     Ok(config)
 }
@@ -70,6 +68,14 @@ impl ScrollConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_scroll_config_example() {
+        let config = crate::config::examples::lookup("scroll-config")
+            .map(|e| super::parse(e.yaml, e.name).unwrap())
+            .unwrap();
+        assert!(!config.requests.is_empty());
+    }
 
     #[test]
     fn parses_filtered_and_unfiltered_templates() {

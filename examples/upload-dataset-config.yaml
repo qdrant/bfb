@@ -1,6 +1,6 @@
 # Example upload config with an inline dataset definition.
 #
-#   bfb upload --file examples/upload-dataset-config.yaml -b 256 -p 16 -t 8 \
+#   bfb upload --example upload-dataset-config -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
 #
 # Omit `-n` to upload the full dataset (capped by the smallest configured source).
