@@ -2,10 +2,10 @@
 # reference dataset, using the same dataset format as vector-db-benchmark.
 #
 #   # 1. Upload the dataset corpus (assigns point id = dataset row index):
-#   bfb upload --file examples/upload-dataset-config.yaml
+#   bfb upload --example upload-dataset-config
 #
 #   # 2. Search with the dataset's query set and measure recall:
-#   bfb search --file examples/search-dataset-accuracy.yaml -p 8 -t 4 \
+#   bfb search --example search-dataset-accuracy -p 8 -t 4 \
 #       --search-limit 10 --uri http://localhost:6334
 #
 # When a request's `source` is `type: dataset`, bfb draws query vectors from the
@@ -24,7 +24,7 @@
 #   * sparse: `queries.csr` + `results.gt`
 
 collection:
-  # Must match the collection uploaded in step 1 (examples/upload-dataset-config.yaml).
+  # Must match the collection uploaded in step 1 (`--example upload-dataset-config`).
   name: glove-25-angular
 
 requests:

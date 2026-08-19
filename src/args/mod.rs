@@ -498,28 +498,37 @@ pub struct Args {
 /// Subcommands. Absent ⇒ legacy flag-driven benchmark.
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Upload data described by a YAML collection-shape config file.
+    /// Upload data described by a YAML collection-shape config.
     ///
-    /// The YAML file defines the *shape* of the data (collection params + how
+    /// The YAML defines the *shape* of the data (collection params + how
     /// each field is generated); the runtime flags (`-n`, `-b`, `-p`, `-t`,
-    /// `--uri`, …) still control *how* it is uploaded.
+    /// `--uri`, …) still control *how* it is uploaded. Use `--example name`
+    /// for a built-in config (`bfb examples` lists them) or `--file` for a
+    /// custom YAML file.
     Upload(UploadArgs),
 
-    /// Run searches described by a YAML search-request config file.
+    /// Run searches described by a YAML search-request config.
     ///
-    /// The YAML file defines the *shape* of search requests (which vectors to
+    /// The YAML defines the *shape* of search requests (which vectors to
     /// query, optional payload filters); the runtime flags (`-n`, `--parallel`,
-    /// `--search-batch-size`, `--uri`, …) still control *how* the benchmark runs.
+    /// `--search-batch-size`, `--uri`, …) still control *how* the benchmark
+    /// runs. Use `--example name` or `--file path`.
     Search(SearchArgs),
 
     /// Run a scroll workload against an existing collection.
     ///
     /// The same workload as the legacy `--scroll` flag, runnable as a phase of
-    /// its own so it can be timed and reported independently. The YAML file
+    /// its own so it can be timed and reported independently. The YAML
     /// defines the *shape* of scroll requests (which payload filters); the
     /// runtime flags (`-n`, `--parallel`, `--search-limit`, …) still control
-    /// *how* the benchmark runs.
+    /// *how* the benchmark runs. Use `--example name` or `--file path`.
     Scroll(ScrollArgs),
+
+    /// List built-in YAML examples, or print one to stdout.
+    ///
+    /// `bfb examples` lists names for `--example`. `bfb examples <name>` prints
+    /// the YAML so it can be saved and edited as a `--file`.
+    Examples(ExamplesArgs),
 
     /// Print the upload-config file schema: every option, its type, default,
     /// and allowed values, as an annotated YAML reference.
@@ -533,25 +542,42 @@ pub enum Command {
     SelfUpdate(crate::self_update::SelfUpdateArgs),
 }
 
+/// `--file` or `--example` (exactly one required). Flattened into upload /
+/// search / scroll.
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct ConfigArgs {
+    /// Path to a YAML config file
+    #[clap(long)]
+    pub file: Option<String>,
+
+    /// Built-in example name (`bfb examples` lists them)
+    #[clap(long, value_name = "NAME")]
+    pub example: Option<String>,
+}
+
 #[derive(clap::Args, Debug, Clone)]
 pub struct SearchArgs {
-    /// Path to the YAML search-request config file
-    #[clap(long)]
-    pub file: String,
+    #[clap(flatten)]
+    pub config: ConfigArgs,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ScrollArgs {
-    /// Path to the YAML scroll config file
-    #[clap(long)]
-    pub file: String,
+    #[clap(flatten)]
+    pub config: ConfigArgs,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct UploadArgs {
-    /// Path to the YAML collection-shape config file
-    #[clap(long)]
-    pub file: String,
+    #[clap(flatten)]
+    pub config: ConfigArgs,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ExamplesArgs {
+    /// Print this built-in example's YAML to stdout. Omit to list names.
+    pub name: Option<String>,
 }
 
 impl Args {

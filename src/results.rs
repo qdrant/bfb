@@ -60,7 +60,8 @@ pub struct RunConfig {
     pub threads: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rps: Option<f64>,
-    /// Path of the YAML config driving `bfb upload` / `bfb search`, if any.
+    /// Path of the YAML config driving `bfb upload` / `bfb search` / `bfb scroll`,
+    /// if any. Built-in examples are recorded as `example:<name>`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_file: Option<String>,
 }
