@@ -1,0 +1,116 @@
+name: Release
+
+# Builds static Linux (musl) and macOS binaries and attaches them to a GitHub
+# release. Triggered by pushing a `v*` tag that matches the Cargo.toml version:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# `workflow_dispatch` runs the same build without publishing (binaries are kept
+# as workflow artifacts), which is handy for checking the build matrix.
+#
+# Asset names (`bfb-<target>.tar.gz` + `.sha256`) are a contract with
+# `bfb self-update` (`src/self_update.rs`) and the README install snippet.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches the Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version (expected tag v$version)"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # `cross` builds the musl targets inside a container that ships the musl
+      # C toolchain needed by ring / zstd-sys.
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        run: |
+          ${{ matrix.cross && 'cross' || 'cargo' }} build --release --locked --target ${{ matrix.target }}
+
+      - name: Smoke test
+        # Only the binaries whose architecture matches the runner can be run.
+        if: matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-apple-darwin'
+        run: |
+          target/${{ matrix.target }}/release/bfb --version
+          target/${{ matrix.target }}/release/bfb self-update --help > /dev/null
+
+      - name: Package
+        run: |
+          asset="bfb-${{ matrix.target }}.tar.gz"
+          tar -C "target/${{ matrix.target }}/release" -czf "$asset" bfb
+          shasum -a 256 "$asset" > "$asset.sha256"
+          cat "$asset.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bfb-${{ matrix.target }}
+          path: |
+            bfb-${{ matrix.target }}.tar.gz
+            bfb-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - run: ls -l dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          # `v1.2.3-rc1`-style tags become pre-releases (`self-update` ignores
+          # those unless asked for by `--tag`, since it follows `releases/latest`).
+          prerelease: ${{ contains(github.ref_name, '-') }}
