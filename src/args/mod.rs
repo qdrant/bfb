@@ -524,6 +524,13 @@ pub enum Command {
     /// Print the upload-config file schema: every option, its type, default,
     /// and allowed values, as an annotated YAML reference.
     Schema,
+
+    /// Replace this binary with the latest GitHub release (or a chosen `--tag`).
+    ///
+    /// Downloads the prebuilt `bfb-<target>.tar.gz` for this platform from
+    /// https://github.com/qdrant/bfb/releases, verifies its checksum, and
+    /// atomically swaps it in place of the running executable.
+    SelfUpdate(crate::self_update::SelfUpdateArgs),
 }
 
 #[derive(clap::Args, Debug, Clone)]

@@ -21,6 +21,7 @@ mod results;
 mod save_jsonl;
 mod scroll;
 mod search;
+mod self_update;
 mod stats;
 mod upload;
 mod upsert;
@@ -112,8 +113,8 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         Some(Command::Search(search_args)) => return run_search(args, search_args, stopped).await,
         Some(Command::Upload(upload_args)) => return run_upload(args, upload_args, stopped).await,
         Some(Command::Scroll(scroll_args)) => return run_scroll(args, scroll_args, stopped).await,
-        // `Schema` is handled before the runtime starts; `None` falls through.
-        Some(Command::Schema) | None => {}
+        // `Schema` / `SelfUpdate` are handled before the runtime starts; `None` falls through.
+        Some(Command::Schema | Command::SelfUpdate(_)) | None => {}
     }
 
     if args.search_quality && args.search_exact {
@@ -176,10 +177,20 @@ fn parse_args() -> Args {
 fn main() {
     let args = parse_args();
 
-    // Pure print commands that need no network / Tokio runtime.
-    if let Some(Command::Schema) = args.command {
-        config::schema::print_schema();
-        return;
+    // Commands that need no Qdrant connection / Tokio runtime.
+    match &args.command {
+        Some(Command::Schema) => {
+            config::schema::print_schema();
+            return;
+        }
+        Some(Command::SelfUpdate(update_args)) => {
+            if let Err(err) = self_update::run(update_args) {
+                eprintln!("Error: {err:?}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        _ => {}
     }
 
     let stopped = Arc::new(AtomicBool::new(false));
