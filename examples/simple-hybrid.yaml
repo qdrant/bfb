@@ -2,7 +2,7 @@
 # one 768-d dense vector with turbo-2bit quantization and one zipf-distributed
 # sparse vector, plus a couple of payload fields to filter on.
 #
-#   bfb upload --file examples/simple-hybrid.yaml -n 1M -b 256 -p 16 -t 8 \
+#   bfb upload --example simple-hybrid -n 1M -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
 
 collection:

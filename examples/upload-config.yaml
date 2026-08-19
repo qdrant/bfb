@@ -1,6 +1,6 @@
 # Example bfb upload config.
 #
-#   bfb upload --file examples/upload-config.yaml -n 1M -b 256 -p 16 -t 8 \
+#   bfb upload --example upload-config -n 1M -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
 #
 # The YAML describes the *shape* of the data; the CLI flags above control *how*

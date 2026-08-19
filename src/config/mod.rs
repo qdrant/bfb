@@ -1,4 +1,4 @@
-//! YAML collection-shape configuration for `bfb upload --file config.yaml`.
+//! YAML collection-shape configuration for `bfb upload --file` / `--example`.
 //!
 //! The config file describes only the *shape* of the data (collection params +
 //! how each field's values are generated). The *how* of uploading (number of
@@ -7,6 +7,7 @@
 //! See `BENCHMARK_ROADMAP.md` §2 for the schema rationale and `examples/`.
 
 pub mod collection;
+pub mod examples;
 pub mod payload;
 pub mod schema;
 pub mod scroll;
@@ -38,12 +39,10 @@ pub struct UploadConfig {
 
 // ------------------------------ Loading / validation ---------------------
 
-/// Read and validate a YAML config file.
-pub fn load(path: &str) -> Result<UploadConfig> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read config file {path}"))?;
-    let config: UploadConfig = serde_yaml::from_str(&text)
-        .with_context(|| format!("failed to parse config file {path}"))?;
+/// Parse and validate a YAML upload config.
+pub fn parse(text: &str, origin: &str) -> Result<UploadConfig> {
+    let config: UploadConfig =
+        serde_yaml::from_str(text).with_context(|| format!("failed to parse config {origin}"))?;
     config.validate()?;
     Ok(config)
 }
@@ -456,7 +455,9 @@ collection:
 
     #[test]
     fn parses_laion_small_clip_example() {
-        let cfg = super::load("examples/upload-laion-small-clip.yaml").unwrap();
+        let cfg = crate::config::examples::lookup("upload-laion-small-clip")
+            .map(|e| super::parse(e.yaml, e.name).unwrap())
+            .unwrap();
         // Dense vectors come from the tar dataset.
         assert!(matches!(
             cfg.collection.vectors[0].source,
@@ -478,7 +479,9 @@ collection:
     /// copied out of it actually works.
     #[test]
     fn parses_upload_config_example() {
-        let cfg = super::load("examples/upload-config.yaml").unwrap();
+        let cfg = crate::config::examples::lookup("upload-config")
+            .map(|e| super::parse(e.yaml, e.name).unwrap())
+            .unwrap();
         assert_eq!(
             cfg.collection.payload.memory,
             Some(crate::config::MemoryKind::Cached)

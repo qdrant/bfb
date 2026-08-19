@@ -1,4 +1,4 @@
-//! YAML search-request configuration for `bfb search --file config.yaml`.
+//! YAML search-request configuration for `bfb search --file` / `--example`.
 //!
 //! The config file describes only the *shape* of search requests (which vectors
 //! to query, optional payload filters). The *how* of searching (number of
@@ -94,12 +94,10 @@ impl FilterPayloadConfig {
     }
 }
 
-/// Read and validate a YAML search config file.
-pub fn load(path: &str) -> Result<SearchConfig> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read search config file {path}"))?;
-    let config: SearchConfig = serde_yaml::from_str(&text)
-        .with_context(|| format!("failed to parse search config file {path}"))?;
+/// Parse and validate a YAML search config.
+pub fn parse(text: &str, origin: &str) -> Result<SearchConfig> {
+    let config: SearchConfig = serde_yaml::from_str(text)
+        .with_context(|| format!("failed to parse search config {origin}"))?;
     config.validate()?;
     Ok(config)
 }
@@ -403,7 +401,9 @@ requests:
     /// loadable.
     #[test]
     fn parses_search_config_example() {
-        let cfg = super::load("examples/search-config.yaml").unwrap();
+        let cfg = crate::config::examples::lookup("search-config")
+            .map(|e| super::parse(e.yaml, e.name).unwrap())
+            .unwrap();
         assert!(
             cfg.requests.iter().any(|r| matches!(
                 r,

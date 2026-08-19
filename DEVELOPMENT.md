@@ -4,7 +4,7 @@
 src/
 ├── main.rs          # entry point: CLI parsing, runtime setup, command dispatch
 ├── args/            # clap Args struct + CLI value types (consistency, ordering)
-├── config/          # YAML configs: upload (collection/vector/payload), search, schema reference
+├── config/          # YAML configs: upload/search/scroll, built-in examples, schema reference
 ├── client.rs        # Qdrant client construction + multi-client retry
 ├── collection/      # collection (re)creation: from CLI flags / from YAML config
 ├── generators/      # data generation: points (legacy & config), queries, random primitives

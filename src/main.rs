@@ -6,6 +6,7 @@ use clap::{CommandFactory, FromArgMatches};
 use tokio::runtime;
 
 use args::{Args, Command};
+use config::examples::ExampleKind;
 use results::{BenchmarkResults, IndexPhase};
 
 mod args;
@@ -34,29 +35,39 @@ async fn run_wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<IndexPh
     Ok(IndexPhase { wait_secs })
 }
 
-/// `bfb scroll --file config.yaml`: YAML-config-driven scroll.
+/// `bfb scroll --file` / `--example`: YAML-config-driven scroll.
 async fn run_scroll(
     args: Args,
     scroll_args: args::ScrollArgs,
     stopped: Arc<AtomicBool>,
 ) -> Result<()> {
-    let config = config::scroll::load(&scroll_args.file)?;
+    let resolved = config::examples::resolve(
+        scroll_args.config.file.as_deref(),
+        scroll_args.config.example.as_deref(),
+        ExampleKind::Scroll,
+    )?;
+    let config = config::scroll::parse(&resolved.yaml, &resolved.origin)?;
 
     let mut args = args;
     args.collection_name = config.collection.name.clone();
 
-    let mut results = BenchmarkResults::new(&args, Some(scroll_args.file.clone()));
+    let mut results = BenchmarkResults::new(&args, Some(resolved.origin));
     results.results.scroll = Some(query::scroll_with_config(&args, &config, stopped).await?);
     results.write_if_requested(&args)
 }
 
-/// `bfb search --file config.yaml`: YAML-config-driven search.
+/// `bfb search --file` / `--example`: YAML-config-driven search.
 async fn run_search(
     args: Args,
     search_args: args::SearchArgs,
     stopped: Arc<AtomicBool>,
 ) -> Result<()> {
-    let config = config::search::load(&search_args.file)?;
+    let resolved = config::examples::resolve(
+        search_args.config.file.as_deref(),
+        search_args.config.example.as_deref(),
+        ExampleKind::Search,
+    )?;
+    let config = config::search::parse(&resolved.yaml, &resolved.origin)?;
 
     let mut args = args;
     args.collection_name = config.collection.name.clone();
@@ -65,18 +76,23 @@ async fn run_search(
         println!("Ignoring `exact` flag because `search_quality` is also enabled!");
     }
 
-    let mut results = BenchmarkResults::new(&args, Some(search_args.file.clone()));
+    let mut results = BenchmarkResults::new(&args, Some(resolved.origin));
     results.results.search = Some(query::search_with_config(&args, &config, stopped).await?);
     results.write_if_requested(&args)
 }
 
-/// `bfb upload --file config.yaml`: YAML-config-driven upload.
+/// `bfb upload --file` / `--example`: YAML-config-driven upload.
 async fn run_upload(
     args: Args,
     upload_args: args::UploadArgs,
     stopped: Arc<AtomicBool>,
 ) -> Result<()> {
-    let config = config::load(&upload_args.file)?;
+    let resolved = config::examples::resolve(
+        upload_args.config.file.as_deref(),
+        upload_args.config.example.as_deref(),
+        ExampleKind::Upload,
+    )?;
+    let config = config::parse(&resolved.yaml, &resolved.origin)?;
 
     let mut args = args;
     args.num_vectors = Some(dataset::resolve_num_vectors(
@@ -90,7 +106,7 @@ async fn run_upload(
         args.shard_key = Some(sharding.key.clone());
     }
 
-    let mut results = BenchmarkResults::new(&args, Some(upload_args.file.clone()));
+    let mut results = BenchmarkResults::new(&args, Some(resolved.origin));
 
     if !args.skip_create && !args.skip_setup {
         collection::recreate_collection_from_config(&config, &args, stopped.clone()).await?;
@@ -114,7 +130,7 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         Some(Command::Upload(upload_args)) => return run_upload(args, upload_args, stopped).await,
         Some(Command::Scroll(scroll_args)) => return run_scroll(args, scroll_args, stopped).await,
         // `Schema` / `SelfUpdate` are handled before the runtime starts; `None` falls through.
-        Some(Command::Schema | Command::SelfUpdate(_)) | None => {}
+        Some(Command::Schema | Command::Examples(_) | Command::SelfUpdate(_)) | None => {}
     }
 
     if args.search_quality && args.search_exact {
@@ -181,6 +197,13 @@ fn main() {
     match &args.command {
         Some(Command::Schema) => {
             config::schema::print_schema();
+            return;
+        }
+        Some(Command::Examples(examples_args)) => {
+            if let Err(err) = config::examples::run(examples_args.name.as_deref()) {
+                eprintln!("Error: {err:?}");
+                std::process::exit(1);
+            }
             return;
         }
         Some(Command::SelfUpdate(update_args)) => {

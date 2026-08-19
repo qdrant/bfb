@@ -2,7 +2,7 @@
 # (https://github.com/qdrant/laion-400m-benchmark) — 407,314,954 points across
 # 410 published parts, uploaded as one collection with global point ids.
 #
-#   bfb upload --file examples/upload-laion-400m.yaml -b 256 -p 16 -t 8 \
+#   bfb upload --example upload-laion-400m -b 256 -p 16 -t 8 \
 #       --uri http://localhost:6334
 #
 # On first use bfb sizes every part with one ranged request each (~1.5 minutes

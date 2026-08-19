@@ -53,6 +53,7 @@ atomically replaces the running executable.
 
 ```bash
 docker run --rm --network=host qdrant/bfb:dev /bfb --help
+docker run --rm --network=host qdrant/bfb:dev /bfb upload --example upload-config -n 1M
 ```
 
 ### From source
@@ -77,6 +78,16 @@ The YAML file describes only the *shape* of the data (collection params + how
 each field is generated). The runtime flags (`-n`, `-b`, `-p`, `-t`, `--uri`,
 `--rps`, `--offset`, …) still control *how* it is uploaded. See
 [`examples/upload-config.yaml`](examples/upload-config.yaml) for the full schema.
+
+Shipped examples are compiled into the binary, so they work without a checkout
+or a Docker volume:
+
+```bash
+bfb examples                                 # list names
+bfb upload --example upload-config -n 1M -b 256 -p 16 -t 8 --uri http://localhost:6334
+bfb examples upload-config > my.yaml         # dump one to customize
+bfb upload --file my.yaml ...                # custom file still works
+```
 
 #### vector-db-benchmark datasets
 
@@ -179,7 +190,7 @@ sources are configured, upload stops at the smallest source size (like Python's
 `zip`).
 
 ```bash
-bfb upload --file examples/upload-dataset-config.yaml -b 256 -p 16 --uri http://localhost:6334
+bfb upload --example upload-dataset-config -b 256 -p 16 --uri http://localhost:6334
 ```
 
 Example vector source in YAML:
@@ -202,8 +213,8 @@ sparse vectors, payload filters with the same field names), use a search config
 file:
 
 ```bash
-bfb upload --file examples/upload-config.yaml -n 1M --uri http://localhost:6334
-bfb search --file examples/search-config.yaml -n 50k -p 8 --uri http://localhost:6334
+bfb upload --example upload-config -n 1M --uri http://localhost:6334
+bfb search --example search-config -n 50k -p 8 --uri http://localhost:6334
 ```
 
 The YAML file describes only the *shape* of search requests (which vectors to
@@ -232,8 +243,8 @@ ground-truth nearest neighbors. Recall (`|found ∩ expected[:k]| / k`, the same
 metric as vector-db-benchmark) is reported under `--- Precision ---`.
 
 ```bash
-bfb upload --file examples/upload-dataset-config.yaml --uri http://localhost:6334
-bfb search --file examples/search-dataset-accuracy.yaml --search-limit 10 -p 8 --uri http://localhost:6334
+bfb upload --example upload-dataset-config --uri http://localhost:6334
+bfb search --example search-dataset-accuracy --search-limit 10 -p 8 --uri http://localhost:6334
 ```
 
 Query set + ground truth are auto-detected from the dataset files:
@@ -255,7 +266,7 @@ The same workload as the legacy `--scroll` flag, runnable on an existing
 collection so it can be timed and reported independently:
 
 ```bash
-bfb scroll --file examples/scroll-config.yaml -n 50k -p 8 --json scroll.json
+bfb scroll --example scroll-config -n 50k -p 8 --json scroll.json
 ```
 
 The YAML describes the *shape* of scroll requests: how to traverse the
@@ -304,6 +315,18 @@ bfb schema
 
 The output is itself valid YAML, so it doubles as a copy-paste starting
 template for your own config.
+
+### `examples` — list or dump built-in YAML configs
+
+The files under [`examples/`](examples/) are compiled into the binary:
+
+```bash
+bfb examples                      # names + one-line descriptions
+bfb examples search-config        # print YAML to stdout
+```
+
+Use a name with `--example` on `upload` / `search` / `scroll`. `--file` still
+accepts any custom YAML.
 
 #### Searching a YAML-built collection
 
@@ -355,7 +378,7 @@ bfb -n 1M --search --json results.json
 }
 ```
 
-Phases that did not run are omitted: `bfb search --file …` yields only
+Phases that did not run are omitted: `bfb search --example …` yields only
 `results.search`, and `precision` appears only when accuracy was measured
 (`--search-quality`, or a dataset query source with ground truth). Timings are
 in seconds. The per-request `--jsonl-*` time series are unchanged.
