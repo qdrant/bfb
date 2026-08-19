@@ -32,3 +32,29 @@ docker run --privileged --rm tonistiigi/binfmt --install all
 docker run --platform=linux/arm64 --network=host qdrant/bfb:local /bfb # run bfb
 docker run --platform=linux/arm64 --network=host -it qdrant/bfb:local /bin/bash # shell
 ```
+
+## Releasing binaries
+
+`.github/workflows/release.yml` builds static Linux (`x86_64`/`aarch64`
+musl, via `cross`) and macOS (`aarch64`/`x86_64`) binaries and attaches them to
+a GitHub release as `bfb-<target>.tar.gz` + `.sha256`. Those names are relied on
+by `bfb self-update` (`src/self_update.rs`) and the README install snippet, so
+keep them stable.
+
+To cut a release:
+
+```sh
+# 1. bump `version` in Cargo.toml (and Cargo.lock), merge to dev
+# 2. tag the merged commit with a matching `v<version>` tag and push it
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow refuses tags that do not match the Cargo.toml version, since
+`self-update` compares the release tag against `CARGO_PKG_VERSION`. A tag with
+a `-` (e.g. `v0.2.0-rc1`) is published as a pre-release, which
+`releases/latest` — and therefore `self-update` — skips unless passed via
+`--tag`.
+
+Run the workflow manually (`workflow_dispatch`) to exercise the build matrix
+without publishing; the binaries are then available as workflow artifacts.
