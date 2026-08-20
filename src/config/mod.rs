@@ -280,6 +280,39 @@ fn default_custom() -> String {
 mod tests {
     use super::*;
 
+    /// `bfb` echoes the parsed config back to the console, which serializes it.
+    /// A dataset source flattens an inline dataset definition into an
+    /// internally-tagged enum variant — the one shape serde can refuse to
+    /// serialize — so keep a config that uses it round-trippable.
+    #[test]
+    fn effective_config_renders_back_to_yaml() {
+        let yaml = r#"
+collection:
+  name: glove
+  vectors:
+    - size: 25
+      distance: cosine
+      source:
+        type: dataset
+        name: glove-25-angular
+        format: h5
+        path: glove-25-angular/glove-25-angular.hdf5
+  fields:
+    - name: a
+      type: keyword
+"#;
+        let cfg: UploadConfig = serde_yaml::from_str(yaml).unwrap();
+        cfg.validate().unwrap();
+
+        let rendered = serde_yaml::to_string(&cfg).expect("config must be printable");
+        assert!(rendered.contains("glove-25-angular"), "{rendered}");
+        // Defaults are materialized, which is the point of printing it.
+        assert!(rendered.contains("datatype: float32"), "{rendered}");
+
+        let reparsed: UploadConfig = serde_yaml::from_str(&rendered).unwrap();
+        reparsed.validate().unwrap();
+    }
+
     #[test]
     fn parses_minimal_config() {
         let yaml = r#"

@@ -7,7 +7,7 @@ use tokio::runtime;
 
 use args::{Args, Command};
 use config::examples::ExampleKind;
-use results::{BenchmarkResults, IndexPhase};
+use results::{BenchmarkResults, IndexPhase, RunConfig};
 
 mod args;
 mod client;
@@ -26,6 +26,31 @@ mod self_update;
 mod stats;
 mod upload;
 mod upsert;
+
+/// Echo what the run actually resolved to: the CLI knobs plus the parsed YAML,
+/// with every default materialized. A benchmark log is then self-describing —
+/// it records the configuration that ran, not the path of a generated file that
+/// no longer exists by the time anyone reads the log.
+fn print_effective_config<T: serde::Serialize>(run: &RunConfig, config: &T) {
+    println!("--- Effective configuration ---");
+    for (label, rendered) in [
+        ("run", serde_yaml::to_string(run)),
+        ("config", serde_yaml::to_string(config)),
+    ] {
+        match rendered {
+            // Indent the block so the whole section is one parseable YAML
+            // document that can be pasted straight back into a config file.
+            Ok(yaml) => {
+                println!("{label}:");
+                for line in yaml.lines() {
+                    println!("  {line}");
+                }
+            }
+            Err(err) => println!("{label}: <failed to render: {err}>"),
+        }
+    }
+    println!("--- End effective configuration ---");
+}
 
 /// Wait for the index and record how long it took.
 async fn run_wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<IndexPhase> {
@@ -52,6 +77,7 @@ async fn run_scroll(
     args.collection_name = config.collection.name.clone();
 
     let mut results = BenchmarkResults::new(&args, Some(resolved.origin));
+    print_effective_config(&results.config, &config);
     results.results.scroll = Some(query::scroll_with_config(&args, &config, stopped).await?);
     results.write_if_requested(&args)
 }
@@ -77,6 +103,7 @@ async fn run_search(
     }
 
     let mut results = BenchmarkResults::new(&args, Some(resolved.origin));
+    print_effective_config(&results.config, &config);
     results.results.search = Some(query::search_with_config(&args, &config, stopped).await?);
     results.write_if_requested(&args)
 }
@@ -107,6 +134,7 @@ async fn run_upload(
     }
 
     let mut results = BenchmarkResults::new(&args, Some(resolved.origin));
+    print_effective_config(&results.config, &config);
 
     if !args.skip_create && !args.skip_setup {
         collection::recreate_collection_from_config(&config, &args, stopped.clone()).await?;
