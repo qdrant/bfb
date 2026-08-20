@@ -162,6 +162,8 @@ impl DatasetReader {
             rows.push(QueryEntry {
                 vector: self.query_dense_vector(idx)?,
                 ground_truth: self.query_ground_truth(idx)?,
+                // Only the tar layout has a `conditions` field.
+                conditions: None,
             });
         }
         Ok(rows)
@@ -175,6 +177,7 @@ impl DatasetReader {
             rows.push(QueryEntry {
                 vector: self.query_sparse_vector(idx)?,
                 ground_truth: self.query_ground_truth(idx)?,
+                conditions: None,
             });
         }
         Ok(rows)

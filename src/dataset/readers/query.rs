@@ -8,6 +8,10 @@
 pub struct QueryEntry<V> {
     pub vector: V,
     pub ground_truth: Vec<u64>,
+    /// Raw `conditions` object the query was answered under, when the query set
+    /// carries one. Kept as JSON here and turned into a filter once at startup;
+    /// the ground truth only holds for a search that applies it.
+    pub conditions: Option<serde_json::Value>,
 }
 
 /// A sparse query vector as `(index, value)` pairs — the `V` of a sparse
