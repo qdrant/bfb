@@ -1,8 +1,9 @@
 //! `bfb self-update`: replace the running binary with a published GitHub release.
 //!
 //! Release assets are produced by `.github/workflows/release.yml` and named
-//! `bfb-<target>.tar.gz` (+ `.sha256`), where `<target>` is one of the
-//! [`SUPPORTED_TARGETS`]. The tarball holds a single `bfb` executable.
+//! `bfb-<target>` (+ `.sha256`), where `<target>` is one of the
+//! [`SUPPORTED_TARGETS`]. Each asset is the bare executable, so installing by
+//! hand is `curl -o` + `chmod +x`.
 //!
 //! The swap is a `rename(2)` of a fully written temp file over the current
 //! executable, so it is atomic and safe to do while this very process runs.
@@ -12,10 +13,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use flate2::read::GzDecoder;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tar::Archive;
 
 /// GitHub repository releases are fetched from.
 pub const REPO: &str = "qdrant/bfb";
@@ -81,7 +80,7 @@ pub fn run(args: &SelfUpdateArgs) -> Result<()> {
     }
 
     let target = current_target()?;
-    let asset_name = format!("bfb-{target}.tar.gz");
+    let asset_name = format!("bfb-{target}");
     let asset = release
         .assets
         .iter()
@@ -113,16 +112,14 @@ pub fn run(args: &SelfUpdateArgs) -> Result<()> {
         .with_context(|| format!("{} has no parent directory", exe.display()))?;
 
     println!("Downloading {}...", asset.browser_download_url);
-    let tarball = download(&asset.browser_download_url)?;
+    let binary = download(&asset.browser_download_url)?;
 
     if let Some(checksum_asset) = checksum_asset {
         let expected = download(&checksum_asset.browser_download_url)?;
-        verify_sha256(&tarball, &expected, &asset_name)?;
+        verify_sha256(&binary, &expected, &asset_name)?;
     } else {
         println!("Warning: release has no `{asset_name}.sha256`; skipping checksum verification");
     }
-
-    let binary = extract_binary(&tarball, &asset_name)?;
 
     // Write next to the target so the final rename stays on one filesystem, and
     // never truncate the running executable in place (that crashes the process).
@@ -230,29 +227,6 @@ fn verify_sha256(data: &[u8], expected: &[u8], asset_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Pull the single `bfb` executable out of a `.tar.gz` release asset.
-fn extract_binary(tarball: &[u8], asset_name: &str) -> Result<Vec<u8>> {
-    let mut archive = Archive::new(GzDecoder::new(tarball));
-    for entry in archive
-        .entries()
-        .with_context(|| format!("{asset_name} is not a valid tar.gz archive"))?
-    {
-        let mut entry =
-            entry.with_context(|| format!("failed to read an entry of {asset_name}"))?;
-        let path = entry.path()?.into_owned();
-        if path.file_name().is_some_and(|name| name == "bfb")
-            && entry.header().entry_type().is_file()
-        {
-            let mut binary = Vec::new();
-            entry
-                .read_to_end(&mut binary)
-                .with_context(|| format!("failed to read `bfb` from {asset_name}"))?;
-            return Ok(binary);
-        }
-    }
-    bail!("{asset_name} does not contain a `bfb` executable")
-}
-
 /// Write `binary` to a fresh, executable temp file inside `dir`.
 fn stage_binary(dir: &Path, binary: &[u8]) -> Result<PathBuf> {
     let staged = dir.join(format!(".bfb-update-{}", std::process::id()));
@@ -288,58 +262,20 @@ fn create_executable(path: &Path) -> Result<File> {
 mod tests {
     use super::*;
 
-    fn tarball_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
-        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
-            Vec::new(),
-            flate2::Compression::fast(),
-        ));
-        for (name, data) in entries {
-            let mut header = tar::Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o755);
-            header.set_cksum();
-            builder.append_data(&mut header, name, *data).unwrap();
-        }
-        builder.into_inner().unwrap().finish().unwrap()
-    }
-
-    #[test]
-    fn extracts_bfb_from_tarball() {
-        let tarball = tarball_with(&[("README.md", b"docs"), ("bfb", b"#!binary")]);
-        assert_eq!(extract_binary(&tarball, "x.tar.gz").unwrap(), b"#!binary");
-    }
-
-    #[test]
-    fn extracts_bfb_from_nested_dir() {
-        let tarball = tarball_with(&[("bfb-x86_64/bfb", b"nested")]);
-        assert_eq!(extract_binary(&tarball, "x.tar.gz").unwrap(), b"nested");
-    }
-
-    #[test]
-    fn rejects_tarball_without_binary() {
-        let tarball = tarball_with(&[("README.md", b"docs")]);
-        assert!(extract_binary(&tarball, "x.tar.gz").is_err());
-    }
-
     #[test]
     fn verifies_sha256sum_format() {
         let data = b"hello";
         let sum = format!("{:x}", Sha256::digest(data));
-        verify_sha256(
-            data,
-            format!("{sum}  bfb.tar.gz\n").as_bytes(),
-            "bfb.tar.gz",
-        )
-        .unwrap();
-        verify_sha256(data, sum.to_uppercase().as_bytes(), "bfb.tar.gz").unwrap();
-        assert!(verify_sha256(b"other", sum.as_bytes(), "bfb.tar.gz").is_err());
-        assert!(verify_sha256(data, b"", "bfb.tar.gz").is_err());
+        verify_sha256(data, format!("{sum}  bfb\n").as_bytes(), "bfb").unwrap();
+        verify_sha256(data, sum.to_uppercase().as_bytes(), "bfb").unwrap();
+        assert!(verify_sha256(b"other", sum.as_bytes(), "bfb").is_err());
+        assert!(verify_sha256(data, b"", "bfb").is_err());
     }
 
     #[test]
     fn parses_github_release_json() {
         let json = r#"{"tag_name":"v0.2.0","name":"x","assets":[
-            {"name":"bfb-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"https://e/a","size":1}
+            {"name":"bfb-x86_64-unknown-linux-musl","browser_download_url":"https://e/a","size":1}
         ]}"#;
         let release: Release = serde_json::from_str(json).unwrap();
         assert_eq!(release.tag_name, "v0.2.0");

@@ -9,45 +9,40 @@ Benchmarking tool for the [Qdrant](https://github.com/qdrant/qdrant) project
 Every [GitHub release](https://github.com/qdrant/bfb/releases) ships a
 single-file `bfb` binary for:
 
-| Platform              | Asset                                   |
-|-----------------------|-----------------------------------------|
-| Linux x86_64 (static) | `bfb-x86_64-unknown-linux-musl.tar.gz`  |
-| Linux aarch64 (static)| `bfb-aarch64-unknown-linux-musl.tar.gz` |
-| macOS Apple Silicon   | `bfb-aarch64-apple-darwin.tar.gz`       |
-| macOS Intel           | `bfb-x86_64-apple-darwin.tar.gz`        |
+| Platform              | Asset                            |
+|-----------------------|----------------------------------|
+| Linux x86_64 (static) | `bfb-x86_64-unknown-linux-musl`  |
+| Linux aarch64 (static)| `bfb-aarch64-unknown-linux-musl` |
+| macOS Apple Silicon   | `bfb-aarch64-apple-darwin`       |
+| macOS Intel           | `bfb-x86_64-apple-darwin`        |
 
-The Linux binaries are statically linked against musl, so they run on any
-distribution without extra dependencies. To install the latest release into
-`/usr/local/bin`:
+Each asset is the `bfb` executable itself. Download the one for your platform,
+put it somewhere on your `PATH` and make it executable:
 
 ```bash
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64)   TARGET=x86_64-unknown-linux-musl ;;
-  Linux-aarch64)  TARGET=aarch64-unknown-linux-musl ;;
-  Darwin-arm64)   TARGET=aarch64-apple-darwin ;;
-  Darwin-x86_64)  TARGET=x86_64-apple-darwin ;;
-  *) echo "unsupported platform: $(uname -s)-$(uname -m)"; exit 1 ;;
-esac
-curl -sSfL "https://github.com/qdrant/bfb/releases/latest/download/bfb-$TARGET.tar.gz" | tar -xz
-sudo install -m 755 bfb /usr/local/bin/bfb && rm bfb
+curl -sSfL -o ~/.local/bin/bfb https://github.com/qdrant/bfb/releases/latest/download/bfb-x86_64-unknown-linux-musl
+chmod +x ~/.local/bin/bfb
 bfb --version
 ```
 
-Or pick a specific version by replacing `latest/download` with
-`download/v<version>`. Each asset has a matching `.sha256` file.
+The Linux binaries are statically linked against musl, so they run on any
+distribution without extra dependencies. Pick a specific version by replacing
+`latest/download` with `download/v<version>`; each asset has a matching
+`.sha256` file.
 
 ### Upgrading
 
 An installed binary can upgrade itself to the latest release:
 
 ```bash
-bfb self-update           # install the latest release (use sudo if /usr/local/bin is not writable)
+bfb self-update           # install the latest release
 bfb self-update --check   # only report whether a newer release exists
 bfb self-update --tag v0.2.0   # install (or roll back to) a specific release
 ```
 
 It downloads the asset for the current platform, verifies its checksum and
-atomically replaces the running executable.
+atomically replaces the running executable (re-run with `sudo` if the binary
+sits somewhere you cannot write).
 
 ### Docker
 

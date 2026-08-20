@@ -8,7 +8,8 @@ name: Release
 # `workflow_dispatch` runs the same build without publishing (binaries are kept
 # as workflow artifacts), which is handy for checking the build matrix.
 #
-# Asset names (`bfb-<target>.tar.gz` + `.sha256`) are a contract with
+# Assets are the bare executables, named `bfb-<target>` (+ `.sha256`), so a
+# manual install is `curl -o` + `chmod +x`. The names are a contract with
 # `bfb self-update` (`src/self_update.rs`) and the README install snippet.
 
 on:
@@ -81,8 +82,8 @@ jobs:
 
       - name: Package
         run: |
-          asset="bfb-${{ matrix.target }}.tar.gz"
-          tar -C "target/${{ matrix.target }}/release" -czf "$asset" bfb
+          asset="bfb-${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/bfb" "$asset"
           shasum -a 256 "$asset" > "$asset.sha256"
           cat "$asset.sha256"
 
@@ -90,8 +91,8 @@ jobs:
         with:
           name: bfb-${{ matrix.target }}
           path: |
-            bfb-${{ matrix.target }}.tar.gz
-            bfb-${{ matrix.target }}.tar.gz.sha256
+            bfb-${{ matrix.target }}
+            bfb-${{ matrix.target }}.sha256
           if-no-files-found: error
 
   release:
