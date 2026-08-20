@@ -20,26 +20,24 @@
 
 collection:
   name: laion
-  on_disk_payload: true
 
   quantization:
-    type: binary
-    always_ram: true
+    type: turbo-1bit
+    memory: pinned
 
   hnsw:
-    m: 6
-    on_disk: false
+    memory: pinned
 
   optimizers:
     default_segment_number: 2
     # Bigger segments search faster, at the cost of slower indexing.
-    max_segment_size: 5000000
+    max_segment_size: 2000000
 
   vectors:
     - size: 512
       distance: cosine
       datatype: float16
-      on_disk: true
+      memory: cold
       source:
         type: dataset
         name: laion-img-emb-0
@@ -50,6 +48,7 @@ collection:
   # Whole-payload source: every column becomes a payload field. Fields not
   # listed under `fields` are still uploaded, just left unindexed.
   payload:
+    memory: cold
     source:
       type: dataset
       dataset:
@@ -59,7 +58,7 @@ collection:
         link: https://deploy.laion.ai/8f83b608504d46bb81708ec86e912220/embeddings/metadata/metadata_0.parquet
         # `exif` is the bulk of the metadata and is useless as a filter — the
         # reference `upload.py` drops it too.
-        exclude: [exif]
+        exclude: [ exif ]
         # `upload.py` does `df.fillna(0)`; drop this line to leave fields with
         # no value absent instead, which is usually what you want for filtering.
         fill_null: 0
@@ -68,3 +67,4 @@ collection:
     # Index-only declaration: the value comes from `payload.source` above.
     - name: similarity
       type: float
+      memory: cold
