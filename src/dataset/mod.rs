@@ -1,3 +1,4 @@
+mod conditions;
 mod config;
 mod download;
 #[cfg(test)]
@@ -10,6 +11,7 @@ mod registry;
 mod sources;
 mod upload;
 
+pub use conditions::parse as parse_query_conditions;
 pub use config::DatasetConfig;
 pub use download::{ensure_local_file, is_remote_url};
 pub use reader::DatasetReader;

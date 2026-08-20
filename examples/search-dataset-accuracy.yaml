@@ -13,6 +13,13 @@
 # returned point ids against the dataset's ground-truth nearest neighbors.
 # Recall is reported under "--- Precision ---" as `|found ∩ expected[:k]| / k`.
 #
+# If the query set carries per-query `conditions` (the ann-filtering-benchmark
+# datasets: laion-small-clip, arxiv-titles-*-filters, h-and-m-*-filters, the
+# random-*-filters family), its ground truth answers the FILTERED query, so bfb
+# applies each query's own conditions. A `filters:` block on the same request is
+# then ignored — the dataset defines the filter. bfb prints how many queries
+# carry conditions when it opens the query set.
+#
 # IMPORTANT: accuracy only lines up when the corpus was uploaded with the
 # default integer id scheme (point id == dataset row index), which is what
 # `bfb upload` does for `id: integer` collections.

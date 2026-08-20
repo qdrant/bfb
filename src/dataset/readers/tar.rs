@@ -110,6 +110,7 @@ impl TarReader {
             .map(|row| QueryEntry {
                 vector: row.query,
                 ground_truth: row.closest_ids,
+                conditions: row.conditions,
             })
             .collect())
     }
@@ -131,12 +132,16 @@ impl TarReader {
     }
 }
 
-/// The fields of a `tests.jsonl` row that a benchmark run needs. `conditions`
-/// and `closest_scores` are deliberately absent so serde skips them.
+/// The fields of a `tests.jsonl` row that a benchmark run needs.
+/// `closest_scores` is deliberately absent so serde skips it.
 #[derive(serde::Deserialize)]
 struct QueryRow {
     query: Vec<f32>,
     closest_ids: Vec<u64>,
+    /// The filter the ground truth was computed under. Absent in query sets
+    /// that predate it, `{}` in the `-no-filters` datasets.
+    #[serde(default)]
+    conditions: Option<Value>,
 }
 
 fn parse_f32_array(value: &Value) -> Option<Vec<f32>> {
