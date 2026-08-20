@@ -267,12 +267,32 @@ Query set + ground truth are auto-detected from the dataset files:
 | `format` | Query vectors | Ground truth |
 |----------|---------------|--------------|
 | `h5` (ann-benchmarks) | `test` dataset | `neighbors` dataset |
-| `tar` (ann-filtering-benchmark-datasets) | `tests.jsonl` `query` | `tests.jsonl` `closest_ids` |
+| `tar` (ann-filtering-benchmark-datasets) | `tests.jsonl` `query` | `tests.jsonl` `closest_ids`, under `tests.jsonl` `conditions` |
 | `sparse` | `queries.csr` | `results.gt` |
+
+**Filtered query sets.** A `tar` dataset may pair each query with the filter it
+was answered under:
+
+```json
+{"query": [..], "conditions": {"and": [{"similarity": {"range": {"gt": 0.34}}}]},
+ "closest_ids": [..]}
+```
+
+Those `closest_ids` are the ground truth *for the filtered query*, so bfb
+applies each query's own conditions — `and` as `must`, `or` as `should`, over
+`match` / `range` / `geo`, the dialect vector-db-benchmark defines. Searching
+such a set unfiltered scores against the answers to a different question: on
+`laion-small-clip`, whose 5000 queries are half conditioned, that reads as
+recall 0.63 instead of 0.99. bfb prints how many queries carry conditions when
+it opens the query set. A `filters:` block on the same request is ignored when
+the dataset supplies a filter; sets without conditions (`{}`, as in the
+`-no-filters` datasets) are unaffected.
 
 Accuracy only lines up when the corpus was uploaded with the default integer id
 scheme (point id == dataset row index), which is what `bfb upload` does for
-`id: integer` collections. See
+`id: integer` collections. The payload fields the conditions filter on must be
+uploaded and indexed — the upload config for a filtered dataset needs its
+`payload.source` and the matching `fields:` entries. See
 [`examples/search-dataset-accuracy.yaml`](examples/search-dataset-accuracy.yaml).
 
 ### `scroll` — run a scroll workload as its own phase
