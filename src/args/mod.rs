@@ -536,10 +536,20 @@ pub enum Command {
 
     /// Replace this binary with the latest GitHub release (or a chosen `--tag`).
     ///
-    /// Downloads the prebuilt `bfb-<target>.tar.gz` for this platform from
+    /// Downloads the prebuilt `bfb-<target>` binary for this platform from
     /// https://github.com/qdrant/bfb/releases, verifies its checksum, and
     /// atomically swaps it in place of the running executable.
     SelfUpdate(crate::self_update::SelfUpdateArgs),
+
+    /// Print a shell completion script to stdout.
+    ///
+    /// Redirect it to wherever your shell looks for completions; the README
+    /// has the one-liner for bash, zsh and fish.
+    Completions {
+        /// Shell to generate the completion script for
+        #[clap(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 /// `--file` or `--example` (exactly one required). Flattened into upload /

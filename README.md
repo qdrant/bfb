@@ -44,6 +44,26 @@ It downloads the asset for the current platform, verifies its checksum and
 atomically replaces the running executable (re-run with `sudo` if the binary
 sits somewhere you cannot write).
 
+### Shell completions
+
+`bfb completions <shell>` prints a completion script to stdout — redirect it to
+where your shell looks for one:
+
+```bash
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+bfb completions bash > ~/.local/share/bash-completion/completions/bfb
+
+# zsh (any directory on your $fpath works)
+mkdir -p ~/.zsh/completions && echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+bfb completions zsh > ~/.zsh/completions/_bfb
+
+# fish
+bfb completions fish > ~/.config/fish/completions/bfb.fish
+```
+
+Open a new shell to pick them up. `elvish` and `powershell` are supported too.
+
 ### Docker
 
 ```bash

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
-use clap::{CommandFactory, FromArgMatches};
+use clap::{CommandFactory, Parser};
 use tokio::runtime;
 
 use args::{Args, Command};
@@ -129,8 +129,15 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         Some(Command::Search(search_args)) => return run_search(args, search_args, stopped).await,
         Some(Command::Upload(upload_args)) => return run_upload(args, upload_args, stopped).await,
         Some(Command::Scroll(scroll_args)) => return run_scroll(args, scroll_args, stopped).await,
-        // `Schema` / `SelfUpdate` are handled before the runtime starts; `None` falls through.
-        Some(Command::Schema | Command::Examples(_) | Command::SelfUpdate(_)) | None => {}
+        // `Schema` / `SelfUpdate` / `Completions` are handled before the runtime
+        // starts; `None` falls through.
+        Some(
+            Command::Schema
+            | Command::Examples(_)
+            | Command::SelfUpdate(_)
+            | Command::Completions { .. },
+        )
+        | None => {}
     }
 
     if args.search_quality && args.search_exact {
@@ -162,39 +169,15 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
     results.write_if_requested(&args)
 }
 
-/// Parse command line arguments with shell completion installation support
-fn parse_args() -> Args {
-    // Create the command and add shell completion subcommand
-    let mut command = Args::command();
-    command = clap_autocomplete::add_subcommand(command);
-
-    // Hide the complete subcommand from help to keep main command clean
-    if let Some(complete_cmd) = command.find_subcommand_mut("complete") {
-        *complete_cmd = complete_cmd.clone().hide(true);
-    }
-
-    // Parse arguments
-    let matches = command.clone().get_matches();
-
-    // Check if the complete subcommand was used
-    if let Some(result) = clap_autocomplete::test_subcommand(&matches, command) {
-        if let Err(err) = result {
-            eprintln!("Insufficient permissions: {err}");
-            std::process::exit(1);
-        } else {
-            std::process::exit(0);
-        }
-    }
-
-    // Parse args normally for the main application logic
-    Args::from_arg_matches(&matches).unwrap()
-}
-
 fn main() {
-    let args = parse_args();
+    let args = Args::parse();
 
     // Commands that need no Qdrant connection / Tokio runtime.
     match &args.command {
+        Some(Command::Completions { shell }) => {
+            clap_complete::generate(*shell, &mut Args::command(), "bfb", &mut std::io::stdout());
+            return;
+        }
         Some(Command::Schema) => {
             config::schema::print_schema();
             return;
