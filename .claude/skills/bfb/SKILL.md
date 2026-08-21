@@ -31,8 +31,10 @@ copy as a template.
 | `bfb schema` | Print the annotated upload-config schema. Ground truth for upload YAML. |
 | `bfb [flags]` (no subcommand) | Legacy flag-driven pipeline: create + upload random/fbin data (+ `--search` / `--scroll`). To only search an existing collection: `bfb --skip-setup --search …`. |
 
-Integer flags accept suffixes `k/M/G/T/ki/Mi/Gi/Ti` and underscores:
-`-n 100k`, `--offset 1_000_000`.
+Integer flags accept suffixes `k/M/G/T/ki/Mi/Gi/Ti` and underscores. Prefer
+the short forms where supported: `-n 10k` over `-n 10000`, `--offset 1_000_000`
+over a bare digit string. CLI flags only — numbers inside YAML configs don't
+take suffixes.
 
 ## Runtime CLI flags (the "how")
 
@@ -57,8 +59,8 @@ Quantized search: bfb **always sends explicit** quantization search params:
 rescore = value of `--quantization-rescore`, **false when the flag is absent**;
 `--quantization-oversampling` only sent when given. So the default measures the
 pure-quantized path; pass `--quantization-rescore true` to measure rescoring.
-Campaign scripts still pass `--quantization-rescore false` explicitly so the
-run's meta records intent.
+Passing `false` explicitly anyway is good practice — the recorded command line
+then states the intent instead of relying on a default.
 
 Phases: `--skip-create` · `--create-if-missing` · `--skip-upload` ·
 `--skip-wait-index` · `--skip-setup` (implies all three) · `--wait-on-upsert` ·
@@ -273,9 +275,9 @@ Known-good datasets (all cosine):
 | laion-small-clip | tar | 512-d + payloads | — | `…/ann-filtered-benchmark/datasets/laion-small-clip.tgz` |
 | LAION-400M | npy + parquet, 410 parts | ~407M × 512 | — | see `examples/upload-laion-400m.yaml` |
 
-bfb ships no dataset catalog of its own — these rows are collected from the
-dataset `source:` blocks in `examples/*.yaml` and the repo-root `bench_*.yaml`
-configs, which are the places to copy working definitions from.
+bfb ships no dataset catalog of its own — working `source:` blocks to copy
+live in `examples/*.yaml`, and the full dataset catalog is vector-db-benchmark's
+`datasets.json` (linked from bfb's README).
 
 ### Sharded corpora (`parts:`) and streaming
 
@@ -390,47 +392,83 @@ sanity-check saturation with `qps × request_p50 ≈ -p`.
 
 ## Recipe: real-data benchmark end to end
 
+A complete, copyable pair for dbpedia with binary quantization — quantized set
+in RAM (`always_ram: true`), f32 originals on disk, rescore off at search time
+⇒ pure 1-bit scoring. `upload.yaml`:
+
+```yaml
+collection:
+  name: dbpedia-100k-bq
+  id: integer                 # point id = dataset row — required for recall
+  quantization:
+    type: binary
+    always_ram: true
+  vectors:
+    - size: 1536
+      distance: cosine
+      on_disk: true
+      source:
+        type: dataset
+        name: dbpedia-openai-100K-1536-angular
+        format: tar
+        path: dbpedia-openai-100K-1536-angular/dbpedia_openai_100K
+        link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/dbpedia_openai_100K.tgz
+```
+
+`search.yaml` — same dataset as the query source, so recall is measured:
+
+```yaml
+collection:
+  name: dbpedia-100k-bq
+requests:
+  - kind: dense
+    source:
+      type: dataset
+      name: dbpedia-openai-100K-1536-angular
+      format: tar
+      path: dbpedia-openai-100K-1536-angular/dbpedia_openai_100K
+      link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/dbpedia_openai_100K.tgz
+```
+
 ```bash
-# 0. Serve Qdrant (build under test) on 127.0.0.1:6334 — use the IP, not
+# 0. Serve the Qdrant build under test on 127.0.0.1:6334 — use the IP, not
 #    `localhost` (which may resolve to ::1).
-# 1. Datasets dir (registry-free!):
-export BFB_DATASETS_DIR=$PWD/bench_datasets
+# 1. Upload once — --create-if-missing so reruns never clobber the collection
+#    (the dataset downloads into ./datasets on first use):
+bfb upload --file upload.yaml --uri http://127.0.0.1:6334 \
+  --create-if-missing -b 128 -p 8 -t 8
 
-# 2. Upload once — id: integer, --create-if-missing so reruns never clobber:
-./target/release/bfb upload --file bench_dbpedia_bq_upload.yaml \
-  --uri http://127.0.0.1:6334 --create-if-missing -b 128 -p 8 -t 8
-
-# 3. Warmup rep (discard), then measured reps:
-./target/release/bfb search --file bench_dbpedia_bq.yaml --uri http://127.0.0.1:6334 \
-  -n 5000 -p 1 -t 1 --search-limit 10 --search-hnsw-ef 100 \
+# 2. Warmup rep (discard), then measured reps
+#    (-n = a multiple of dbpedia's 5,000-query set):
+bfb search --file search.yaml --uri http://127.0.0.1:6334 \
+  -n 5k -p 1 -t 1 --search-limit 10 --search-hnsw-ef 100 \
   --quantization-rescore false --json rep1.json
 ```
 
-The repo root has working upload/search YAML pairs to copy:
-`bench_dbpedia_bq*.yaml`, `bench_hnm_bq*.yaml`, `cohere_wiki_1m_*.yaml`
-(pattern: BQ `always_ram: true`, f32 originals `on_disk: true`, rescore off ⇒
-pure 1-bit scoring path).
+The tracked `examples/` configs show the same flow for other shapes:
+`upload-dataset-config.yaml` + `search-dataset-accuracy.yaml` (glove recall
+pair), `upload-laion-part.yaml` / `upload-laion-400m.yaml` (npy+parquet,
+sharded), `simple-hybrid.yaml` (dense+sparse).
 
 ## Recipe: A/B-compare two Qdrant builds
 
-Use `bench_dbpedia_ab.sh` (repo root) as the template — one invocation per
-side against whichever build currently serves 6334:
+Run one side at a time against whichever build currently serves 6334, restart
+the server with the other build, run the second side, then compare. A
+methodology that gives trustworthy deltas:
 
-```bash
-bash bench_dbpedia_ab.sh A          # while build A serves
-# restart server with build B
-bash bench_dbpedia_ab.sh B
-python3 bench_dbpedia_report.py     # compare
-```
-
-Its methodology, if reimplementing: cells = {light: limit 10 / ef 100, heavy:
-limit 100 / ef 512} × {single: `-p 1 -t 1`, contended: `-p 32 -t 12`}; one
-discarded warmup per cell, 3 reps single / 5 contended; `-n` a multiple of the
-query-set size; record server version+commit, binary path+md5, collection
-info (curl :6333) into a meta file per side; pull `median qps` and
-`server_time.avg/p50/p95` + `precision.avg` per rep from `--json`. Override
-via env: `CONFIG=`, `COLLECTION=`, `OUT_DIR=`, `EXTRA_ARGS=`, `N_*=`,
-`SKIP_WARMUP=1`.
+- Cells: {light: limit 10 / ef 100, heavy: limit 100 / ef 512} × {single:
+  `-p 1 -t 1`, contended: e.g. `-p 32`, with `-t` sized to the machine's
+  cores}.
+- One discarded warmup rep per cell, then several measured reps (more under
+  contention — e.g. 3 single / 5 contended); `-n` a multiple of the query-set
+  size in every rep.
+- Record per side, before running: server version+commit and the server
+  binary's path+md5 (the side label proves nothing), plus the collection info
+  from the REST port (`curl :6333/collections/<name>`), so sides can't be
+  mixed up after the fact.
+- Pull per rep from `--json`: median `qps` and `server_time.avg/p50/p95` +
+  `precision.avg`. Compare sides on `server_time` (always) and qps (only where
+  the saturation check above passes); recall must be identical across sides.
 
 ## Common mistakes
 
@@ -445,7 +483,6 @@ via env: `CONFIG=`, `COLLECTION=`, `OUT_DIR=`, `EXTRA_ARGS=`, `N_*=`,
 | `match_prefix` filter fails | Keyword index must be created with `prefix: true`. |
 | `idf_corpus` has no effect | Sparse vector needs `modifier: idf`. |
 | Assuming rescore is on by default | bfb sends rescore=false unless `--quantization-rescore true`. |
-| Comparing contended qps on old dataset-query runs | Pre-2b824ba runs are client-capped (~5650 qps); compare server_time. |
 | `-n` not a multiple of the query-set size | Reps see different query mixes; recall not comparable. |
 | `--uri http://localhost:6334` | May resolve to ::1; use `http://127.0.0.1:6334`. |
 | Judging recall at limit > GT depth | Capped by construction (dbpedia & H&M GT@10 ⇒ ≤0.10 at limit 100). |
