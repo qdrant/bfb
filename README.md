@@ -116,11 +116,12 @@ inline dataset definitions (same fields as
 | `tar` | `.tgz` of `vectors.npy` + optional `payloads.jsonl` / `tests.jsonl` |
 | `sparse` | CSR matrices (`data.csr`, optional `queries.csr` / `results.gt`) |
 | `npy` | One 2-D float `.npy` — dense vectors only |
+| `multivector` | Directory of `vectors.npy` (flat sub-vectors) + `offsets.npy` (row boundaries per point). Late-interaction, ColBERT-style multivectors only |
 | `parquet` | One parquet file — payload rows only |
 
 The first three are *bundles*: vectors, payloads, and queries all come out of a
-single artifact. `npy` and `parquet` are *components*, so a config pairs them —
-one source per slot, row *i* of each landing on point *i*:
+single artifact. `npy`, `multivector`, and `parquet` are *components*, so a
+config pairs them — one source per slot, row *i* of each landing on point *i*:
 
 ```yaml
 collection:
@@ -137,6 +138,32 @@ Parquet sources accept three extra keys: `columns` (keep only these), `exclude`
 (drop these), and `fill_null` (a value substituted for nulls and for NaN/±inf
 floats, which have no JSON form — by default such fields are simply absent).
 See [`examples/upload-laion-part.yaml`](examples/upload-laion-part.yaml).
+
+#### Multivector (ColBERT-style) datasets
+
+A `multivector` source loads real per-point sub-vectors  (e.g. one embedding
+per token) from a directory of two files: `vectors.npy`, a flat 2-D float
+array with every sub-vector from every point concatenated together, and
+`offsets.npy`, a 1-D int array (`int32`/`int64`) of `num_points + 1` row
+boundaries into it. Point `i`'s sub-vectors are
+`vectors[offsets[i]:offsets[i+1]]`. The dense vector's `multivector:` block is
+still required (for the comparator), but its `count` is ignored (arity comes
+from `offsets.npy`), so points may have differing numbers of sub-vectors:
+
+```yaml
+collection:
+  vectors:
+    - name: colbert
+      size: 128
+      multivector:
+        comparator: max_sim
+        count: 1                 # ignored for this source
+      source:
+        type: dataset
+        name: my-colbert-corpus
+        format: multivector
+        path: my-colbert-corpus  # directory containing vectors.npy + offsets.npy
+```
 
 #### Sharded datasets
 

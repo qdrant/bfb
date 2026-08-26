@@ -103,6 +103,10 @@ collection:
       #                          #   tar     .tgz of vectors.npy + payloads.jsonl + tests.jsonl
       #                          #   sparse  CSR matrices
       #                          #   npy     one 2-D float .npy — dense vectors only
+      #                          #   multivector  directory of vectors.npy (flat sub-vectors) +
+      #                          #     offsets.npy (row boundaries per point) — ColBERT-style
+      #                          #     multivectors; requires `multivector:` above (`count` is
+      #                          #     ignored — arity comes from `offsets.npy`)
       #                          #   parquet one parquet file — payload rows only
       #   path: glove-25-angular/glove-25-angular.hdf5
       #   link: http://ann-benchmarks.com/glove-25-angular.hdf5
@@ -126,6 +130,13 @@ collection:
       #                        #   moves past it, and prefetches the next one, so a
       #                        #   corpus larger than the disk can still be streamed.
       #                        #   Only parts bfb downloaded are ever deleted.
+      # A ColBERT-style multivector dataset (`multivector:` above must be set):
+      # source:
+      #   type: dataset
+      #   name: colbert-corpus
+      #   format: multivector
+      #   path: colbert-corpus         # directory containing vectors.npy + offsets.npy
+      #   link: https://example.com/colbert-corpus.tgz
 
   # Sparse vectors (optional). Names must be unique across all vectors.
   sparse_vectors:
