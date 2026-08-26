@@ -102,16 +102,20 @@ impl MmapMatrix {
     fn row_f32(&self, idx: usize, name: &str) -> Result<Vec<f32>> {
         Ok(self
             .row_bytes(idx, name)?
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
             .collect())
     }
 
     fn row_i64(&self, idx: usize, name: &str) -> Result<Vec<i64>> {
         Ok(self
             .row_bytes(idx, name)?
-            .chunks_exact(8)
-            .map(|b| i64::from_le_bytes(b.try_into().unwrap()))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|b| i64::from_le_bytes(*b))
             .collect())
     }
 }

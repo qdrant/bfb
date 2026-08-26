@@ -85,16 +85,22 @@ impl NpyMatrix {
         let bytes = &self.mmap[start..start + row_bytes];
         Ok(match self.layout.dtype {
             Dtype::F16 => bytes
-                .chunks_exact(2)
-                .map(|b| f16::from_le_bytes([b[0], b[1]]).to_f32())
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| f16::from_le_bytes(*b).to_f32())
                 .collect(),
             Dtype::F32 => bytes
-                .chunks_exact(4)
-                .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
                 .collect(),
             Dtype::F64 => bytes
-                .chunks_exact(8)
-                .map(|b| f64::from_le_bytes(b.try_into().unwrap()) as f32)
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|b| f64::from_le_bytes(*b) as f32)
                 .collect(),
         })
     }
