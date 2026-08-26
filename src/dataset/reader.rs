@@ -7,7 +7,8 @@ use super::config::{DatasetConfig, DatasetKind};
 use super::download::ensure_downloaded;
 use super::parts::PartitionedReader;
 use super::readers::{
-    H5Reader, NpyReader, ParquetReader, QueryEntry, SparseReader, SparseVector, TarReader,
+    H5Reader, MultivectorReader, NpyReader, ParquetReader, QueryEntry, SparseReader, SparseVector,
+    TarReader,
 };
 use super::registry::load_registry;
 
@@ -17,6 +18,7 @@ enum DatasetReaderInner {
     Sparse(SparseReader),
     Npy(NpyReader),
     Parquet(ParquetReader),
+    Multivector(MultivectorReader),
     /// A `parts:` family read as one row space; the part format is `npy` or
     /// `parquet`, so it answers the same accessors as those two.
     Partitioned(PartitionedReader),
@@ -74,6 +76,11 @@ impl DatasetReader {
                 let n = reader.num_points();
                 (DatasetReaderInner::Parquet(reader), n)
             }
+            DatasetKind::Multivector => {
+                let reader = MultivectorReader::open(&local_path)?;
+                let n = reader.num_points();
+                (DatasetReaderInner::Multivector(reader), n)
+            }
         };
         Ok(DatasetReader { inner, num_points })
     }
@@ -84,7 +91,9 @@ impl DatasetReader {
             DatasetReaderInner::Tar(r) => r.vector_at(idx),
             DatasetReaderInner::Npy(r) => r.vector_at(idx),
             DatasetReaderInner::Partitioned(r) => r.vector_at(idx),
-            DatasetReaderInner::Sparse(_) | DatasetReaderInner::Parquet(_) => {
+            DatasetReaderInner::Sparse(_)
+            | DatasetReaderInner::Parquet(_)
+            | DatasetReaderInner::Multivector(_) => {
                 bail!("dataset does not contain dense vectors")
             }
         }
@@ -94,6 +103,14 @@ impl DatasetReader {
         match &self.inner {
             DatasetReaderInner::Sparse(r) => r.vector_at(idx),
             _ => bail!("dataset does not contain sparse vectors"),
+        }
+    }
+
+    /// A point's sub-vectors from a `multivector` dataset (ColBERT-style).
+    pub fn multi_dense_vector(&self, idx: usize) -> Result<Vec<Vec<f32>>> {
+        match &self.inner {
+            DatasetReaderInner::Multivector(r) => r.vector_at(idx),
+            _ => bail!("dataset does not contain multivectors"),
         }
     }
 
@@ -125,7 +142,8 @@ impl DatasetReader {
             // separate file, declared as its own source.
             DatasetReaderInner::Npy(_)
             | DatasetReaderInner::Parquet(_)
-            | DatasetReaderInner::Partitioned(_) => 0,
+            | DatasetReaderInner::Partitioned(_)
+            | DatasetReaderInner::Multivector(_) => 0,
         }
     }
 
@@ -137,7 +155,8 @@ impl DatasetReader {
             DatasetReaderInner::Sparse(_) => bail!("sparse dataset has no dense queries"),
             DatasetReaderInner::Npy(_)
             | DatasetReaderInner::Parquet(_)
-            | DatasetReaderInner::Partitioned(_) => bail!("dataset has no query set"),
+            | DatasetReaderInner::Partitioned(_)
+            | DatasetReaderInner::Multivector(_) => bail!("dataset has no query set"),
         }
     }
 
@@ -191,7 +210,8 @@ impl DatasetReader {
             DatasetReaderInner::Sparse(r) => r.query_ground_truth(idx),
             DatasetReaderInner::Npy(_)
             | DatasetReaderInner::Parquet(_)
-            | DatasetReaderInner::Partitioned(_) => bail!("dataset has no ground truth"),
+            | DatasetReaderInner::Partitioned(_)
+            | DatasetReaderInner::Multivector(_) => bail!("dataset has no ground truth"),
         }
     }
 }

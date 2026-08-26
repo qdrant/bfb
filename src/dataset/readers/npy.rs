@@ -132,6 +132,35 @@ impl NpyReader {
 /// — which is what makes remote row counts a single ranged request rather than
 /// a download.
 pub fn parse_npy_header(buf: &[u8]) -> Result<NpyLayout> {
+    let (header, header_end) = parse_npy_header_str(buf)?;
+
+    let descr = extract_quoted(header, "descr").context(".npy header missing 'descr'")?;
+    let dtype = match descr.as_str() {
+        "<f2" | "|f2" => Dtype::F16,
+        "<f4" | "|f4" => Dtype::F32,
+        "<f8" | "|f8" => Dtype::F64,
+        other => bail!("unsupported .npy dtype {other:?} (expected float16/32/64)"),
+    };
+
+    if header.contains("'fortran_order': True") || header.contains("\"fortran_order\": true") {
+        bail!(".npy array is Fortran-ordered; expected C order");
+    }
+
+    let (num_points, dim) = extract_shape(header)?;
+    Ok(NpyLayout {
+        dtype,
+        num_points,
+        dim,
+        data_offset: header_end,
+    })
+}
+
+/// Parse the leading `.npy` magic/header framing, returning the header dict
+/// string and the byte offset where the array data starts. Shared by
+/// [`parse_npy_header`] (2-D float arrays) and the `offsets.npy` reader for
+/// multivector datasets (1-D int arrays), which parse the returned dict
+/// differently.
+pub(crate) fn parse_npy_header_str(buf: &[u8]) -> Result<(&str, usize)> {
     if buf.len() < 10 || &buf[0..6] != b"\x93NUMPY" {
         bail!("not a .npy file (bad magic)");
     }
@@ -160,30 +189,11 @@ pub fn parse_npy_header(buf: &[u8]) -> Result<NpyLayout> {
     }
     let header = std::str::from_utf8(&buf[header_start..header_end])
         .context(".npy header is not valid UTF-8")?;
-
-    let descr = extract_quoted(header, "descr").context(".npy header missing 'descr'")?;
-    let dtype = match descr.as_str() {
-        "<f2" | "|f2" => Dtype::F16,
-        "<f4" | "|f4" => Dtype::F32,
-        "<f8" | "|f8" => Dtype::F64,
-        other => bail!("unsupported .npy dtype {other:?} (expected float16/32/64)"),
-    };
-
-    if header.contains("'fortran_order': True") || header.contains("\"fortran_order\": true") {
-        bail!(".npy array is Fortran-ordered; expected C order");
-    }
-
-    let (num_points, dim) = extract_shape(header)?;
-    Ok(NpyLayout {
-        dtype,
-        num_points,
-        dim,
-        data_offset: header_end,
-    })
+    Ok((header, header_end))
 }
 
 /// Extract a single-quoted string value for `key` from a `.npy` header dict.
-fn extract_quoted(header: &str, key: &str) -> Option<String> {
+pub(crate) fn extract_quoted(header: &str, key: &str) -> Option<String> {
     let after_key = &header[header.find(&format!("'{key}'"))?..];
     let after_colon = &after_key[after_key.find(':')? + 1..];
     let bytes = after_colon.as_bytes();

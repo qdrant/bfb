@@ -113,6 +113,16 @@ impl UploadDatasetSources {
         )
     }
 
+    /// A point's sub-vectors from a `multivector` dataset (ColBERT-style).
+    pub fn multi_dense_vector(&self, slot: usize, idx: u64) -> Option<Vec<Vec<f32>>> {
+        let reader = self.vector.get(slot)?.as_ref()?;
+        Some(
+            reader
+                .multi_dense_vector(idx as usize)
+                .unwrap_or_else(|e| panic!("failed to read multivector at {idx}: {e}")),
+        )
+    }
+
     pub fn payload_value(&self, slot: usize, idx: u64) -> Option<Value> {
         let (reader, field) = self.payload.get(slot)?.as_ref()?;
         let value = reader
