@@ -166,6 +166,11 @@ impl ConfigGenerator {
     fn gen_dense(&self, i: usize, vc: &VectorConfig, idx: u64, rng: &mut impl Rng) -> Vector {
         let reader = &self.readers[i];
         if let Some(mv) = &vc.multivector {
+            if let VectorSource::Dataset { .. } = &vc.source
+                && let Some(multi) = self.datasets.multi_dense_vector(i, idx)
+            {
+                return Vector::new_multi(multi);
+            }
             let multi: Vec<_> = (0..mv.count)
                 .map(|_| self.gen_one_vector(vc, reader, i, idx, rng))
                 .collect();
@@ -579,6 +584,80 @@ collection:
             }
             _ => panic!("expected multidense vector"),
         }
+    }
+
+    /// A `format: multivector` dataset source must read each point's real,
+    /// ragged sub-vectors from `vectors.npy`/`offsets.npy`, not repeat one row
+    /// `multivector.count` times.
+    #[test]
+    fn reads_multivectors_from_a_dataset() {
+        use crate::dataset::fixtures::make_ramp_npy;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mv_dir = dir.path().join("colbert");
+        std::fs::create_dir(&mv_dir).unwrap();
+        // 5 sub-vectors total, dim 4: point 0 -> rows [0,2), point 1 -> [2,5).
+        std::fs::write(mv_dir.join("vectors.npy"), make_ramp_npy(0, 5, 4)).unwrap();
+        std::fs::write(mv_dir.join("offsets.npy"), make_offsets_npy(&[0i64, 2, 5])).unwrap();
+
+        let config: UploadConfig = serde_yaml::from_str(
+            "
+collection:
+  name: t
+  vectors:
+    - name: m
+      size: 4
+      multivector: { count: 1 }
+      source:
+        type: dataset
+        name: colbert
+        format: multivector
+        path: colbert
+",
+        )
+        .unwrap();
+        config.validate().unwrap();
+
+        let generator = ConfigGenerator::new_with_datasets_dir(&config, dir.path()).unwrap();
+
+        let point0 = generator.make_point(0);
+        match named(&point0)["m"].vector.as_ref().unwrap() {
+            qdrant_client::qdrant::vector::Vector::MultiDense(m) => {
+                assert_eq!(m.vectors.len(), 2, "point 0 has 2 sub-vectors, not `count`");
+                assert_eq!(m.vectors[0].data, vec![0.0, 1.0, 2.0, 3.0]);
+                assert_eq!(m.vectors[1].data, vec![4.0, 5.0, 6.0, 7.0]);
+            }
+            _ => panic!("expected multidense vector"),
+        }
+
+        let point1 = generator.make_point(1);
+        match named(&point1)["m"].vector.as_ref().unwrap() {
+            qdrant_client::qdrant::vector::Vector::MultiDense(m) => {
+                assert_eq!(m.vectors.len(), 3, "point 1 has 3 sub-vectors");
+            }
+            _ => panic!("expected multidense vector"),
+        }
+    }
+
+    fn make_offsets_npy(offsets: &[i64]) -> Vec<u8> {
+        let mut header = format!(
+            "{{'descr': '<i8', 'fortran_order': False, 'shape': ({},), }}",
+            offsets.len()
+        );
+        while (10 + header.len() + 1) % 64 != 0 {
+            header.push(' ');
+        }
+        header.push('\n');
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"\x93NUMPY");
+        buf.push(1);
+        buf.push(0);
+        buf.extend_from_slice(&(header.len() as u16).to_le_bytes());
+        buf.extend_from_slice(header.as_bytes());
+        for &o in offsets {
+            buf.extend_from_slice(&o.to_le_bytes());
+        }
+        buf
     }
 
     #[test]

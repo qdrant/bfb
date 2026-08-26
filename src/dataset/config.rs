@@ -169,7 +169,7 @@ impl ResolvedDatasetConfig {
 }
 
 /// Formats accepted by `format:`, for error messages.
-const KINDS: &str = "h5, tar, sparse, npy, parquet";
+const KINDS: &str = "h5, tar, sparse, npy, parquet, multivector";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -181,6 +181,9 @@ pub enum DatasetKind {
     Npy,
     /// A parquet file of payload rows: no vectors.
     Parquet,
+    /// A directory of `vectors.npy` (flat sub-vectors) + `offsets.npy` (row
+    /// boundaries per point): ColBERT-style multivectors, no payloads.
+    Multivector,
 }
 
 impl DatasetKind {
