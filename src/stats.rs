@@ -260,14 +260,24 @@ async fn process_with_rps<P: Processor + Sync>(
                 let future = processor.make_request(req_id, args, progress_bar);
                 in_flight.push(future);
             }
-            // Process completed requests
-            Some(Err(err)) = in_flight.next(), if !in_flight.is_empty() => {
-                if args.ignore_errors {
-                    progress_bar.println(format!("Error: {err}"));
-                } else if first_error.is_none() {
-                    first_error = Some(err);
-                    // Stop sending new requests on error
-                    break;
+            // Process completed requests.
+            //
+            // Bind the result here — do not match on `Some(Err(err))`.
+            // `select!` disables a branch whose pattern fails, so a successful
+            // request would switch this branch off and leave the loop draining
+            // `in_flight` at the rate limiter's cadence instead of as fast as
+            // completions arrive. Each request times itself, so a
+            // woken-but-unpolled future charges the wait for its turn to the
+            // request and inflates the reported latency.
+            res = in_flight.next(), if !in_flight.is_empty() => {
+                if let Some(Err(err)) = res {
+                    if args.ignore_errors {
+                        progress_bar.println(format!("Error: {err}"));
+                    } else if first_error.is_none() {
+                        first_error = Some(err);
+                        // Stop sending new requests on error
+                        break;
+                    }
                 }
             }
             else => {
