@@ -9,6 +9,7 @@ src/
 ├── collection/      # collection (re)creation: from CLI flags / from YAML config
 ├── generators/      # data generation: points (legacy & config), queries, random primitives
 ├── search/          # search benchmarking processors (flag-driven & config-driven)
+├── serverless/      # multi-collection mode for Qdrant Serverless (upload/clear/query)
 ├── upload.rs        # upload pipeline (parallelism, batching, progress)
 ├── upsert.rs        # upsert request execution + timing
 ├── scroll.rs        # scroll benchmarking processor

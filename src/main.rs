@@ -23,6 +23,7 @@ mod save_jsonl;
 mod scroll;
 mod search;
 mod self_update;
+mod serverless;
 mod stats;
 mod upload;
 mod upsert;
@@ -129,6 +130,9 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         Some(Command::Search(search_args)) => return run_search(args, search_args, stopped).await,
         Some(Command::Upload(upload_args)) => return run_upload(args, upload_args, stopped).await,
         Some(Command::Scroll(scroll_args)) => return run_scroll(args, scroll_args, stopped).await,
+        Some(Command::Serverless(serverless_args)) => {
+            return serverless::run(args, serverless_args, stopped).await;
+        }
         // `Schema` / `SelfUpdate` / `Completions` are handled before the runtime
         // starts; `None` falls through.
         Some(
