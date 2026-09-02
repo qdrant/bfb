@@ -371,8 +371,10 @@ you prefer flat CLI flags over a YAML file.
 Serverless uses a **collection per tenant**, so the interesting workload is
 traffic spread across many collections rather than one shared collection with
 tenant payload. `bfb serverless` talks to the space through the
-[`QdrantServerless`](https://github.com/qdrant/rust-client) client (API key via
-`QDRANT_API_KEY`, URI defaults to port 443).
+[`QdrantServerless`](https://github.com/qdrant/rust-client) client. It takes
+the same connection flags as the rest of bfb (`--uri`, `--connections`,
+`--timeout`, API key via `QDRANT_API_KEY`); a `--uri` without an explicit port
+defaults to 443.
 
 ```bash
 # Upload 10M points across 100 collections (created lazily on first upsert)
@@ -382,15 +384,21 @@ bfb serverless upload \
   --collections-count 100 \
   --distribution uniform \
   --total-points 10M \
-  --config-file examples/serverless-upload.yaml \
+  --example serverless-upload \
   -b 64 -p 8
 
-# Query existing collections; vector shape is inferred from collection config
+# Query existing collections; query shape is derived from a collection's config
 bfb serverless query \
   --uri https://serverless.example.cloud.qdrant.io \
   --collection-prefix benchmark- \
   --distribution zipf \
-  -n 10k -p 8
+  -n 10k --rps 200 --json results.json
+
+# Same, but with a search YAML (filters, sparse queries, dataset query sets …)
+bfb serverless query \
+  --uri https://serverless.example.cloud.qdrant.io \
+  --collection-prefix benchmark- \
+  --file search.yaml -n 10k -p 8
 
 # Tear down everything with that prefix
 bfb serverless clear \
@@ -401,15 +409,28 @@ bfb serverless clear \
 | Flag | Meaning |
 |------|---------|
 | `--collection-prefix` | Shared name prefix (`benchmark-` → `benchmark-0` … `benchmark-99`) |
-| `--collections-count` | How many collection slots to spread upload across |
+| `--collections-count` | Upload only: how many collection slots to spread points across |
 | `--distribution` | `uniform` or `zipf` — how points/queries are routed across slots |
 | `--total-points` | Upload only: total points across all collections (falls back to `-n`) |
-| `--config-file` / `--file` | Upload: YAML collection shape (same schema as `bfb upload --file`) |
+| `--file` / `--example` | Upload: collection shape (`bfb upload` schema, required). Query: request shape (`bfb search` schema, optional) |
+
+The run itself is controlled by the usual global flags: `-p` / `--rps` /
+`--throttle`, `-b`, `--search-batch-size`, `--search-limit`, `--retries`,
+`--ignore-errors`, `--jsonl-updates` / `--jsonl-searches` / `--jsonl-rps`, and
+`--json` for the unified results document.
 
 Collections are **not** created up front. On first upsert to a slot, bfb creates
 it from the upload YAML (only the tenant-facing subset: dense/sparse vectors and
-payload indexes — HNSW/quantization/on-disk knobs are ignored). A registry
-prints how many collections preexisting / created / queryable after the run.
+payload indexes — HNSW/quantization/on-disk knobs are ignored and the precision
+tier is left at the service default). A slot that already exists is reused
+after checking its vectors match the YAML. Point ids are contiguous across
+collections (starting at `--offset`), so with a dataset source every
+collection receives a different slice of the data. A registry prints how many
+collections were preexisting / created / used after the run.
+
+`query` only targets collections that hold points. Without a search YAML it
+issues random dense and sparse queries matching the vectors it finds in the
+first collection's config.
 
 ### `schema` — print the upload-config file schema
 

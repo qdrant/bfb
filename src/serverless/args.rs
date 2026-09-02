@@ -3,6 +3,7 @@
 use clap::{Args as ClapArgs, Subcommand, ValueEnum};
 
 use super::distribution::Distribution;
+use crate::args::ConfigArgs;
 
 /// `bfb serverless` — multi-collection benchmarks against Qdrant Serverless.
 #[derive(ClapArgs, Debug, Clone)]
@@ -42,10 +43,10 @@ pub struct ServerlessUploadArgs {
     #[clap(long, value_parser = crate::args::parse_number)]
     pub total_points: Option<usize>,
 
-    /// Path to a YAML upload-shape config (`bfb upload --file` schema).
-    /// Alias of `--file` for the Notion CLI wording.
-    #[clap(long = "config-file", visible_alias = "file", value_name = "PATH")]
-    pub config_file: String,
+    /// Upload-shape YAML: `--file <path>` or `--example <name>` (same schema
+    /// as `bfb upload`).
+    #[clap(flatten)]
+    pub config: ConfigArgs,
 }
 
 #[derive(ClapArgs, Debug, Clone)]
@@ -65,10 +66,30 @@ pub struct ServerlessQueryArgs {
     #[clap(long, value_enum, default_value_t = DistributionArg::Uniform)]
     pub distribution: DistributionArg,
 
-    /// Optional YAML search-shape config. When omitted, vector shape is read
-    /// from an existing collection's serverless config.
-    #[clap(long = "config-file", visible_alias = "file", value_name = "PATH")]
-    pub config_file: Option<String>,
+    /// Optional search-shape YAML (same schema as `bfb search`). When omitted,
+    /// one random dense or sparse query template is derived from a matching
+    /// collection's config.
+    #[clap(flatten)]
+    pub config: OptionalConfigArgs,
+}
+
+/// `--file` or `--example`, both optional (at most one).
+#[derive(ClapArgs, Debug, Clone)]
+#[group(multiple = false)]
+pub struct OptionalConfigArgs {
+    /// Path to a YAML config file
+    #[clap(long)]
+    pub file: Option<String>,
+
+    /// Built-in example name (`bfb examples` lists them)
+    #[clap(long, value_name = "NAME")]
+    pub example: Option<String>,
+}
+
+impl OptionalConfigArgs {
+    pub fn is_some(&self) -> bool {
+        self.file.is_some() || self.example.is_some()
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]

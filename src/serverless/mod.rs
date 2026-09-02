@@ -2,12 +2,12 @@
 //!
 //! Unlike the regular single-collection workflow, serverless mode spreads work
 //! across a *range* of collections (one per tenant). Collections are created
-//! lazily on first upsert; the registry tracks which existed before the run,
-//! which were created during upload, and which are queryable afterwards.
+//! lazily on first upsert; the registry tracks which existed before the run
+//! and which were created during upload.
 //!
 //! ```text
 //! bfb serverless upload --collection-prefix benchmark- --collections-count 100 \
-//!     --distribution uniform --total-points 10M --config-file config.yaml
+//!     --distribution uniform --total-points 10M --example serverless-upload
 //! bfb serverless clear  --collection-prefix benchmark-
 //! bfb serverless query  --collection-prefix benchmark- --distribution zipf -n 10k
 //! ```

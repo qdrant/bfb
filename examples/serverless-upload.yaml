@@ -6,11 +6,11 @@
 #     --collections-count 100 \
 #     --distribution uniform \
 #     --total-points 1M \
-#     --config-file examples/serverless-upload.yaml
+#     --example serverless-upload
 #
 # Only the tenant-facing subset is sent to serverless (dense/sparse vectors +
-# payload indexes). HNSW / quantization / on-disk knobs below are ignored by
-# the converter — keep them if you also reuse this file with `bfb upload`.
+# payload indexes). HNSW / quantization / on-disk knobs are ignored by the
+# converter — keep them if you also reuse a file with `bfb upload`.
 
 collection:
   vectors:

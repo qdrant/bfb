@@ -3,13 +3,17 @@
 use anyhow::Result;
 
 use super::args::ServerlessClearArgs;
-use super::client;
+use super::client::single_client;
 use super::collections::list_matching;
 use crate::args::Args;
 
 pub async fn run(args: &Args, clear: ServerlessClearArgs) -> Result<()> {
-    let client = client::random_client(args)?;
-    let names = list_matching(&client, &clear.collection_prefix).await?;
+    let client = single_client(args)?;
+    let names: Vec<String> = list_matching(&client, &clear.collection_prefix)
+        .await?
+        .into_iter()
+        .map(|c| c.collection_name)
+        .collect();
 
     if names.is_empty() {
         println!(

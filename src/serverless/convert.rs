@@ -2,7 +2,10 @@
 //!
 //! Serverless only accepts the tenant-facing shape (dense/sparse vectors +
 //! payload indexes). Storage knobs from the upload YAML (HNSW, quantization,
-//! on-disk placement, …) are ignored — the serverless manager decides those.
+//! on-disk placement, datatype, …) are ignored — the serverless manager
+//! decides those. The serverless `precision_tier` is deliberately left unset
+//! (service default): there is no faithful mapping from BFB's quantization /
+//! datatype settings onto the tiers.
 
 use anyhow::{Result, bail};
 use qdrant_client::serverless::{
