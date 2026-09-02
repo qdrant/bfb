@@ -1472,11 +1472,10 @@ dependencies = [
 [[package]]
 name = "qdrant-client"
 version = "1.16.1-dev"
-source = "git+https://github.com/qdrant/rust-client?branch=dev#738227709dab2a6473f3d60cc845bf2313f9dfea"
+source = "git+https://github.com/qdrant/rust-client?branch=dev#b6bacf7cdc50dc0a64ed6ff7e6d159bc186e903a"
 dependencies = [
  "anyhow",
  "derive_builder",
- "futures",
  "parking_lot",
  "prost",
  "prost-types",
@@ -1881,7 +1880,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.2",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

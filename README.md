@@ -366,6 +366,51 @@ and search configs. The CLI still controls *how* the benchmark runs (`-n`, `-p`,
 The flag-driven path (`bfb --scroll --keywords 100 …`) is still available when
 you prefer flat CLI flags over a YAML file.
 
+### `serverless` — multi-collection benchmarks against Qdrant Serverless
+
+Serverless uses a **collection per tenant**, so the interesting workload is
+traffic spread across many collections rather than one shared collection with
+tenant payload. `bfb serverless` talks to the space through the
+[`QdrantServerless`](https://github.com/qdrant/rust-client) client (API key via
+`QDRANT_API_KEY`, URI defaults to port 443).
+
+```bash
+# Upload 10M points across 100 collections (created lazily on first upsert)
+bfb serverless upload \
+  --uri https://serverless.example.cloud.qdrant.io \
+  --collection-prefix benchmark- \
+  --collections-count 100 \
+  --distribution uniform \
+  --total-points 10M \
+  --config-file examples/serverless-upload.yaml \
+  -b 64 -p 8
+
+# Query existing collections; vector shape is inferred from collection config
+bfb serverless query \
+  --uri https://serverless.example.cloud.qdrant.io \
+  --collection-prefix benchmark- \
+  --distribution zipf \
+  -n 10k -p 8
+
+# Tear down everything with that prefix
+bfb serverless clear \
+  --uri https://serverless.example.cloud.qdrant.io \
+  --collection-prefix benchmark-
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--collection-prefix` | Shared name prefix (`benchmark-` → `benchmark-0` … `benchmark-99`) |
+| `--collections-count` | How many collection slots to spread upload across |
+| `--distribution` | `uniform` or `zipf` — how points/queries are routed across slots |
+| `--total-points` | Upload only: total points across all collections (falls back to `-n`) |
+| `--config-file` / `--file` | Upload: YAML collection shape (same schema as `bfb upload --file`) |
+
+Collections are **not** created up front. On first upsert to a slot, bfb creates
+it from the upload YAML (only the tenant-facing subset: dense/sparse vectors and
+payload indexes — HNSW/quantization/on-disk knobs are ignored). A registry
+prints how many collections preexisting / created / queryable after the run.
+
 ### `schema` — print the upload-config file schema
 
 Print an annotated YAML reference enumerating every option accepted by an

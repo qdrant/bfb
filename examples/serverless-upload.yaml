@@ -1,0 +1,26 @@
+# Minimal upload shape for `bfb serverless upload`.
+#
+#   bfb serverless upload \
+#     --uri https://serverless.example.cloud.qdrant.io \
+#     --collection-prefix benchmark- \
+#     --collections-count 100 \
+#     --distribution uniform \
+#     --total-points 1M \
+#     --config-file examples/serverless-upload.yaml
+#
+# Only the tenant-facing subset is sent to serverless (dense/sparse vectors +
+# payload indexes). HNSW / quantization / on-disk knobs below are ignored by
+# the converter — keep them if you also reuse this file with `bfb upload`.
+
+collection:
+  vectors:
+    - size: 128
+      distance: cosine
+      source: random
+
+  fields:
+    - name: color
+      type: keyword
+      source:
+        type: random
+        cardinality: 100
