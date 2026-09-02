@@ -400,6 +400,11 @@ bfb serverless query \
   --collection-prefix benchmark- \
   --file search.yaml -n 10k -p 8
 
+# Show what is there: one line per collection with its point count
+bfb serverless list \
+  --uri https://serverless.example.cloud.qdrant.io \
+  --collection-prefix benchmark-
+
 # Tear down everything with that prefix
 bfb serverless clear \
   --uri https://serverless.example.cloud.qdrant.io \
@@ -408,7 +413,7 @@ bfb serverless clear \
 
 | Flag | Meaning |
 |------|---------|
-| `--collection-prefix` | Shared name prefix (`benchmark-` → `benchmark-0` … `benchmark-99`) |
+| `--collection-prefix` | Shared name prefix (`benchmark-` → `benchmark-0` … `benchmark-99`). Optional for `list`, which then shows the whole space |
 | `--collections-count` | Upload only: how many collection slots to spread points across |
 | `--distribution` | `uniform` or `zipf` — how points/queries are routed across slots |
 | `--total-points` | Upload only: total points across all collections (falls back to `-n`) |

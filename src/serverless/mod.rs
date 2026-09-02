@@ -8,6 +8,7 @@
 //! ```text
 //! bfb serverless upload --collection-prefix benchmark- --collections-count 100 \
 //!     --distribution uniform --total-points 10M --example serverless-upload
+//! bfb serverless list   --collection-prefix benchmark-
 //! bfb serverless clear  --collection-prefix benchmark-
 //! bfb serverless query  --collection-prefix benchmark- --distribution zipf -n 10k
 //! ```
@@ -18,6 +19,7 @@ mod client;
 mod collections;
 mod convert;
 mod distribution;
+mod list;
 mod query;
 mod upload;
 
@@ -35,6 +37,7 @@ pub async fn run(args: Args, serverless: ServerlessArgs, stopped: Arc<AtomicBool
     match serverless.command {
         ServerlessCommand::Upload(upload_args) => upload::run(&args, upload_args, stopped).await,
         ServerlessCommand::Clear(clear_args) => clear::run(&args, clear_args).await,
+        ServerlessCommand::List(list_args) => list::run(&args, list_args).await,
         ServerlessCommand::Query(query_args) => query::run(&args, query_args, stopped).await,
     }
 }

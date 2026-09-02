@@ -20,6 +20,9 @@ pub enum ServerlessCommand {
     /// Delete every collection whose name starts with `--collection-prefix`.
     Clear(ServerlessClearArgs),
 
+    /// List collections and their point counts.
+    List(ServerlessListArgs),
+
     /// Run queries routed across existing collections matching the prefix.
     Query(ServerlessQueryArgs),
 }
@@ -53,6 +56,14 @@ pub struct ServerlessUploadArgs {
 pub struct ServerlessClearArgs {
     /// Delete every collection whose name starts with this prefix.
     #[clap(long)]
+    pub collection_prefix: String,
+}
+
+#[derive(ClapArgs, Debug, Clone)]
+pub struct ServerlessListArgs {
+    /// Only list collections whose name starts with this prefix.
+    /// Omit to list every collection in the space.
+    #[clap(long, default_value = "")]
     pub collection_prefix: String,
 }
 
