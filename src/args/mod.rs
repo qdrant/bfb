@@ -550,6 +550,12 @@ pub enum Command {
         #[clap(value_enum)]
         shell: clap_complete::Shell,
     },
+
+    /// Benchmark Qdrant Serverless (multi-collection / per-tenant mode).
+    ///
+    /// Spreads upload and query traffic across a range of collections instead
+    /// of a single shared collection. See `bfb serverless --help`.
+    Serverless(crate::serverless::ServerlessArgs),
 }
 
 /// `--file` or `--example` (exactly one required). Flattened into upload /
@@ -603,7 +609,7 @@ impl Args {
     }
 }
 
-fn parse_number(n: &str) -> Result<usize, String> {
+pub(crate) fn parse_number(n: &str) -> Result<usize, String> {
     parse_number_impl(n)
         .and_then(|v| v.try_into().ok())
         .ok_or_else(|| format!("Invalid number: {n}"))

@@ -91,6 +91,11 @@ pub static EXAMPLES: &[Example] = &[
         "Full LAION-400M corpus (~410 parts, streamed with cache: evict)"
     ),
     example!(
+        "serverless-upload",
+        Upload,
+        "Minimal upload shape for `bfb serverless upload` (dense + keyword)"
+    ),
+    example!(
         "search-config",
         Search,
         "Search requests matching upload-config (dense, sparse, filters)"

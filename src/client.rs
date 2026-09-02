@@ -56,10 +56,18 @@ pub fn create_clients(args: &Args) -> Result<Vec<Qdrant>> {
 
 /// Try the request on every client in random order, retrying `args.retries`
 /// times with `args.retry_interval` between rounds.
-pub async fn retry_with_clients<'a, R, T: std::future::Future<Output = Result<R, QdrantError>>>(
-    clients: &'a [Qdrant],
+///
+/// Generic over the client type so the regular [`Qdrant`] client and the
+/// serverless client share one retry policy.
+pub async fn retry_with_clients<
+    'a,
+    C,
+    R,
+    T: std::future::Future<Output = Result<R, QdrantError>>,
+>(
+    clients: &'a [C],
     args: &Args,
-    mut call: impl FnMut(&'a Qdrant) -> T,
+    mut call: impl FnMut(&'a C) -> T,
 ) -> anyhow::Result<R> {
     let mut rng = rand::rng();
     let mut permutation = (0..clients.len()).collect::<Vec<_>>();
