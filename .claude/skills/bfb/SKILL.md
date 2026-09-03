@@ -21,9 +21,10 @@ YAML keys are hard parse errors** (every config struct is
 
 - `bfb schema` prints the complete annotated upload-config schema (types,
   defaults, allowed values) as valid YAML. Ground truth for upload YAML.
-- `bfb examples` lists the built-in configs (the tracked `examples/*.yaml`,
-  compiled into the binary). `bfb examples <name> > my.yaml` dumps one to edit;
-  `--example <name>` runs one directly in place of `--file`.
+- `bfb examples` lists the built-in configs (the tracked
+  [`examples/*.yaml`](../../../examples/), compiled into the binary).
+  `bfb examples <name> > my.yaml` dumps one to edit; `--example <name>` runs
+  one directly in place of `--file`.
 
 ## Commands
 
@@ -459,20 +460,9 @@ collection:
         link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/dbpedia_openai_100K.tgz
 ```
 
-`search.yaml` — the same dataset as query source, so recall is measured:
-
-```yaml
-collection:
-  name: dbpedia-100k-bq
-requests:
-  - kind: dense
-    source:
-      type: dataset
-      name: dbpedia-openai-100K-1536-angular
-      format: tar
-      path: dbpedia-openai-100K-1536-angular/dbpedia_openai_100K
-      link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/dbpedia_openai_100K.tgz
-```
+`search.yaml`: `collection.name: dbpedia-100k-bq` plus one `kind: dense` request
+whose `source` is the identical dataset block (flattened, no `filters`) — that
+makes the dataset the query source, so recall is measured.
 
 ```bash
 # 1. Upload once — --create-if-missing so reruns never clobber the collection
