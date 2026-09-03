@@ -20,6 +20,56 @@ pub struct CollectionPicker {
     zipf: Option<Zipf<f64>>,
 }
 
+/// One request produced while draining pre-allocated collection budgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BudgetBatch {
+    pub collection: usize,
+    /// Global item offset. Each collection owns one contiguous range, even
+    /// though requests from those ranges are emitted in random order.
+    pub offset: usize,
+    pub count: usize,
+}
+
+/// Randomly drain collection budgets in batches of at most `batch_size`.
+///
+/// Sampling is uniform among collections that still have budget. The desired
+/// uniform/Zipf skew is already represented by `budgets`; applying it again
+/// while draining would skew the workload twice.
+pub fn drain_budgets(budgets: &[usize], batch_size: usize, rng: &mut impl Rng) -> Vec<BudgetBatch> {
+    assert!(batch_size > 0, "batch size must be positive");
+
+    let mut remaining = budgets.to_vec();
+    let mut next_offset = Vec::with_capacity(budgets.len());
+    let mut offset = 0usize;
+    for &budget in budgets {
+        next_offset.push(offset);
+        offset += budget;
+    }
+    let mut active: Vec<_> = remaining
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &budget)| (budget > 0).then_some(i))
+        .collect();
+    let mut batches = Vec::new();
+
+    while !active.is_empty() {
+        let active_idx = rng.random_range(0..active.len());
+        let collection = active[active_idx];
+        let count = remaining[collection].min(batch_size);
+        batches.push(BudgetBatch {
+            collection,
+            offset: next_offset[collection],
+            count,
+        });
+        next_offset[collection] += count;
+        remaining[collection] -= count;
+        if remaining[collection] == 0 {
+            active.swap_remove(active_idx);
+        }
+    }
+    batches
+}
+
 impl CollectionPicker {
     pub fn new(n: usize, distribution: Distribution) -> anyhow::Result<Self> {
         anyhow::ensure!(n > 0, "collections-count must be > 0");
@@ -91,5 +141,22 @@ mod tests {
         assert_eq!(counts.iter().sum::<usize>(), 10_000);
         // Rank 0 should get strictly more than the last rank on average.
         assert!(counts[0] > counts[9]);
+    }
+
+    #[test]
+    fn draining_budgets_preserves_limits_offsets_and_totals() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let batches = drain_budgets(&[5, 0, 7], 3, &mut rng);
+        assert!(batches.iter().all(|batch| batch.count <= 3));
+        let mut totals = [0usize; 3];
+        let mut offsets = [Vec::new(), Vec::new(), Vec::new()];
+        for batch in batches {
+            totals[batch.collection] += batch.count;
+            offsets[batch.collection].push(batch.offset);
+        }
+        assert_eq!(totals, [5, 0, 7]);
+        offsets.iter_mut().for_each(|values| values.sort_unstable());
+        assert_eq!(offsets[0], [0, 3]);
+        assert_eq!(offsets[2], [5, 8, 11]);
     }
 }

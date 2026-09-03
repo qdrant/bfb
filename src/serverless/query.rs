@@ -23,7 +23,7 @@ use qdrant_client::serverless::{CollectionConfig, QdrantServerless};
 use super::args::ServerlessQueryArgs;
 use super::client::create_clients;
 use super::collections::list_matching;
-use super::distribution::CollectionPicker;
+use super::distribution::{BudgetBatch, CollectionPicker, drain_budgets};
 use crate::args::Args;
 use crate::client::retry_with_clients;
 use crate::config::examples::{ExampleKind, resolve};
@@ -48,7 +48,7 @@ struct ServerlessQueryProcessor {
     stopped: Arc<AtomicBool>,
     clients: Vec<QdrantServerless>,
     names: Vec<String>,
-    picker: CollectionPicker,
+    batches: Vec<BudgetBatch>,
     generator: ConfigSearchGenerator,
     start_timestamp_millis: f64,
     start_time: Instant,
@@ -97,11 +97,12 @@ impl ServerlessQueryProcessor {
             return Ok(());
         }
 
+        let batch = self.batches[req_id];
         let mut rng = rand::rng();
-        let collection = &self.names[self.picker.pick(&mut rng)];
+        let collection = &self.names[batch.collection];
         let template_idx = self.generator.random_template_idx(&mut rng);
 
-        let queries = (0..self.args.search_batch_size)
+        let queries = (0..batch.count)
             .map(|_| {
                 let generated = self
                     .generator
@@ -182,6 +183,14 @@ impl Processor for ServerlessQueryProcessor {
 
     fn get_batch_size(&self) -> usize {
         self.args.search_batch_size
+    }
+
+    fn request_count(&self, _total_items: usize) -> usize {
+        self.batches.len()
+    }
+
+    fn request_size(&self, req_id: usize) -> usize {
+        self.batches[req_id].count
     }
 }
 
@@ -292,11 +301,15 @@ pub async fn run(args: &Args, query: ServerlessQueryArgs, stopped: Arc<AtomicBoo
     args.collection_name = format!("{}*", query.collection_prefix);
     let mut results = BenchmarkResults::new(&args, origin);
 
+    let picker = CollectionPicker::new(names.len(), query.distribution.into())?;
+    let query_budgets = picker.allocate(args.num_vectors_or_default(), &mut rand::rng());
+    let batches = drain_budgets(&query_budgets, args.search_batch_size, &mut rand::rng());
+
     let processor = ServerlessQueryProcessor {
         args: args.clone(),
         stopped: stopped.clone(),
         clients,
-        picker: CollectionPicker::new(names.len(), query.distribution.into())?,
+        batches,
         names,
         generator: ConfigSearchGenerator::new(&search_config)?,
         start_timestamp_millis: std::time::SystemTime::now()

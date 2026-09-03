@@ -33,4 +33,15 @@ pub trait Processor {
     }
 
     fn get_batch_size(&self) -> usize;
+
+    /// Number of requests needed for `total_items`. Processors with variable
+    /// request sizes can override this to expose a precomputed schedule.
+    fn request_count(&self, total_items: usize) -> usize {
+        total_items.div_ceil(self.get_batch_size())
+    }
+
+    /// Number of items represented by one request (for progress accounting).
+    fn request_size(&self, _req_id: usize) -> usize {
+        self.get_batch_size()
+    }
 }

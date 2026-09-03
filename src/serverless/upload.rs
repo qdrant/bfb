@@ -1,6 +1,5 @@
 //! `bfb serverless upload` — spread points across lazily-created collections.
 
-use std::cmp::min;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -17,7 +16,7 @@ use super::args::ServerlessUploadArgs;
 use super::client::create_clients;
 use super::collections::CollectionRegistry;
 use super::convert::to_serverless_config;
-use super::distribution::CollectionPicker;
+use super::distribution::{CollectionPicker, drain_budgets};
 use crate::args::Args;
 use crate::client::retry_with_clients;
 use crate::config;
@@ -36,28 +35,6 @@ struct Batch {
     coll_idx: usize,
     start_id: u64,
     count: usize,
-}
-
-/// Split the per-collection allocation into upsert batches. Point ids are
-/// laid out contiguously across collections starting at `offset`, so with a
-/// dataset source every collection gets a different slice of the data.
-fn plan_batches(per_collection: &[usize], batch_size: usize, offset: usize) -> Vec<Batch> {
-    let mut batches = Vec::new();
-    let mut next_id = offset as u64;
-    for (coll_idx, &count) in per_collection.iter().enumerate() {
-        let mut remaining = count;
-        while remaining > 0 {
-            let n = min(batch_size, remaining);
-            batches.push(Batch {
-                coll_idx,
-                start_id: next_id,
-                count: n,
-            });
-            next_id += n as u64;
-            remaining -= n;
-        }
-    }
-    batches
 }
 
 /// Request pacing: `--rps` fires at a fixed interval regardless of how many
@@ -201,7 +178,17 @@ pub async fn run(
         println!("  …");
     }
 
-    let batches = plan_batches(&per_collection, args.batch_size, args.offset);
+    // Budgets determine the distribution; request order is randomized among
+    // collections that still have budget so bounded parallelism interleaves
+    // traffic instead of draining collections sequentially.
+    let batches: Vec<_> = drain_budgets(&per_collection, args.batch_size, &mut rand::rng())
+        .into_iter()
+        .map(|batch| Batch {
+            coll_idx: batch.collection,
+            start_id: (args.offset + batch.offset) as u64,
+            count: batch.count,
+        })
+        .collect();
     let generator: Box<dyn PointGenerator> = Box::new(ConfigGenerator::new(&upload_config)?);
 
     let logger = env_logger::Builder::from_default_env().build();
@@ -302,13 +289,17 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
 
     #[test]
     fn batches_cover_every_point_with_unique_ids() {
-        let batches = plan_batches(&[5, 0, 7], 3, 100);
-        let counts: Vec<_> = batches.iter().map(|b| (b.coll_idx, b.count)).collect();
-        assert_eq!(counts, vec![(0, 3), (0, 2), (2, 3), (2, 3), (2, 1)]);
-        let ids: Vec<_> = batches.iter().map(|b| b.start_id).collect();
-        assert_eq!(ids, vec![100, 103, 105, 108, 111]);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+        let batches = drain_budgets(&[5, 0, 7], 3, &mut rng);
+        let mut ids: Vec<_> = batches
+            .iter()
+            .flat_map(|b| b.offset..b.offset + b.count)
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, (0..12).collect::<Vec<_>>());
     }
 }
