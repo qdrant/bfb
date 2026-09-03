@@ -77,8 +77,7 @@ pub async fn process<P: Processor + Sync>(
     processor: P,
 ) -> Result<QueryPhase> {
     let started = Instant::now();
-    let batch_size = processor.get_batch_size();
-    let batch_count = args.num_vectors_or_default().div_ceil(batch_size);
+    let batch_count = processor.request_count(args.num_vectors_or_default());
 
     let multiprogress = MultiProgress::new();
     let progress_bar = multiprogress.add(ProgressBar::new(args.num_vectors_or_default() as u64));
@@ -98,7 +97,6 @@ pub async fn process<P: Processor + Sync>(
             &processor,
             &progress_bar,
             batch_count,
-            batch_size,
             target_rps,
         )
         .await?;
@@ -109,7 +107,6 @@ pub async fn process<P: Processor + Sync>(
             &processor,
             &progress_bar,
             batch_count,
-            batch_size,
         )
         .await?;
     }
@@ -183,13 +180,12 @@ async fn process_with_parallel<P: Processor>(
     processor: &P,
     progress_bar: &ProgressBar,
     batch_count: usize,
-    batch_size: usize,
 ) -> Result<()> {
     let query_stream = (0..batch_count)
         .take_while(|_| !stopped.load(Ordering::Relaxed))
         .map(|n| {
             let future = processor.make_request(n, args, progress_bar);
-            progress_bar.inc(batch_size as u64);
+            progress_bar.inc(processor.request_size(n) as u64);
             future
         });
 
@@ -219,7 +215,6 @@ async fn process_with_rps<P: Processor + Sync>(
     processor: &P,
     progress_bar: &ProgressBar,
     batch_count: usize,
-    batch_size: usize,
     target_rps: f64,
 ) -> Result<()> {
     use futures::stream::FuturesUnordered;
@@ -255,7 +250,7 @@ async fn process_with_rps<P: Processor + Sync>(
 
                 let req_id = requests_sent;
                 requests_sent += 1;
-                progress_bar.inc(batch_size as u64);
+                progress_bar.inc(processor.request_size(req_id) as u64);
 
                 let future = processor.make_request(req_id, args, progress_bar);
                 in_flight.push(future);
