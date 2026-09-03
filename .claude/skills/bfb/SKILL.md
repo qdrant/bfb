@@ -1,189 +1,188 @@
 ---
 name: bfb
-description: Use when benchmarking Qdrant with bfb — authoring or editing bfb experiment YAML configs (upload / search / scroll), running upload or search benchmarks, measuring recall on real datasets (dbpedia, glove, H&M, cohere-wiki, LAION), A/B-comparing Qdrant builds, interpreting bfb --json results, or debugging dataset download / BFB_DATASETS_DIR problems.
+description: Use when benchmarking Qdrant with bfb — authoring or editing bfb YAML configs (upload / search / scroll), running upload, search, scroll or serverless benchmarks, measuring recall on real datasets (dbpedia, glove, H&M, cohere-wiki, LAION), interpreting bfb --json results, or debugging dataset download / BFB_DATASETS_DIR problems.
 ---
 
 # bfb — Qdrant benchmark tool
 
 ## Overview
 
-bfb (qdrant/bfb) is a Rust CLI that stress-tests **Qdrant only**, over gRPC
-(default `--uri http://localhost:6334`). Build with `cargo build --release` →
-`./target/release/bfb`. Auth via `export QDRANT_API_KEY=...`.
+bfb is a Rust CLI that stress-tests **Qdrant only**, over gRPC (default
+`--uri http://localhost:6334`; auth via `export QDRANT_API_KEY=...`). Build with
+`cargo build --release` → `./target/release/bfb`; the README also covers
+prebuilt binaries and Docker.
 
-**Core model — this is the thing everyone gets wrong:** a YAML config describes
-only the *shape* (collection layout, data/query generation); the CLI flags
-control the *how* (counts, concurrency, limits, target URI). There is no
-`uri:`, `batch_size:`, `parallel:`, or `search_limit:` key in any YAML —
-runtime knobs live on the command line, and **unknown YAML fields are hard
-parse errors** (every config struct is `deny_unknown_fields`). Do not invent
-keys from memory: run `bfb schema` — it prints the complete annotated
-upload-config schema (types, defaults, allowed values) as valid YAML you can
-copy as a template.
+**Core model — the thing everyone gets wrong:** a YAML config describes only
+the *shape* (collection layout, how data and queries are generated); CLI flags
+control the *how* (counts, concurrency, limits, target URI). There is no `uri:`,
+`batch_size:`, `parallel:` or `search_limit:` key in any YAML, and **unknown
+YAML keys are hard parse errors** (every config struct is
+`deny_unknown_fields`). Never invent keys from memory:
+
+- `bfb schema` prints the complete annotated upload-config schema (types,
+  defaults, allowed values) as valid YAML. Ground truth for upload YAML.
+- `bfb examples` lists the built-in configs (the tracked `examples/*.yaml`,
+  compiled into the binary). `bfb examples <name> > my.yaml` dumps one to edit;
+  `--example <name>` runs one directly in place of `--file`.
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `bfb upload --file cfg.yaml [flags]` | (Re)create collection from YAML shape, upload, wait for index. **Deletes an existing collection of the same name unless `--create-if-missing` (no-op if it exists) or `--skip-create` is passed.** |
-| `bfb search --file cfg.yaml [flags]` | Run search templates from YAML against an existing collection. Never touches the collection. Collection name comes from the YAML (overrides `--collection-name`). |
-| `bfb scroll --file cfg.yaml [flags]` | Scroll/sample workload against an existing collection. |
-| `bfb schema` | Print the annotated upload-config schema. Ground truth for upload YAML. |
-| `bfb [flags]` (no subcommand) | Legacy flag-driven pipeline: create + upload random/fbin data (+ `--search` / `--scroll`). To only search an existing collection: `bfb --skip-setup --search …`. |
+| `bfb upload --file cfg.yaml` (or `--example NAME`) | (Re)create the collection from the YAML shape, upload, wait for the index. **Deletes an existing collection of the same name** unless `--create-if-missing` (no-op when it exists) or `--skip-create` is passed. |
+| `bfb search --file cfg.yaml` | Run search templates against an existing collection. Never creates or deletes. Collection name comes from the YAML. |
+| `bfb scroll --file cfg.yaml` | Scroll / sample workload against an existing collection. |
+| `bfb serverless {upload,query,list,clear}` | Collection-per-tenant mode for Qdrant Serverless (see below). |
+| `bfb schema` · `bfb examples [NAME]` | Upload-schema reference · built-in config catalog. |
+| `bfb [flags]` (no subcommand) | Legacy flag-driven pipeline: create + upload random/fbin data, optionally `--search` / `--scroll`. Search-only against an existing collection: `bfb --skip-setup --search …`. |
 
-Integer flags accept suffixes `k/M/G/T/ki/Mi/Gi/Ti` and underscores. Prefer
-the short forms where supported: `-n 10k` over `-n 10000`, `--offset 1_000_000`
-over a bare digit string. CLI flags only — numbers inside YAML configs don't
-take suffixes.
+`bfb self-update` and `bfb completions <shell>` also exist (README).
 
 ## Runtime CLI flags (the "how")
 
-Workload: `-n` points to upload / **queries** to run (scroll: requests; omit on
-upload with dataset sources ⇒ full dataset) · `--offset` start row/id (resumes interrupted
-dataset uploads; `-n` capped by what remains) · `-m/--max-id` random upserts in
-[offset, max_id).
+Integers accept `k/M/G/T` (and `ki/Mi/Gi/Ti`) suffixes and `_` separators:
+`-n 5k`, `--offset 1_000_000`. Numbers inside YAML do not.
 
-Concurrency: `-p` parallel in-flight requests (closed loop) · `--rps` fixed
-request rate, open loop, overrides `-p` · `-t` worker threads · `-c` client
-connections per URI (pool = c × #URIs) · `-b` upload batch size (points) ·
-`--search-batch-size` queries per search request (default 1; requests issued =
-n / batch) · `--throttle` batches/searches per second · `--delay` ms between
-requests.
+Workload: `-n` points to upload / **queries** to run (scroll: requests; default
+100k). With dataset sources, omit `-n` on upload to load the whole dataset ·
+`--offset` start row/id — resumes an interrupted dataset upload, `-n` is capped
+by what remains · `-m/--max-id` random upserts of ids in [offset, max_id).
+
+Concurrency: `-p` in-flight requests, closed loop (default 2) · `--rps` fixed
+request rate, open loop, replaces `-p` · `-t` worker threads (default 2) · `-c`
+connections per URI (pool = c × #URIs; default 1) · `-b` upload batch size in
+points (default 100) · `--search-batch-size` queries per search request
+(default 1; requests issued = n / batch) · `-T/--throttle` batches or searches
+per second · `--delay` ms between requests.
 
 Search: `--search-limit` (default 10) · `--search-hnsw-ef` · `--search-exact` ·
-`--search-with-payload` / `--search-with-vectors` · `--prefetch N` (wrap query
-in a prefetch of limit N; rescore is disabled inside the prefetch stage) ·
-`--indexed-only` · `--timeout` (client deadline + server-side timeout).
+`--search-with-payload` / `--search-with-vectors` · `--prefetch N` (wraps the
+query in a prefetch stage of limit N; that stage always has rescore off and
+gets the same hnsw_ef) · `--indexed-only true|false` · `--timeout s` (server-side
+request timeout; the client channel deadline is s + 5).
 
-Quantized search: bfb **always sends explicit** quantization search params:
-rescore = value of `--quantization-rescore`, **false when the flag is absent**;
-`--quantization-oversampling` only sent when given. So the default measures the
-pure-quantized path; pass `--quantization-rescore true` to measure rescoring.
-Passing `false` explicitly anyway is good practice — the recorded command line
-then states the intent instead of relying on a default.
+Quantized search: bfb **always sends explicit** quantization params — rescore =
+the value of `--quantization-rescore true|false`, **false when the flag is
+absent**; `--quantization-oversampling` only when given. The default therefore
+measures the pure quantized path; pass `--quantization-rescore true` to measure
+rescoring. Spelling out `false` is still good practice so the recorded command
+line states the intent.
 
 Phases: `--skip-create` · `--create-if-missing` · `--skip-upload` ·
-`--skip-wait-index` · `--skip-setup` (implies all three) · `--wait-on-upsert` ·
-`--set-payload` (payload via separate SetPayload request).
+`--skip-wait-index` · `--skip-setup` (implies the three skips) ·
+`--skip-field-indices` · `--wait-on-upsert` · `--set-payload` (payload via a
+separate SetPayload request).
 
-Reliability: each request tries the client pool in random order (failing over
-across URIs); `--retry N` adds N more rounds over the pool with
-`--retry-interval s` between rounds · `--ignore-errors` keeps going on search
-errors. Multiple `--uri` values are allowed.
+Reliability: each request tries every client in the pool in random order
+(failing over across URIs); `--retry N` repeats that N more rounds with
+`--retry-interval s` between rounds · `--ignore-errors` keeps a query phase
+going after errors. Multiple `--uri` values are allowed.
 
-Distributed: `--shards`, `--replication-factor`, `--write-consistency-factor`,
-`--shard-key`, `--write-ordering`, `--read-consistency`.
+Consistency: `--write-ordering`, `--read-consistency` (valid in YAML modes too).
 
-Output: `--json path` (results document, see below) · `--jsonl-updates` /
+Output: `--json path` (results document, see Results) · `--jsonl-updates` /
 `--jsonl-searches` / `--jsonl-rps` (per-request time series; visualize with
-qdrant/mri) · `--absolute-time` · `--p9 N` digits in p99… · `--timing-threshold
-s` logs slow requests.
+qdrant/mri) · `--absolute-time true` · `--p9 N` digits in p99… ·
+`--timing-threshold s` logs requests slower than s (default 0.1).
 
-Legacy-mode-only shape flags (`-d` dim, `--distance`, `--datatype`,
-`--quantization`, `--memory-*` placements, `-k/--keywords` and the other
-payload generators, `--sparse-vectors`, `--hnsw-*`, `--segments`, …) mirror the
-YAML knobs; see `bfb --help`. Prefer the YAML subcommands for anything
-non-trivial.
+**Legacy-only flags** — rejected after a subcommand, or silently ignored by it:
+`--collection-name`, `-d/--dim`, `--distance`, `--datatype`, `--quantization`,
+`--quantization-in-ram`, `--memory-*`, `--shards`, `--replication-factor`,
+`--write-consistency-factor`, `--shard-key`, `-k/--keywords` and the other
+payload generators, `--sparse-vectors`, `--hnsw-*`, `--segments`, `--uuids`,
+`--search`, `--scroll`. In YAML mode those live in the config (`name`,
+`shard_number`, `replication_factor`, `sharding`, `hnsw`, …). `bfb --help`
+lists them all.
 
 ## Upload config (collection shape)
 
-Single top-level key `collection:`. Full skeleton (defaults in comments; every
-section except `vectors`/`sparse_vectors` — at least one vector — is optional):
+Single top-level key `collection:`. Every section except at least one of
+`vectors` / `sparse_vectors` is optional. Values below are examples, not
+defaults — `bfb schema` has the defaults; the comments here add what it does
+not spell out:
 
 ```yaml
 collection:
-  name: benchmark             # default "benchmark"
-  id: integer                 # integer | uuid — integer ⇒ point id = dataset row (needed for recall)
-  on_disk_payload: true       # default true
+  name: benchmark
+  id: integer                 # integer (default) | uuid — integer ⇒ point id = dataset row (needed for recall)
+  on_disk_payload: true
   shard_number: null
   replication_factor: 1
   write_consistency_factor: 1
-  sharding: { method: custom, key: my_field }   # custom shard key (only `custom`)
+  sharding: { method: custom, key: tenant-a }   # creates shard key `tenant-a`; all upserts go to it
 
-  hnsw:
-    m: 16
-    payload_m: null
-    ef_construct: 100
-    full_scan_threshold: null
-    on_disk: false
-    inline_storage: false
-    memory: null              # cold | cached | pinned — supersedes on_disk (Qdrant 1.19+)
-
-  optimizers:
-    default_segment_number: 2
-    indexing_threshold: null
-    memmap_threshold: null
-    max_segment_size: null    # bigger segments search faster, index slower
-    deleted_threshold: null         # vacuum trigger fraction (server default 0.2)
-    vacuum_min_vector_number: null  # smallest segment vacuum considers (server default 1000)
-    prevent_unoptimized: false
+  hnsw: { m: 16, payload_m: null, ef_construct: 100, full_scan_threshold: null,
+          on_disk: false, inline_storage: false, memory: null }
+  optimizers: { default_segment_number: 2, indexing_threshold: null, memmap_threshold: null,
+                max_segment_size: null,            # bigger segments search faster, index slower
+                deleted_threshold: null, vacuum_min_vector_number: null, prevent_unoptimized: false }
 
   quantization:               # collection-wide; also settable per dense vector
     type: binary              # none | scalar | binary | binary-2bit | binary-1.5bit |
                               # turbo-1bit | turbo-1.5bit | turbo-2bit | turbo-4bit |
                               # product-x4 | -x8 | -x16 | -x32 | -x64
-    always_ram: true
+    always_ram: true          # default false
     memory: null              # cold | cached | pinned — supersedes always_ram
 
-  vectors:                    # at most ONE entry may omit `name` (the default vector);
-    - name: image             # with 2+ entries every one must be named & unique
-      size: 1024              # required
+  vectors:                    # at most ONE entry may omit `name`; with 2+ entries all must be named
+    - name: image
+      size: 1024              # required; for dataset sources it must equal the dataset dimension (bfb does not cross-check)
       distance: cosine        # cosine | dot | euclid | manhattan
-      datatype: float32       # float32 | float16 | uint8 | turbo4 (1.19+)
+      datatype: float32       # float32 | float16 | uint8 | turbo4 (Qdrant 1.19+)
       on_disk: true
-      memory: null            # cold | cached (dense storage can't be pinned)
+      memory: null            # cold | cached (dense storage cannot be pinned)
       multivector: { comparator: max_sim, count: 4 }
       quantization: null      # same shape as collection.quantization
       source: random          # see Sources
 
   sparse_vectors:
-    - name: bm25              # required; names unique across ALL vectors
+    - name: bm25              # required; names unique across dense AND sparse
       datatype: float32       # float32 | float16 | uint8
       on_disk: false
       memory: null            # cold | cached | pinned (inverted index)
-      modifier: none          # none | idf — idf required for BM25 scoring & search idf_corpus
+      modifier: none          # none | idf — idf required for BM25 scoring and for search idf_corpus
       source: { type: random, vocab_size: 100000, length: 100, distribution: zipf }
 
-  payload:                    # payload-wide settings
-    memory: null              # cold | cached — supersedes on_disk_payload (1.19+)
+  payload:
+    memory: null              # cold | cached — supersedes on_disk_payload
     source: null              # whole-payload dataset source, see below
 
   fields:                     # payload fields: value generation and/or index declaration
     - name: color
       type: keyword           # keyword | integer | float | bool | uuid | geo | text | datetime
-      index: true             # false ⇒ unindexed filler payload
+      index: true             # default true; false ⇒ unindexed filler payload
       on_disk: false
-      memory: null            # cold | cached | pinned — field index placement
+      memory: null            # field-index placement
       is_tenant: false        # keyword/uuid
       is_principal: false     # integer/float/datetime
       range_index: true       # integer only
       prefix: false           # keyword only; required for search match_prefix filters
-      tokenizer: null         # text only: word | whitespace | prefix | multilingual
+      tokenizer: null         # text only: word (default) | whitespace | prefix | multilingual
       source: { type: random, cardinality: 100 }
 ```
 
-`memory:` everywhere means RAM placement (Qdrant 1.19+): `cold` (load on
-demand), `cached` (pre-warmed disk cache, evictable), `pinned` (never evicted).
-It supersedes the `on_disk`/`always_ram` booleans; bfb sends both so configs
+`memory:` everywhere is RAM placement (Qdrant 1.19+): `cold` load on demand,
+`cached` pre-warmed disk cache (evictable), `pinned` never evicted. It
+supersedes the `on_disk` / `always_ram` booleans; bfb sends both so configs
 work on older servers.
 
 ### Vector sources
 
 ```yaml
-source: random                                    # default; random vectors
+source: random                                    # default
 source: { type: file, path: ./vectors.fbin, strategy: random-sample }  # or from-start;
-                                                  # path may be an http(s):// URL (cached)
+                                                  # path may be an http(s):// URL (downloaded once, cached)
 source:                                           # dense dataset: fields INLINE (flattened)
   type: dataset
   name: glove-25-angular
-  format: h5                                      # h5 | tar | sparse | npy | parquet
-  path: glove-25-angular/glove-25-angular.hdf5    # relative to datasets dir
+  format: h5                                      # h5 | tar | sparse | npy | parquet | multivector
+  path: glove-25-angular/glove-25-angular.hdf5    # relative to the datasets dir
   link: http://ann-benchmarks.com/glove-25-angular.hdf5
 ```
 
-**Asymmetry to remember:** the dense vector dataset source is *flattened*
-(dataset fields directly in the source map). Sparse-vector, per-field payload,
-and whole-payload dataset sources nest them under a `dataset:` key instead:
+**Asymmetry to remember:** the dense-vector dataset source is *flattened*
+(dataset fields directly in the source map). Sparse-vector, per-field payload
+and whole-payload dataset sources nest them under a `dataset:` key:
 
 ```yaml
 sparse_vectors:
@@ -196,22 +195,23 @@ sparse_vectors:
 ### Payload value generation (`fields[].source`)
 
 Kinds: `random` (default) · `random-clusters` (geo) · `now` (datetime) ·
-`dataset` (needs nested `dataset:` **and** `field:` naming the dataset column).
-Params by type — irrelevant keys are ignored:
+`dataset` (nested `dataset:` **plus** `field:` naming the dataset column). Keys
+that do not apply to the field type are ignored:
 
-| type | params |
+| type | keys (defaults) |
 |---|---|
-| keyword | `cardinality`, `values_per_point`, `length_multiplier` |
-| integer / float | `min`, `max` (+ `values_per_point` for integer) |
-| bool | `true_ratio` |
-| geo | `clusters` (with `random-clusters`) |
-| text | `vocab_size`, `min_length`, `max_length`, `distribution: uniform\|zipf` |
-| datetime | `now`, or `min`/`max` range |
+| keyword | `cardinality` (100), `values_per_point` (1), `length_multiplier` (1); values look like `keyword_17` |
+| integer | `min` / `max` (0 / 100, half-open), `values_per_point` |
+| float | `min` / `max` (-1 / 1) |
+| bool | `true_ratio` (0.5) |
+| geo | `clusters` (10, with `random-clusters`); points near Berlin ±1° |
+| text | `vocab_size`, `min_length` (16 words), `max_length`, `distribution: uniform\|zipf` |
+| datetime | `now`, else a random instant within the past year (`min` / `max` are accepted but currently unused) |
 
 ### Whole-payload source + index-only fields
 
-For datasets that ship real payload objects (`tar` bundles' `payloads.jsonl`,
-`parquet` rows), load the entire object per point and declare only the indexes:
+For datasets that ship payload objects (`tar` bundles' `payloads.jsonl`,
+`parquet` rows), load the whole object per point and declare only the indexes:
 
 ```yaml
 payload:
@@ -219,65 +219,77 @@ payload:
     type: dataset
     dataset: { name: laion-small-clip, format: tar, path: laion-small-clip/laion-small-clip, link: https://…tgz }
 fields:
-  - name: similarity          # index-only: no `source` — value comes from payload.source
+  - name: similarity          # index-only: no `source` — the value comes from payload.source
     type: float
 ```
 
-Fields present in the object but not listed are uploaded, just unindexed.
-Parquet sources take three extra keys: `columns:` (keep only), `exclude:`
-(drop; also skips decoding), `fill_null:` (substitute for null/NaN/±inf;
-omitted ⇒ field absent).
+Fields present in the object but not listed are uploaded, just unindexed. For a
+`tar` bundle the vector source and `payload.source` name the same dataset.
+Parquet sources take `columns:` (keep only), `exclude:` (drop; also skips
+decoding), `fill_null:` (substitute for null/NaN/±inf; omitted ⇒ field absent).
 
 ### Validation rules that bite
 
-At least one dense or sparse vector · one unnamed dense vector max, and only
-alone · vector/sparse names unique across both lists · `payload.source` must be
-`type: dataset` and must NOT set `field` · per-field dataset source MUST set
-`field` · `type: file` local paths must exist (http(s) ok, s3:// rejected) ·
-sparse `length <= vocab_size`.
+At least one dense or sparse vector · at most one unnamed dense vector, and
+only when it is the sole dense vector · vector/sparse names unique across both
+lists · `payload.source` must be `type: dataset` and must NOT set `field` · a
+per-field dataset source MUST set `field` · `type: file` local paths must exist
+at parse time (http(s) OK, `s3://` rejected) · sparse `length <= vocab_size` ·
+`sharding.method` only `custom`.
 
 ## Datasets (real data)
 
-The real datasets come from Qdrant's **vector-db-benchmark** project: its
-`datasets.json` catalog defines each dataset (name, format, path, download
-link — bfb's README links the full catalog), and bfb accepts the same fields
-spelled inline in a `source:` block, so no local copy of that project is
-needed. Formats:
+Dataset definitions use the field names of Qdrant's vector-db-benchmark
+`datasets.json` catalog (`name`, `format` — `type` is accepted as an alias in
+nested `dataset:` maps — `path`, `link`), spelled inline in a `source:` block.
+bfb ships no catalog of its own; working blocks to copy live in
+`examples/*.yaml`.
 
-| `format` | Contents | Queries + ground truth (auto-detected) |
+| `format` | Contents | Query set + ground truth (auto-detected) |
 |---|---|---|
-| `h5` | ann-benchmarks HDF5: `train` (+`test`/`neighbors`) | `test` / `neighbors` |
-| `tar` | `.tgz` of `vectors.npy` + `payloads.jsonl` + `tests.jsonl` | `tests.jsonl` `query` / `closest_ids` |
-| `sparse` | CSR: `data.csr` (+`queries.csr`/`results.gt`) | `queries.csr` / `results.gt` |
+| `h5` | ann-benchmarks HDF5: `train` (+ `test` / `neighbors`) | `test` / `neighbors` |
+| `tar` | `.tgz` of `vectors.npy` + optional `payloads.jsonl` / `tests.jsonl` | `tests.jsonl` `query` / `closest_ids` (+ per-query `conditions`) |
+| `sparse` | CSR: `data.csr` (+ `queries.csr` / `results.gt`) | `queries.csr` / `results.gt` |
 | `npy` | one 2-D float `.npy` — dense vectors only | — |
+| `multivector` | directory of `vectors.npy` (flat sub-vectors) + `offsets.npy` — ColBERT-style; the vector needs a `multivector:` block, whose `count` is then ignored | — |
 | `parquet` | payload rows only | — |
 
-h5/tar/sparse are *bundles* (one artifact yields vectors+payloads+queries);
-npy/parquet are *components* paired row-by-row in one config (row *i* of each
-source lands on point *i*; upload stops at the smallest source, like `zip`).
+h5/tar/sparse are *bundles* (one artifact yields vectors + payloads + queries);
+npy/multivector/parquet are *components* paired row by row in one config (row
+*i* of each source lands on point *i*; upload stops at the smallest source,
+like `zip`). Directory formats must be linked as `.tgz` / `.tar.gz`.
 
-Downloaded on first use into `./datasets/` — override with **`BFB_DATASETS_DIR`**.
-An optional `datasets.json` registry there enables name-only shorthand, but
-**bfb eagerly parses the whole registry file and dies on entries it doesn't
-model** (e.g. vector-db-benchmark's `jsonl` datasets). Point
-`BFB_DATASETS_DIR` at a registry-free directory of symlinks and spell out
-`name`/`format`/`path`/`link` inline in the YAML.
+Downloads land in `./datasets/` relative to the cwd — override with
+**`BFB_DATASETS_DIR`**. An optional `datasets.json` in that directory enables
+name-only shorthand, but bfb parses the **whole** file eagerly every time it
+opens a dataset and fails on any entry it does not model (vector-db-benchmark's
+own `datasets.json` contains `jsonl` datasets, for instance). So never point
+`BFB_DATASETS_DIR` at a vector-db-benchmark checkout: use a directory without a
+registry and spell out `name` / `format` / `path` / `link` inline.
 
-Known-good datasets (all cosine):
+Known-good `tar` datasets, all cosine, all under
+`https://storage.googleapis.com/ann-filtered-benchmark/datasets/` (`path` is
+what the archive extracts to, relative to the datasets dir):
 
-| name | format | corpus | queries | link |
+| `name` | link file · `path` | corpus | queries / GT depth | notes |
 |---|---|---|---|---|
-| dbpedia-openai-100K-1536-angular | tar | 100k × 1536 | 5,000, GT depth 10 | `https://storage.googleapis.com/ann-filtered-benchmark/datasets/dbpedia_openai_100K.tgz` — path `dbpedia-openai-100K-1536-angular/dbpedia_openai_100K` |
-| cohere-wiki-1m | tar | 1M × 768 | 999, GT depth 100 | `…/ann-filtered-benchmark/datasets/cohere-wiki-1m.tgz` — path `cohere-wiki-1m/cohere_wiki_1m` |
-| h-and-m-2048-angular(-filters) | tar | 105,100 × 2048 + 24 payload fields | (use no-filters set) | `…/ann-filtered-benchmark/datasets/hnm.tgz` — path `h-and-m-2048-angular/hnm` |
-| h-and-m-2048-angular-no-filters | tar | same vectors | 10,000 unfiltered, GT depth 10 | `…/ann-filtered-benchmark/datasets/hnm_no_filters.tgz` — path `h-and-m-2048-angular-no-filters/hnm_no_filters` |
-| glove-25-angular | h5 | 25-d corpus | h5 `test`/`neighbors` | `http://ann-benchmarks.com/glove-25-angular.hdf5` (any ann-benchmarks .hdf5 works the same way) |
-| laion-small-clip | tar | 512-d + payloads | — | `…/ann-filtered-benchmark/datasets/laion-small-clip.tgz` |
-| LAION-400M | npy + parquet, 410 parts | ~407M × 512 | — | see `examples/upload-laion-400m.yaml` |
+| dbpedia-openai-100K-1536-angular | `dbpedia_openai_100K.tgz` · `dbpedia-openai-100K-1536-angular/dbpedia_openai_100K` | 100,000 × 1536 | 5,000 / 10 | unfiltered |
+| dbpedia-openai-1M-1536-angular | `dbpedia_openai_1M.tgz` · `dbpedia-openai-1M-1536-angular/dbpedia_openai_1M` | 975,000 × 1536 | 5,000 / 10 | unfiltered |
+| cohere-wiki-1m | `cohere-wiki-1m.tgz` · `cohere-wiki-1m/cohere_wiki_1m` | 999,999 × 768 | 999 / 100 | unfiltered; 9 payload fields |
+| h-and-m-2048-angular | `hnm.tgz` · `h-and-m-2048-angular/hnm` | 105,100 × 2048 | 10,000 / 25 | **every query filtered**: one keyword `match` on one of ten `*_name` fields (below); 24 payload fields in total |
+| h-and-m-2048-angular-no-filters | `hnm_no_filters.tgz` · `h-and-m-2048-angular-no-filters/hnm_no_filters` | same vectors | 10,000 / 10 | unfiltered; no payloads |
+| laion-small-clip | `laion-small-clip.tgz` · `laion-small-clip/laion-small-clip` | 512-d + payloads | 5,000, half carry a `range` condition on `similarity` | `examples/upload-laion-small-clip.yaml` |
 
-bfb ships no dataset catalog of its own — working `source:` blocks to copy
-live in `examples/*.yaml`, and the full dataset catalog is vector-db-benchmark's
-`datasets.json` (linked from bfb's README).
+For h-and-m-2048-angular, upload with `payload.source` and index these as
+`type: keyword`: colour_group_name, department_name, garment_group_name,
+graphical_appearance_name, index_group_name, perceived_colour_master_name,
+perceived_colour_value_name, product_group_name, product_type_name,
+section_name. To find the filtered fields of any other `tar` set, inspect the
+`conditions` in its `tests.jsonl`.
+
+Other shapes: `glove-25-angular` (h5, `http://ann-benchmarks.com/glove-25-angular.hdf5`,
+any ann-benchmarks `.hdf5` works the same way; `examples/upload-dataset-config.yaml`)
+and LAION-400M (410 npy + parquet parts, ~407M × 512; `examples/upload-laion-400m.yaml`).
 
 ### Sharded corpora (`parts:`) and streaming
 
@@ -290,16 +302,17 @@ source:
   name: laion-400m-img-emb
   format: npy
   parts: { count: 410, start: 0, path: "laion/img_emb_{i}.npy", link: "https://…/img_emb_{i}.npy" }
-                          # NB: quote {i} templates inside flow mappings — bare {i}
+                          # NB: quote {i} templates inside flow mappings — a bare {i}
                           # breaks flow-style YAML (block style needs no quotes)
-  cache: evict            # keep (default) | evict — evict streams: prefetch next part,
+  cache: evict            # keep (default) | evict — evict streams: prefetch the next part,
                           # delete passed parts (only ones bfb downloaded itself)
 ```
 
 Part row counts are measured (one ranged HTTP request per part, cached in
-`datasets/.parts-index/`), never configured. `--offset N` resumes an
-interrupted upload (skips N rows and ids). `parts` is mutually exclusive with
-`path`/`link` and only valid for npy/parquet; `cache: evict` only with `parts`.
+`datasets/.parts-index/`), never configured; the host must honour `Range`
+requests. `--offset N` resumes an interrupted upload (skips N rows and ids).
+`parts` is mutually exclusive with `path` / `link` and only valid for
+npy/parquet; `cache: evict` only with `parts`.
 
 ## Search config
 
@@ -307,7 +320,7 @@ interrupted upload (skips N rows and ids). `parts` is mutually exclusive with
 collection:
   name: benchmark             # must match the uploaded collection
 
-requests:                     # templates; ONE picked at random per batch
+requests:                     # templates; ONE picked at random per request (batch)
   - kind: dense
     using: image              # omit for the unnamed default vector
     size: 1024                # required for random source; dataset/file sources define the dimension
@@ -318,7 +331,7 @@ requests:                     # templates; ONE picked at random per batch
         type: keyword
         source: { type: random, cardinality: 100 }
         match_any: null       # keyword: match any of N random values
-        match_prefix: null    # keyword: prefix of N chars; needs index built with
+        match_prefix: null    # keyword: prefix of N chars; needs an index built with
                               # prefix: true; takes precedence over match_any
   - kind: sparse
     using: bm25               # required
@@ -328,32 +341,50 @@ requests:                     # templates; ONE picked at random per batch
                               # conditions (multi-tenant); needs modifier: idf on the vector
 ```
 
-Integer filter conditions are one-sided — `field >= x` with x drawn from
-[min, max) per request; widen the range to make them more selective. Filter
-`source`/`type` reuse the payload vocabulary above.
+Filter `source` / `type` reuse the payload vocabulary above, but the generated
+condition depends on the type: keyword → `match` one random value (`match_any`,
+`match_prefix` as above) · integer → one-sided `field >= x`, x uniform in
+[min, max) — widen the range to make it more selective · float → always
+`field >= 0` (`min` / `max` ignored) · bool → random with `true_ratio` · geo →
+radius 1–50 km around a random point · text → full-text match of a few random
+words · uuid → a fresh random UUID (matches nothing) · datetime → no condition
+at all.
 
 ## Measuring recall on real data
 
-Give a request a dataset query source; bfb then reads the dataset's *query
-set* (preloaded into memory at startup, off the timed path), issues each query
-via an advancing cursor (wraps modulo the set size), and scores returned ids
-against the ground truth. Recall = `|found ∩ expected[:limit]| / limit`,
-reported on stdout under `--- Precision ---` (label says `precision@10` but it
-is recall at `--search-limit`) and in `results.search.precision` ({avg, p50}).
+Give a request a dataset query source. bfb loads the dataset's *query set*
+into memory at startup (off the timed path), hands out queries through an
+advancing cursor (wrapping modulo the set size), and scores the returned ids
+against the ground truth. Reported on stdout under `--- Precision ---` (the
+label always reads `precision@10`, whatever the limit) and in
+`results.search.precision` (`{avg, p50}`).
 
-Requirements & caveats:
+Recall = `|returned ∩ GT[:k]| / k` with **k = min(--search-limit, GT depth)**:
 
-- Corpus must be uploaded with `id: integer` (default) so point id == dataset
-  row index. `id: uuid` silently gives recall 0.
-- Make `-n` a multiple of the query-set size (dbpedia 5,000; H&M 10,000;
-  cohere-wiki-1m 999) so every rep issues each query equally often and recall
-  is comparable.
-- Recall is only meaningful up to the GT depth: dbpedia and H&M ship 10 GT ids
-  per query, so at `--search-limit 100` recall caps at 0.10 by construction
-  (timings still valid). cohere-wiki-1m ships 100.
-- No dataset GT? `--search-quality` re-runs each query with `exact: true` and
-  scores the approximate result against it (works in any mode; forces the main
-  query approximate even with `--search-exact`).
+- At `--search-limit ≤ GT depth` this is recall@limit, comparable with
+  vector-db-benchmark.
+- Above the GT depth the denominator stays at the GT depth, so the number
+  becomes "how many of the true top-k appear anywhere in the returned `limit`"
+  — inflated, not recall@limit. Keep the limit at or below the GT depth (10 for
+  dbpedia and H&M-no-filters, 25 for H&M, 100 for cohere-wiki-1m) whenever the
+  recall figure matters; timings stay valid either way.
+
+Requirements and caveats:
+
+- The corpus must be uploaded with `id: integer` (default) so point id ==
+  dataset row. `id: uuid` silently gives recall 0.
+- Make `-n` a multiple of the query-set size so every rep issues each query
+  equally often and recall is comparable across reps.
+- **Filtered query sets** (`tests.jsonl` rows with non-empty `conditions`, e.g.
+  h-and-m-2048-angular, laion-small-clip): bfb applies each query's own
+  conditions (`and` → must, `or` → should, over `match` / `range` / `geo`)
+  because the ground truth assumes them, and ignores any `filters:` block on
+  that request. The corpus must then be uploaded with `payload.source` and the
+  filtered fields indexed under `fields:`, otherwise recall collapses. bfb
+  prints how many queries carry conditions when it opens the set.
+- Dataset without ground truth? `--search-quality` re-runs each query with
+  `exact: true` and scores the approximate result against it (works in any
+  mode; forces the main query approximate even with `--search-exact`).
 
 ## Scroll config
 
@@ -367,34 +398,47 @@ requests:
   - filters: [ { name: color, type: keyword, source: { type: random, cardinality: 100 } } ]
 ```
 
-CLI still controls `-n`, `-p`, `--search-limit` (page size),
+The CLI still controls `-n`, `-p`, `--search-limit` (page size),
 `--search-with-payload`. Results land in `results.scroll`.
+
+## Serverless mode
+
+`bfb serverless` spreads traffic over `--collections-count` collections named
+`<--collection-prefix>0…` (`--distribution uniform|zipf`), created lazily from
+an upload YAML — only vectors and payload indexes are applied; HNSW,
+quantization and on-disk knobs are ignored. A `--uri` without a port defaults
+to 443; auth via `QDRANT_API_KEY`. `upload` needs `--file` / `--example`
+(upload schema) and `--total-points` (falls back to `-n`); `query` takes an
+optional search YAML and otherwise derives random dense/sparse queries from
+the first collection's config; `list` and `clear` act on the prefix. Point ids
+are contiguous across collections, so a dataset source gives every collection
+a different slice. Details: README, `bfb serverless <cmd> --help`.
 
 ## Results
 
 `--json out.json` writes one document per run: `config` (bfb version,
-collection, counts, parallelism…) + `results.{upload,index,search,scroll}` —
-only phases that ran. Search/scroll phases contain `duration_secs`,
-`server_timings[]`, `full_timings[]`, `rps[]`, `qps[]` (qps counts queries,
-rps requests; equal at batch 1), precomputed `server_time` / `request_time`
-summaries `{min, avg, p50, p95, max}`, and `precision {avg, p50}` when
-measured. Upload: `{duration_secs, num_points, points_per_sec}`; index:
-`{wait_secs}`. (Top-level `server_timings`/`rps`/`full_timings` mirrors are
-deprecated back-compat.) Typical extraction:
+collection, `-n`, `-b`, `-p`, `-t`, `--rps`, config file) + `results.{upload,
+index, search, scroll}` — only phases that ran. Search/scroll phases contain
+`duration_secs`, `server_timings[]`, `full_timings[]`, `rps[]`, `qps[]` (qps
+counts queries, rps requests; equal at batch 1), precomputed `server_time` /
+`request_time` summaries `{min, avg, p50, p95, max}`, and `precision {avg,
+p50}` when measured. Upload: `{duration_secs, num_points, points_per_sec}`;
+index: `{wait_secs}`. Top-level `server_timings` / `rps` / `full_timings`
+mirrors are deprecated back-compat. Typical extraction:
 
 ```bash
 jq '.results.search | {qps: .qps, server_avg: .server_time.avg, p95: .server_time.p95, recall: .precision.avg}' out.json
 ```
 
 `server_time` is Qdrant's reported per-request time; `request_time` includes
-client+network. Under contention compare **avg server_time** across builds;
+client + network. Under contention compare **avg server_time** across builds;
 sanity-check saturation with `qps × request_p50 ≈ -p`.
 
 ## Recipe: real-data benchmark end to end
 
-A complete, copyable pair for dbpedia with binary quantization — quantized set
-in RAM (`always_ram: true`), f32 originals on disk, rescore off at search time
-⇒ pure 1-bit scoring. `upload.yaml`:
+A complete, copyable pair for dbpedia-100K with binary quantization —
+quantized vectors in RAM (`always_ram: true`), f32 originals on disk, rescore
+off at search time ⇒ pure 1-bit scoring. `upload.yaml`:
 
 ```yaml
 collection:
@@ -415,7 +459,7 @@ collection:
         link: https://storage.googleapis.com/ann-filtered-benchmark/datasets/dbpedia_openai_100K.tgz
 ```
 
-`search.yaml` — same dataset as the query source, so recall is measured:
+`search.yaml` — the same dataset as query source, so recall is measured:
 
 ```yaml
 collection:
@@ -431,58 +475,38 @@ requests:
 ```
 
 ```bash
-# 0. Serve the Qdrant build under test on 127.0.0.1:6334 — use the IP, not
-#    `localhost` (which may resolve to ::1).
 # 1. Upload once — --create-if-missing so reruns never clobber the collection
-#    (the dataset downloads into ./datasets on first use):
-bfb upload --file upload.yaml --uri http://127.0.0.1:6334 \
-  --create-if-missing -b 128 -p 8 -t 8
+#    (the dataset downloads into ./datasets on first use; omit -n for the full corpus):
+bfb upload --file upload.yaml --create-if-missing -b 128 -p 8 -t 8
 
-# 2. Warmup rep (discard), then measured reps
-#    (-n = a multiple of dbpedia's 5,000-query set):
-bfb search --file search.yaml --uri http://127.0.0.1:6334 \
-  -n 5k -p 1 -t 1 --search-limit 10 --search-hnsw-ef 100 \
+# 2. One warmup rep (discard), then measured reps.
+#    -n 5k = dbpedia's 5,000-query set, once; --search-limit 10 = its GT depth:
+bfb search --file search.yaml -n 5k -p 1 -t 1 --search-limit 10 --search-hnsw-ef 100 \
   --quantization-rescore false --json rep1.json
 ```
 
-The tracked `examples/` configs show the same flow for other shapes:
-`upload-dataset-config.yaml` + `search-dataset-accuracy.yaml` (glove recall
-pair), `upload-laion-part.yaml` / `upload-laion-400m.yaml` (npy+parquet,
-sharded), `simple-hybrid.yaml` (dense+sparse).
-
-## Recipe: A/B-compare two Qdrant builds
-
-Run one side at a time against whichever build currently serves 6334, restart
-the server with the other build, run the second side, then compare. A
-methodology that gives trustworthy deltas:
-
-- Cells: {light: limit 10 / ef 100, heavy: limit 100 / ef 512} × {single:
-  `-p 1 -t 1`, contended: e.g. `-p 32`, with `-t` sized to the machine's
-  cores}.
-- One discarded warmup rep per cell, then several measured reps (more under
-  contention — e.g. 3 single / 5 contended); `-n` a multiple of the query-set
-  size in every rep.
-- Record per side, before running: server version+commit and the server
-  binary's path+md5 (the side label proves nothing), plus the collection info
-  from the REST port (`curl :6333/collections/<name>`), so sides can't be
-  mixed up after the fact.
-- Pull per rep from `--json`: median `qps` and `server_time.avg/p50/p95` +
-  `precision.avg`. Compare sides on `server_time` (always) and qps (only where
-  the saturation check above passes); recall must be identical across sides.
+The built-in examples show the same flow for other shapes:
+`upload-dataset-config` + `search-dataset-accuracy` (glove recall pair),
+`upload-laion-small-clip` (tar with payload + filtered query set),
+`upload-laion-part` / `upload-laion-400m` (npy + parquet, sharded),
+`simple-hybrid` (dense + sparse).
 
 ## Common mistakes
 
 | Mistake | Reality |
 |---|---|
-| Runtime knobs (`uri`, `parallel`, `batch_size`, `search_limit`…) in YAML | Hard parse error. Shape in YAML, how on CLI. |
-| Inventing schema keys (`hnsw_config:`, `quantization_config:`, top-level `dataset:`) | `deny_unknown_fields` rejects them. Run `bfb schema`, copy `examples/*.yaml`. |
+| Runtime knobs (`uri`, `parallel`, `batch_size`, `search_limit`…) in YAML | Hard parse error. Shape in YAML, how on the CLI. |
+| Inventing schema keys (`hnsw_config:`, `quantization_config:`, top-level `dataset:`) | `deny_unknown_fields` rejects them. Run `bfb schema`, copy from `bfb examples`. |
 | `bfb upload` on an existing collection without `--create-if-missing` | Deletes and recreates it. |
-| `BFB_DATASETS_DIR` → dir with a foreign `datasets.json` | bfb dies parsing the registry even when it isn't needed. Registry-free dir. |
-| Expecting a `report_recall`-style switch | Recall is automatic when the request `source` is `type: dataset` (and upload used `id: integer`). |
-| Recall = 0 | `id: uuid` upload, wrong collection name, or corpus/query-set mismatch. |
-| `match_prefix` filter fails | Keyword index must be created with `prefix: true`. |
-| `idf_corpus` has no effect | Sparse vector needs `modifier: idf`. |
-| Assuming rescore is on by default | bfb sends rescore=false unless `--quantization-rescore true`. |
+| Passing `--collection-name`, `--shards`, `--quantization` … to `bfb upload/search` | Legacy-only; rejected or ignored. Put them in the YAML. |
+| `--indexed-only`, `--quantization-rescore`, `--absolute-time` without a value | They take an explicit `true` / `false`. |
+| `BFB_DATASETS_DIR` → a directory with a foreign `datasets.json` | bfb fails parsing the registry even when it isn't needed. Use a registry-free dir. |
+| Expecting a `report_recall`-style switch | Recall is automatic when the request `source` is `type: dataset` (and the upload used `id: integer`). |
+| Recall = 0 | `id: uuid` upload, wrong collection name, or corpus / query-set mismatch. |
+| Low recall on a filtered dataset (H&M, laion-small-clip) | The queries' own conditions are applied; the payload must be uploaded (`payload.source`) and the filtered fields indexed. |
+| Reading recall at `--search-limit` > GT depth as recall@limit | Denominator is the GT depth, so the number is inflated. Keep the limit ≤ GT depth. |
 | `-n` not a multiple of the query-set size | Reps see different query mixes; recall not comparable. |
-| `--uri http://localhost:6334` | May resolve to ::1; use `http://127.0.0.1:6334`. |
-| Judging recall at limit > GT depth | Capped by construction (dbpedia & H&M GT@10 ⇒ ≤0.10 at limit 100). |
+| Assuming rescore is on by default | bfb sends rescore = false unless `--quantization-rescore true`. |
+| `match_prefix` filter fails | The keyword index must be created with `prefix: true`. |
+| `idf_corpus` has no effect | The sparse vector needs `modifier: idf`. |
+| Connection refused on `http://localhost:6334` while Qdrant is up | Qdrant binds IPv4 by default and `localhost` may resolve to `::1`; use `http://127.0.0.1:6334`. |
