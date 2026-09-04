@@ -754,26 +754,3 @@ docker run -it --rm -e QDRANT_API_KEY='X3CXTPlA....lLZi8y5gA' qdrant/bfb:dev ./b
 ./bfb --json out.json ...
 cat out.json | jq '[.rps, .server_timings, .full_timings] | first | @csv' >> out.csv
 ```
-
-## Shell Completion
-
-BFB supports shell completion for command-line arguments and options. The completion feature is available through a hidden `complete` command.
-
-To install completion scripts for your shell:
-
-```bash
-# Install completion for your current shell (auto-detected)
-bfb complete
-
-# Install completion for a specific shell
-bfb complete --shell bash
-bfb complete --shell fish
-bfb complete --shell zsh
-
-# Print completion script to stdout (useful for manual installation)
-bfb complete --print --shell bash
-```
-
-The completion script will be automatically installed to the appropriate location for your shell. Unless you request them printed to stdout.
-
-After installation, restart your shell or source your shell configuration file to enable completions.
