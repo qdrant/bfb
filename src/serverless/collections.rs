@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
-use qdrant_client::serverless::{CollectionConfig, CollectionSummary, QdrantServerless};
+use qdrant_client::serverless::{
+    CollectionConfig, CollectionSummary, ListCollectionsBuilder, QdrantServerless,
+};
 use tokio::sync::Mutex as AsyncMutex;
 
 /// Name of the `i`-th collection under `prefix` (`benchmark-` + `0` → `benchmark-0`).
@@ -13,19 +15,37 @@ pub fn collection_name(prefix: &str, index: usize) -> String {
     format!("{prefix}{index}")
 }
 
+/// Largest page the serverless `ListCollections` API allows.
+const LIST_PAGE_SIZE: u32 = 100;
+
 /// All collections currently in the space whose name starts with `prefix`,
-/// sorted by name.
+/// sorted by name. Walks every page of the paginated listing.
 pub async fn list_matching(
     client: &QdrantServerless,
     prefix: &str,
 ) -> Result<Vec<CollectionSummary>> {
-    let mut summaries: Vec<CollectionSummary> = client
-        .list_collections()
-        .await
-        .context("list_collections")?
-        .into_iter()
-        .filter(|c| c.collection_name.starts_with(prefix))
-        .collect();
+    let mut summaries: Vec<CollectionSummary> = Vec::new();
+    let mut offset_token: Option<String> = None;
+    loop {
+        let mut request = ListCollectionsBuilder::new().limit(LIST_PAGE_SIZE);
+        if let Some(token) = offset_token.take() {
+            request = request.offset_token(token);
+        }
+        let page = client
+            .list_collections(request)
+            .await
+            .context("list_collections")?;
+        summaries.extend(
+            page.collections
+                .into_iter()
+                .filter(|c| c.collection_name.starts_with(prefix)),
+        );
+        match page.next_offset_token {
+            // Guard against a server that echoes an empty token for "no more pages".
+            Some(token) if !token.is_empty() => offset_token = Some(token),
+            _ => break,
+        }
+    }
     summaries.sort_by(|a, b| a.collection_name.cmp(&b.collection_name));
     Ok(summaries)
 }
