@@ -1,6 +1,6 @@
 //! Cross-reference a search config against the upload config it runs on.
 
-use super::cross_check::check_filter;
+use super::cross_check::{check_collection_name, check_filter};
 use crate::config::search::{SearchConfig, SearchRequestConfig};
 use crate::config::vector::{SparseVectorConfig, VectorSource};
 use crate::config::{ModifierKind, UploadConfig};
@@ -13,6 +13,7 @@ pub fn check_search_against_upload(
 ) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     let c = &upload.collection;
+    check_collection_name(upload, &search.collection.name, "search", &mut out);
     // A whole-payload dataset source loads fields bfb can't see, so a filter on
     // an undeclared field isn't necessarily matching nothing.
     let has_payload_source = c.payload.source.is_some();

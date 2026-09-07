@@ -117,72 +117,15 @@ lists them all.
 
 ## Upload config (collection shape)
 
-Single top-level key `collection:`. Every section except at least one of
-`vectors` / `sparse_vectors` is optional. Values below are examples, not
-defaults — `bfb schema` has the defaults; the comments here add what it does
-not spell out:
-
-```yaml
-collection:
-  name: benchmark
-  id: integer                 # integer (default) | uuid — integer ⇒ point id = dataset row (needed for recall)
-  on_disk_payload: true
-  shard_number: null
-  replication_factor: 1
-  write_consistency_factor: 1
-  sharding: { method: custom, key: tenant-a }   # creates shard key `tenant-a`; all upserts go to it
-
-  hnsw: { m: 16, payload_m: null, ef_construct: 100, full_scan_threshold: null,
-          on_disk: false, inline_storage: false, memory: null }
-  optimizers: { default_segment_number: 2, indexing_threshold: null, memmap_threshold: null,
-                max_segment_size: null,            # bigger segments search faster, index slower
-                deleted_threshold: null, vacuum_min_vector_number: null,
-                prevent_unoptimized: false }   # true ⇒ Qdrant hides new points until their segment is
-                                               # optimized; with --wait-on-upsert each upsert blocks until then
-
-  quantization:               # collection-wide; also settable per dense vector
-    type: binary              # none | scalar | binary | binary-2bit | binary-1.5bit |
-                              # turbo-1bit | turbo-1.5bit | turbo-2bit | turbo-4bit |
-                              # product-x4 | -x8 | -x16 | -x32 | -x64
-    always_ram: true          # default false
-    memory: null              # cold | cached | pinned — supersedes always_ram
-
-  vectors:                    # at most ONE entry may omit `name`; with 2+ entries all must be named
-    - name: image
-      size: 1024              # required; for dataset sources it must equal the dataset dimension (bfb does not cross-check)
-      distance: cosine        # cosine | dot | euclid | manhattan
-      datatype: float32       # float32 | float16 | uint8 | turbo4 (Qdrant 1.19+)
-      on_disk: true
-      memory: null            # cold | cached (dense storage cannot be pinned)
-      multivector: { comparator: max_sim, count: 4 }
-      quantization: null      # same shape as collection.quantization
-      source: random          # see Sources
-
-  sparse_vectors:
-    - name: bm25              # required; names unique across dense AND sparse
-      datatype: float32       # float32 | float16 | uint8
-      on_disk: false
-      memory: null            # cold | cached | pinned (inverted index)
-      modifier: none          # none | idf — idf required for BM25 scoring and for search idf_corpus
-      source: { type: random, vocab_size: 100000, length: 100, distribution: zipf }
-
-  payload:
-    memory: null              # cold | cached — supersedes on_disk_payload
-    source: null              # whole-payload dataset source, see below
-
-  fields:                     # payload fields: value generation and/or index declaration
-    - name: color
-      type: keyword           # keyword | integer | float | bool | uuid | geo | text | datetime
-      index: true             # default true; false ⇒ unindexed filler payload
-      on_disk: false
-      memory: null            # field-index placement
-      is_tenant: false        # keyword/uuid
-      is_principal: false     # integer/float/datetime
-      range_index: true       # integer only
-      prefix: false           # keyword only; required for search match_prefix filters
-      tokenizer: null         # text only: word (default) | whitespace | prefix | multilingual
-      source: { type: random, cardinality: 100 }
-```
+Single top-level key `collection:`; every section except at least one of
+`vectors` / `sparse_vectors` is optional. **Run `bfb schema` for the complete,
+authoritative shape — every field, its type, default, and allowed enum values,
+printed as valid YAML. Don't reproduce or memorize it here: unknown keys are
+hard parse errors, so ground every upload config in that command's output** and
+copy a working starting point from `bfb examples`. The notes in this section
+cover only what `bfb schema` does not spell out — starting with the one field
+recall depends on, `collection.id`: keep it `integer` (the default) so a point's
+id equals its dataset row; `id: uuid` silently gives recall 0.
 
 `memory:` everywhere is RAM placement (Qdrant 1.19+): `cold` load on demand,
 `cached` pre-warmed disk cache (evictable), `pinned` never evicted. It

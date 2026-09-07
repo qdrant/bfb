@@ -1,10 +1,36 @@
 //! Shared payload-filter check, used by both the search and scroll
 //! cross-references.
 
-use crate::config::PayloadType;
 use crate::config::payload::PayloadConfig;
 use crate::config::search::FilterPayloadConfig;
+use crate::config::{PayloadType, UploadConfig};
 use crate::validate::Diagnostic;
+
+/// Warn when the search / scroll config targets a different collection than the
+/// upload config creates. When both files are validated together they are meant
+/// as a pair, so a differing name is almost always a typo that would silently
+/// run against the wrong (or an empty) collection. It's a **warning**, not an
+/// error, because searching a separate, pre-existing collection is occasionally
+/// intentional.
+pub(super) fn check_collection_name(
+    upload: &UploadConfig,
+    target_name: &str,
+    role: &'static str,
+    out: &mut Vec<Diagnostic>,
+) {
+    if upload.collection.name != target_name {
+        out.push(Diagnostic::warning(
+            role,
+            "collection.name",
+            format!(
+                "targets collection {target_name:?}, but the upload config creates \
+                 {upload_name:?} — the {role} will run against a different collection than the \
+                 upload populates (a name typo silently yields empty results / recall 0)",
+                upload_name = upload.collection.name,
+            ),
+        ));
+    }
+}
 
 /// Check one payload filter condition against the upload config's declared
 /// fields. Every problem here is a **warning**, not an error: Qdrant tolerates
@@ -191,7 +217,7 @@ mod tests {
             "collection:\n  vectors:\n    - size: 8\n  payload:\n    source:\n      type: dataset\n      dataset:\n        name: d\n        format: tar\n        path: d/d\n        link: https://example.com/d.tgz\n  fields:\n    - name: similarity\n      type: float\n",
         );
         let se = search(
-            "collection:\n  name: c\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: url\n        type: keyword\n",
+            "collection:\n  name: benchmark\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: url\n        type: keyword\n",
         );
         let warns = warnings(&check_search_against_upload(&up, &se));
         assert_eq!(warns.len(), 1, "{warns:?}");
@@ -211,7 +237,7 @@ mod tests {
             "collection:\n  vectors:\n    - size: 8\n  fields:\n    - name: color\n      type: keyword\n",
         );
         let se = search(
-            "collection:\n  name: c\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: shape\n        type: keyword\n",
+            "collection:\n  name: benchmark\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: shape\n        type: keyword\n",
         );
         let warns = warnings(&check_search_against_upload(&up, &se));
         assert_eq!(warns.len(), 1, "{warns:?}");
@@ -280,7 +306,7 @@ mod tests {
             "collection:\n  vectors:\n    - size: 8\n  fields:\n    - name: id\n      type: uuid\n",
         );
         let se = search(
-            "collection:\n  name: c\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: id\n        type: uuid\n",
+            "collection:\n  name: benchmark\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: id\n        type: uuid\n",
         );
         let diags = check_search_against_upload(&up, &se);
         assert!(errors(&diags).is_empty(), "{diags:?}");
@@ -299,7 +325,36 @@ mod tests {
             "collection:\n  vectors:\n    - size: 8\n  fields:\n    - name: color\n      type: keyword\n",
         );
         let se = search(
-            "collection:\n  name: c\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: color\n        type: keyword\n",
+            "collection:\n  name: benchmark\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: color\n        type: keyword\n",
+        );
+        assert!(check_search_against_upload(&up, &se).is_empty());
+    }
+
+    // ---- collection-name mismatch between the upload and the search config --
+
+    #[test]
+    fn collection_name_mismatch_is_warning() {
+        let up = upload("collection:\n  name: uploaded\n  vectors:\n    - size: 8\n");
+        let se = search(
+            "collection:\n  name: searched\nrequests:\n  - kind: dense\n    size: 8\n",
+        );
+        let diags = check_search_against_upload(&up, &se);
+        assert!(errors(&diags).is_empty(), "{diags:?}");
+        let warns = warnings(&diags);
+        assert_eq!(warns.len(), 1, "{warns:?}");
+        assert_eq!(warns[0].location, "collection.name");
+        assert!(
+            warns[0].message.contains("uploaded") && warns[0].message.contains("searched"),
+            "{:?}",
+            warns[0]
+        );
+    }
+
+    #[test]
+    fn matching_collection_name_is_ok() {
+        let up = upload("collection:\n  name: same\n  vectors:\n    - size: 8\n");
+        let se = search(
+            "collection:\n  name: same\nrequests:\n  - kind: dense\n    size: 8\n",
         );
         assert!(check_search_against_upload(&up, &se).is_empty());
     }

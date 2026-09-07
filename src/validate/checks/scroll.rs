@@ -1,6 +1,6 @@
 //! Cross-reference a scroll config against the upload config it runs on.
 
-use super::cross_check::check_filter;
+use super::cross_check::{check_collection_name, check_filter};
 use crate::config::UploadConfig;
 use crate::config::scroll::{ScrollConfig, ScrollRequestConfig};
 use crate::validate::Diagnostic;
@@ -13,6 +13,7 @@ pub fn check_scroll_against_upload(
     scroll: &ScrollConfig,
 ) -> Vec<Diagnostic> {
     let mut out = Vec::new();
+    check_collection_name(upload, &scroll.collection.name, "scroll", &mut out);
     let fields = &upload.collection.fields;
     let has_payload_source = upload.collection.payload.source.is_some();
     for (i, req) in scroll.requests.iter().enumerate() {
@@ -50,5 +51,16 @@ mod tests {
         assert_eq!(warns.len(), 1, "{warns:?}");
         assert_eq!(warns[0].role, "scroll");
         assert!(warns[0].message.contains("shape"));
+    }
+
+    #[test]
+    fn scroll_collection_name_mismatch_is_warning() {
+        let up = upload("collection:\n  name: uploaded\n  vectors:\n    - size: 8\n");
+        let sc = scroll("collection:\n  name: searched\nrequests:\n  - filters: []\n");
+        let diags = check_scroll_against_upload(&up, &sc);
+        let warns = warnings(&diags);
+        assert_eq!(warns.len(), 1, "{warns:?}");
+        assert_eq!(warns[0].role, "scroll");
+        assert!(warns[0].message.contains("uploaded"), "{:?}", warns[0]);
     }
 }
