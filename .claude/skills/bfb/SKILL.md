@@ -8,7 +8,10 @@ description: Use when benchmarking Qdrant with bfb — authoring or editing bfb 
 ## Overview
 
 bfb is a Rust CLI that stress-tests **Qdrant only**, over gRPC (default
-`--uri http://localhost:6334`; auth via `export QDRANT_API_KEY=...`). Build with
+`--uri http://localhost:6334` — for a local server pass
+`--uri http://127.0.0.1:6334` explicitly, since `localhost` may resolve to
+`::1` while Qdrant binds IPv4; remote targets keep their own URI. Auth via
+`export QDRANT_API_KEY=...`). Build with
 `cargo build --release` → `./target/release/bfb`; the README also covers
 prebuilt binaries and Docker.
 
@@ -30,14 +33,30 @@ YAML keys are hard parse errors** (every config struct is
 
 | Command | Does |
 |---|---|
-| `bfb upload --file cfg.yaml` (or `--example NAME`) | (Re)create the collection from the YAML shape, upload, wait for the index. **Deletes an existing collection of the same name** unless `--create-if-missing` (no-op when it exists) or `--skip-create` is passed. |
+| `bfb upload --file cfg.yaml` (or `--example NAME`) | (Re)create the collection from the YAML shape, upload, then wait until the collection reports `Green` on three consecutive 1 s polls. **Deletes an existing collection of the same name** unless `--create-if-missing` or `--skip-create` is passed — both skip only the create step; the upload still runs and upserts the same ids over the existing points. |
 | `bfb search --file cfg.yaml` | Run search templates against an existing collection. Never creates or deletes. Collection name comes from the YAML. |
 | `bfb scroll --file cfg.yaml` | Scroll / sample workload against an existing collection. |
 | `bfb serverless {upload,query,list,clear}` | Collection-per-tenant mode for Qdrant Serverless (see below). |
+| `bfb validate --upload cfg.yaml [--search s.yaml] [--scroll sc.yaml]` | Offline static check of the YAML(s), never contacts Qdrant. Cross-checks the pair (vector names/kinds/dims, filter fields vs. indexes). Exits non-zero on any **error**; warnings don't fail. |
 | `bfb schema` · `bfb examples [NAME]` | Upload-schema reference · built-in config catalog. |
 | `bfb [flags]` (no subcommand) | Legacy flag-driven pipeline: create + upload random/fbin data, optionally `--search` / `--scroll`. Search-only against an existing collection: `bfb --skip-setup --search …`. |
 
 `bfb self-update` and `bfb completions <shell>` also exist (README).
+
+## Validate before you run (hard rule)
+
+**Never `upload`/`search`/`scroll` a config that hasn't passed `bfb validate`.**
+Pass all configs a run uses together so the cross-checks fire:
+
+```bash
+bfb validate --upload upload.yaml --search search.yaml
+```
+
+- **Error → don't run.** Qdrant would reject it at runtime. Fix and re-validate.
+- **Warning → show it verbatim, then decide.** Qdrant accepts it but it's likely
+  a mistake (filter on an unindexed field, random query vs. a real-dataset
+  collection, UUID filter matching nothing). Proceed silently only if the warning
+  is clearly the experiment's objective; otherwise stop and ask before running.
 
 ## Runtime CLI flags (the "how")
 
@@ -46,8 +65,9 @@ Integers accept `k/M/G/T` (and `ki/Mi/Gi/Ti`) suffixes and `_` separators:
 
 Workload: `-n` points to upload / **queries** to run (scroll: requests; default
 100k). With dataset sources, omit `-n` on upload to load the whole dataset ·
-`--offset` start row/id — resumes an interrupted dataset upload, `-n` is capped
-by what remains · `-m/--max-id` random upserts of ids in [offset, max_id).
+`--offset` start row/id — resumes an interrupted dataset upload (pair it with
+`--create-if-missing` so the half-filled collection is kept), `-n` is capped by
+what remains · `-m/--max-id` random upserts of ids in [offset, max_id).
 
 Concurrency: `-p` in-flight requests, closed loop (default 2) · `--rps` fixed
 request rate, open loop, replaces `-p` · `-t` worker threads (default 2) · `-c`
@@ -116,7 +136,9 @@ collection:
           on_disk: false, inline_storage: false, memory: null }
   optimizers: { default_segment_number: 2, indexing_threshold: null, memmap_threshold: null,
                 max_segment_size: null,            # bigger segments search faster, index slower
-                deleted_threshold: null, vacuum_min_vector_number: null, prevent_unoptimized: false }
+                deleted_threshold: null, vacuum_min_vector_number: null,
+                prevent_unoptimized: false }   # true ⇒ Qdrant hides new points until their segment is
+                                               # optimized; with --wait-on-upsert each upsert blocks until then
 
   quantization:               # collection-wide; also settable per dense vector
     type: binary              # none | scalar | binary | binary-2bit | binary-1.5bit |
@@ -261,7 +283,9 @@ npy/multivector/parquet are *components* paired row by row in one config (row
 like `zip`). Directory formats must be linked as `.tgz` / `.tar.gz`.
 
 Downloads land in `./datasets/` relative to the cwd — override with
-**`BFB_DATASETS_DIR`**. An optional `datasets.json` in that directory enables
+**`BFB_DATASETS_DIR`**. If `<datasets dir>/<path>` already exists nothing is
+downloaded and `link` may be omitted; otherwise `link` is required. `name` is
+only a registry-lookup key and log label. An optional `datasets.json` in that directory enables
 name-only shorthand, but bfb parses the **whole** file eagerly every time it
 opens a dataset and fails on any entry it does not model (vector-db-benchmark's
 own `datasets.json` contains `jsonl` datasets, for instance). So never point
@@ -355,12 +379,16 @@ at all.
 
 Give a request a dataset query source. bfb loads the dataset's *query set*
 into memory at startup (off the timed path), hands out queries through an
-advancing cursor (wrapping modulo the set size), and scores the returned ids
+advancing cursor (starting at 0 every run, wrapping modulo the set size), and
+scores the returned ids
 against the ground truth. Reported on stdout under `--- Precision ---` (the
 label always reads `precision@10`, whatever the limit) and in
 `results.search.precision` (`{avg, p50}`).
 
-Recall = `|returned ∩ GT[:k]| / k` with **k = min(--search-limit, GT depth)**:
+Recall is scored per query as `|returned ∩ GT[:k]| / k` with
+**k = min(--search-limit, length of that query's GT list)**, then averaged.
+Filtered sets can carry lists shorter than the nominal depth; those queries are
+simply scored against fewer ids, they do not cap recall below 1.
 
 - At `--search-limit ≤ GT depth` this is recall@limit, comparable with
   vector-db-benchmark.
@@ -417,23 +445,29 @@ a different slice. Details: README, `bfb serverless <cmd> --help`.
 
 ## Results
 
-`--json out.json` writes one document per run: `config` (bfb version,
-collection, `-n`, `-b`, `-p`, `-t`, `--rps`, config file) + `results.{upload,
-index, search, scroll}` — only phases that ran. Search/scroll phases contain
-`duration_secs`, `server_timings[]`, `full_timings[]`, `rps[]`, `qps[]` (qps
-counts queries, rps requests; equal at batch 1), precomputed `server_time` /
-`request_time` summaries `{min, avg, p50, p95, max}`, and `precision {avg,
-p50}` when measured. Upload: `{duration_secs, num_points, points_per_sec}`;
-index: `{wait_secs}`. Top-level `server_timings` / `rps` / `full_timings`
-mirrors are deprecated back-compat. Typical extraction:
+`--json out.json` writes one document per run: `config {bfb_version,
+collection_name, num_vectors (= -n), batch_size, parallel, threads, rps?,
+config_file}` + `results.{upload, index, search, scroll}` — only phases that
+ran. Search/scroll phases contain `duration_secs`, the per-request series
+`server_timings[]`, `full_timings[]`, `rps[]`, `qps[]` (all arrays, one entry
+per request; the rate series sample the running progress-bar rate, so none of
+them is a scalar throughput), precomputed `server_time` / `request_time`
+summaries `{min, avg, p50, p95, max}`, and `precision {avg, p50}` when
+measured. **All timings are seconds.** Upload: `{duration_secs, num_points,
+points_per_sec}`; index: `{wait_secs}`. Top-level `server_timings` / `rps` /
+`full_timings` mirrors are deprecated back-compat. Typical extraction —
+throughput is queries ÷ phase duration, not `.qps`:
 
 ```bash
-jq '.results.search | {qps: .qps, server_avg: .server_time.avg, p95: .server_time.p95, recall: .precision.avg}' out.json
+jq '.results.search as $s | {qps: (.config.num_vectors / $s.duration_secs),
+  server_avg_s: $s.server_time.avg, p95_s: $s.server_time.p95, recall: $s.precision.avg}' out.json
 ```
 
 `server_time` is Qdrant's reported per-request time; `request_time` includes
-client + network. Under contention compare **avg server_time** across builds;
-sanity-check saturation with `qps × request_p50 ≈ -p`.
+client + network. stdout's `Avg qps` is the mean of the `qps[]` series and can
+differ from queries ÷ duration by a few percent. Under contention compare
+**avg server_time** across builds; sanity-check saturation with
+`qps × request_p50 ≈ -p`.
 
 ## Recipe: real-data benchmark end to end
 

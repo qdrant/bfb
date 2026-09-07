@@ -27,6 +27,7 @@ mod serverless;
 mod stats;
 mod upload;
 mod upsert;
+mod validate;
 
 /// Wait for the index and record how long it took.
 async fn run_wait_index(args: &Args, stopped: Arc<AtomicBool>) -> Result<IndexPhase> {
@@ -133,13 +134,14 @@ async fn run_benchmark(args: Args, stopped: Arc<AtomicBool>) -> Result<()> {
         Some(Command::Serverless(serverless_args)) => {
             return serverless::run(args, serverless_args, stopped).await;
         }
-        // `Schema` / `SelfUpdate` / `Completions` are handled before the runtime
-        // starts; `None` falls through.
+        // `Schema` / `Validate` / `SelfUpdate` / `Completions` are handled before
+        // the runtime starts; `None` falls through.
         Some(
             Command::Schema
             | Command::Examples(_)
             | Command::SelfUpdate(_)
-            | Command::Completions { .. },
+            | Command::Completions { .. }
+            | Command::Validate(_),
         )
         | None => {}
     }
@@ -185,6 +187,16 @@ fn main() {
         Some(Command::Schema) => {
             config::schema::print_schema();
             return;
+        }
+        Some(Command::Validate(validate_args)) => {
+            match validate::run(validate_args) {
+                Ok(true) => return,
+                Ok(false) => std::process::exit(1),
+                Err(err) => {
+                    eprintln!("Error: {err:?}");
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Command::Examples(examples_args)) => {
             if let Err(err) = config::examples::run(examples_args.name.as_deref()) {

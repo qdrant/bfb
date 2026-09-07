@@ -49,6 +49,16 @@ impl From<QuantizationArg> for QuantKind {
     }
 }
 
+/// Output format for `bfb validate`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, clap::ValueEnum)]
+pub enum ValidateFormat {
+    /// Human-readable diagnostics with a summary line.
+    #[default]
+    Human,
+    /// Machine-readable `{ "ok": bool, "diagnostics": [...] }` on stdout.
+    Json,
+}
+
 /// Memory placement of a component's data (Qdrant 1.19+). Data is always
 /// persisted on disk; this only controls how it is held in RAM.
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -556,6 +566,43 @@ pub enum Command {
     /// Spreads upload and query traffic across a range of collections instead
     /// of a single shared collection. See `bfb serverless --help`.
     Serverless(crate::serverless::ServerlessArgs),
+
+    /// Statically check upload / search / scroll YAML configs, offline.
+    ///
+    /// Parses each config you pass and runs its `validate()` checks, then — when
+    /// an `--upload` config is supplied alongside a `--search` or `--scroll`
+    /// config — cross-references the two (queried vector names, filter fields
+    /// and types, `match_prefix`, `idf_corpus`, dimensions). Never connects to
+    /// Qdrant. Exits non-zero if any error is found. At least one of `--upload`,
+    /// `--search`, `--scroll` is required.
+    Validate(ValidateArgs),
+}
+
+/// Config files to statically check. At least one is required; supplying more
+/// than one also runs the cross-config checks between them.
+#[derive(clap::Args, Debug, Clone)]
+#[command(group(
+    clap::ArgGroup::new("validate_roles")
+        .required(true)
+        .multiple(true)
+        .args(["upload", "search", "scroll"])
+))]
+pub struct ValidateArgs {
+    /// Path to an upload YAML config.
+    #[clap(long, value_name = "FILE")]
+    pub upload: Option<String>,
+
+    /// Path to a search YAML config.
+    #[clap(long, value_name = "FILE")]
+    pub search: Option<String>,
+
+    /// Path to a scroll YAML config.
+    #[clap(long, value_name = "FILE")]
+    pub scroll: Option<String>,
+
+    /// Output format.
+    #[clap(long, value_enum, default_value_t = ValidateFormat::Human)]
+    pub format: ValidateFormat,
 }
 
 /// `--file` or `--example` (exactly one required). Flattened into upload /
