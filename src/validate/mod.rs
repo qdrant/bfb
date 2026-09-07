@@ -33,7 +33,11 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub fn error(role: &'static str, location: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn error(
+        role: &'static str,
+        location: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Diagnostic {
             severity: Severity::Error,
             role,
@@ -96,7 +100,12 @@ fn has_errors(diagnostics: &[Diagnostic]) -> bool {
 pub fn collect(args: &ValidateArgs) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    let upload = load(args.upload.as_deref(), "upload", crate::config::parse, &mut diagnostics);
+    let upload = load(
+        args.upload.as_deref(),
+        "upload",
+        crate::config::parse,
+        &mut diagnostics,
+    );
     let search = load(
         args.search.as_deref(),
         "search",
@@ -135,7 +144,11 @@ fn load<T>(
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) => {
-            diagnostics.push(Diagnostic::error(role, path.to_string(), format!("cannot read file: {e}")));
+            diagnostics.push(Diagnostic::error(
+                role,
+                path.to_string(),
+                format!("cannot read file: {e}"),
+            ));
             return None;
         }
     };
@@ -172,7 +185,10 @@ fn render_human(diagnostics: &[Diagnostic]) -> String {
         ));
     }
 
-    let errors = diagnostics.iter().filter(|d| d.severity == Severity::Error).count();
+    let errors = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .count();
     let warnings = diagnostics.len() - errors;
     if diagnostics.is_empty() {
         out.push_str("✓ no problems found\n");
@@ -243,7 +259,10 @@ mod tests {
     fn render_human_marks_errors() {
         let diags = vec![Diagnostic::error("search", "requests[0]", "boom")];
         let text = render_human(&diags);
-        assert!(text.contains("boom") && text.contains("requests[0]"), "{text}");
+        assert!(
+            text.contains("boom") && text.contains("requests[0]"),
+            "{text}"
+        );
         assert!(text.contains("error"), "{text}");
     }
 
@@ -270,7 +289,9 @@ mod tests {
         );
         let diags = collect(&args_for(up.path().to_str(), se.path().to_str()));
         assert!(
-            diags.iter().any(|d| d.severity == Severity::Error && d.message.contains("missing")),
+            diags
+                .iter()
+                .any(|d| d.severity == Severity::Error && d.message.contains("missing")),
             "{diags:?}"
         );
     }

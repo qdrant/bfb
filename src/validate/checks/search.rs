@@ -256,11 +256,14 @@ mod tests {
     #[test]
     fn sparse_query_of_a_dense_vector_names_the_kind() {
         let up = upload("collection:\n  vectors:\n    - name: a\n      size: 8\n");
-        let se =
-            search("collection:\n  name: c\nrequests:\n  - kind: sparse\n    using: a\n");
+        let se = search("collection:\n  name: c\nrequests:\n  - kind: sparse\n    using: a\n");
         let errs = errors(&check_search_against_upload(&up, &se));
         assert_eq!(errs.len(), 1, "{errs:?}");
-        assert!(errs[0].message.contains("as a dense vector"), "{:?}", errs[0]);
+        assert!(
+            errs[0].message.contains("as a dense vector"),
+            "{:?}",
+            errs[0]
+        );
     }
 
     #[test]
@@ -273,7 +276,11 @@ mod tests {
         );
         let errs = errors(&check_search_against_upload(&up, &se));
         assert_eq!(errs.len(), 1, "{errs:?}");
-        assert!(errs[0].message.contains("as a sparse vector"), "{:?}", errs[0]);
+        assert!(
+            errs[0].message.contains("as a sparse vector"),
+            "{:?}",
+            errs[0]
+        );
     }
 
     // ---- C3: dense random `size` must equal the upload vector's dim --------
@@ -320,7 +327,9 @@ mod tests {
     #[test]
     fn random_search_against_random_upload_is_ok() {
         // Both synthetic — no real-data mismatch to warn about.
-        let up = upload("collection:\n  vectors:\n    - name: image\n      size: 25\n      source: random\n");
+        let up = upload(
+            "collection:\n  vectors:\n    - name: image\n      size: 25\n      source: random\n",
+        );
         let se = search(
             "collection:\n  name: benchmark\nrequests:\n  - kind: dense\n    using: image\n    size: 25\n    source: random\n",
         );

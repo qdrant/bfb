@@ -188,16 +188,14 @@ fn main() {
             config::schema::print_schema();
             return;
         }
-        Some(Command::Validate(validate_args)) => {
-            match validate::run(validate_args) {
-                Ok(true) => return,
-                Ok(false) => std::process::exit(1),
-                Err(err) => {
-                    eprintln!("Error: {err:?}");
-                    std::process::exit(1);
-                }
+        Some(Command::Validate(validate_args)) => match validate::run(validate_args) {
+            Ok(true) => return,
+            Ok(false) => std::process::exit(1),
+            Err(err) => {
+                eprintln!("Error: {err:?}");
+                std::process::exit(1);
             }
-        }
+        },
         Some(Command::Examples(examples_args)) => {
             if let Err(err) = config::examples::run(examples_args.name.as_deref()) {
                 eprintln!("Error: {err:?}");

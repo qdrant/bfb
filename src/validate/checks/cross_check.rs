@@ -196,7 +196,11 @@ mod tests {
         let warns = warnings(&check_search_against_upload(&up, &se));
         assert_eq!(warns.len(), 1, "{warns:?}");
         assert!(warns[0].message.contains("url"), "{:?}", warns[0]);
-        assert!(!warns[0].message.contains("match no points"), "{:?}", warns[0]);
+        assert!(
+            !warns[0].message.contains("match no points"),
+            "{:?}",
+            warns[0]
+        );
     }
 
     #[test]
@@ -211,7 +215,11 @@ mod tests {
         );
         let warns = warnings(&check_search_against_upload(&up, &se));
         assert_eq!(warns.len(), 1, "{warns:?}");
-        assert!(warns[0].message.contains("match no points"), "{:?}", warns[0]);
+        assert!(
+            warns[0].message.contains("match no points"),
+            "{:?}",
+            warns[0]
+        );
     }
 
     // ---- C5: match_prefix without prefix index is a warning (Qdrant runs it
@@ -278,7 +286,11 @@ mod tests {
         assert!(errors(&diags).is_empty(), "{diags:?}");
         let warns = warnings(&diags);
         assert_eq!(warns.len(), 1, "{warns:?}");
-        assert!(warns[0].message.to_lowercase().contains("uuid"), "{:?}", warns[0]);
+        assert!(
+            warns[0].message.to_lowercase().contains("uuid"),
+            "{:?}",
+            warns[0]
+        );
     }
 
     #[test]
