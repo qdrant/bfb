@@ -335,9 +335,7 @@ mod tests {
     #[test]
     fn collection_name_mismatch_is_warning() {
         let up = upload("collection:\n  name: uploaded\n  vectors:\n    - size: 8\n");
-        let se = search(
-            "collection:\n  name: searched\nrequests:\n  - kind: dense\n    size: 8\n",
-        );
+        let se = search("collection:\n  name: searched\nrequests:\n  - kind: dense\n    size: 8\n");
         let diags = check_search_against_upload(&up, &se);
         assert!(errors(&diags).is_empty(), "{diags:?}");
         let warns = warnings(&diags);
@@ -353,9 +351,7 @@ mod tests {
     #[test]
     fn matching_collection_name_is_ok() {
         let up = upload("collection:\n  name: same\n  vectors:\n    - size: 8\n");
-        let se = search(
-            "collection:\n  name: same\nrequests:\n  - kind: dense\n    size: 8\n",
-        );
+        let se = search("collection:\n  name: same\nrequests:\n  - kind: dense\n    size: 8\n");
         assert!(check_search_against_upload(&up, &se).is_empty());
     }
 }
