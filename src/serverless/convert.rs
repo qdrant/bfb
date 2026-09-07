@@ -45,7 +45,13 @@ pub fn to_serverless_config(upload: &UploadConfig) -> Result<CollectionConfig> {
             continue;
         }
         let index: PayloadIndex = match field.kind {
-            PayloadType::Keyword => KeywordIndex.into(),
+            PayloadType::Keyword => {
+                let mut keyword = KeywordIndex::new();
+                if field.prefix {
+                    keyword = keyword.with_prefix();
+                }
+                keyword.into()
+            }
             PayloadType::Integer => IntegerIndex::new()
                 .lookup(true)
                 .range(field.range_index)
@@ -108,5 +114,31 @@ collection:
         assert!(cfg.dense_vectors.contains_key(""));
         assert_eq!(cfg.dense_vectors[""].size, 128);
         assert!(cfg.payload_indexes.contains_key("color"));
+    }
+
+    #[test]
+    fn keyword_prefix_flag_is_forwarded() {
+        let yaml = r#"
+collection:
+  vectors:
+    - size: 4
+      distance: dot
+  fields:
+    - name: plain
+      type: keyword
+    - name: prefixed
+      type: keyword
+      prefix: true
+"#;
+        let upload = crate::config::parse(yaml, "test").unwrap();
+        let cfg = to_serverless_config(&upload).unwrap();
+        match &cfg.payload_indexes["plain"] {
+            PayloadIndex::Keyword(k) => assert!(k.prefix.is_none()),
+            other => panic!("expected keyword index, got {other:?}"),
+        }
+        match &cfg.payload_indexes["prefixed"] {
+            PayloadIndex::Keyword(k) => assert!(k.prefix.is_some()),
+            other => panic!("expected keyword index, got {other:?}"),
+        }
     }
 }
