@@ -8,8 +8,7 @@ use qdrant_client::Qdrant;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
     IdfParamsBuilder, PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query,
-    QueryBatchPointsBuilder, QueryPointsBuilder, SearchParams, SearchParamsBuilder, SparseIndices,
-    VectorInput,
+    QueryBatchPointsBuilder, QueryPointsBuilder, SearchParams, SearchParamsBuilder, VectorInput,
 };
 use rand::Rng;
 use rand::RngExt;
@@ -60,10 +59,7 @@ impl SearchProcessor {
         }
     }
 
-    fn get_sparse_queries(
-        &self,
-        rng: &mut impl Rng,
-    ) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
+    fn get_sparse_queries(&self, rng: &mut impl Rng) -> Vec<(VectorInput, Option<String>)> {
         if let Some(sparsity) = self.args.sparse_vectors {
             let name = format!(
                 "{}_sparse",
@@ -77,8 +73,7 @@ impl SearchProcessor {
                     let sparse_vector_tuples = random_sparse_vector(rng, vocab_size, length);
                     let (indices, values): (Vec<_>, Vec<_>) =
                         sparse_vector_tuples.into_iter().unzip();
-                    let sparse_indices = SparseIndices { data: indices };
-                    (values, Some(sparse_indices), Some(name.clone()))
+                    (VectorInput::new_sparse(indices, values), Some(name.clone()))
                 })
                 .collect()
         } else {
@@ -86,10 +81,7 @@ impl SearchProcessor {
         }
     }
 
-    fn get_dense_queries(
-        &self,
-        rng: &mut impl Rng,
-    ) -> Vec<(Vec<f32>, Option<SparseIndices>, Option<String>)> {
+    fn get_dense_queries(&self, rng: &mut impl Rng) -> Vec<(VectorInput, Option<String>)> {
         let name = if self.args.vectors_per_point > 1 {
             let name = random_vector_name(rng, self.args.vectors_per_point);
             Some(name)
@@ -101,11 +93,18 @@ impl SearchProcessor {
 
         (0..self.args.search_batch_size)
             .map(|_| {
-                (
-                    random_dense_vector(rng, self.args.dim, is_uint),
-                    None,
-                    name.clone(),
-                )
+                // With --multivector-size, query with as many sub-vectors as each point holds.
+                let vector = match self.args.multivector_size {
+                    Some(count) => VectorInput::new_multi(
+                        (0..count)
+                            .map(|_| random_dense_vector(rng, self.args.dim, is_uint))
+                            .collect::<Vec<_>>(),
+                    ),
+                    None => {
+                        VectorInput::new_dense(random_dense_vector(rng, self.args.dim, is_uint))
+                    }
+                };
+                (vector, name.clone())
             })
             .collect()
     }
@@ -113,8 +112,7 @@ impl SearchProcessor {
     fn create_request_builder(
         &self,
         query_filter: Option<qdrant_client::qdrant::Filter>,
-        query_vectors: Vec<f32>,
-        sparse_indices: Option<SparseIndices>,
+        vector: VectorInput,
         vector_name: Option<String>,
         search_params: SearchParamsBuilder,
     ) -> QueryPointsBuilder {
@@ -133,12 +131,6 @@ impl SearchProcessor {
         if let Some(filter) = query_filter {
             request_builder = request_builder.filter(filter);
         }
-
-        let vector = if let Some(sparse_indices) = sparse_indices {
-            VectorInput::new_sparse(sparse_indices.data, query_vectors)
-        } else {
-            VectorInput::new_dense(query_vectors)
-        };
 
         let query = Query::new_nearest(vector);
 
@@ -246,11 +238,10 @@ impl SearchProcessor {
 
         let query_points: Vec<_> = query_batch
             .into_iter()
-            .map(|(query_vectors, sparse_indices, vector_name)| {
+            .map(|(vector, vector_name)| {
                 self.create_request_builder(
                     query_filter.clone(),
-                    query_vectors,
-                    sparse_indices,
+                    vector,
                     vector_name,
                     search_params.clone(),
                 )
@@ -393,5 +384,41 @@ impl Processor for SearchProcessor {
 
     fn get_batch_size(&self) -> usize {
         self.args.search_batch_size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use qdrant_client::qdrant::vector_input::Variant;
+
+    use super::*;
+
+    fn processor(extra: &[&str]) -> SearchProcessor {
+        let mut argv = vec!["bfb", "--dim", "8"];
+        argv.extend_from_slice(extra);
+        let args = Args::parse_from(argv);
+        SearchProcessor::new(args, Arc::new(AtomicBool::new(false)), vec![], vec![])
+    }
+
+    #[test]
+    fn dense_query_without_multivector() {
+        let queries = processor(&[]).get_dense_queries(&mut rand::rng());
+        match &queries[0].0.variant {
+            Some(Variant::Dense(v)) => assert_eq!(v.data.len(), 8),
+            other => panic!("expected a dense query, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multivector_query_matches_multivector_size() {
+        let queries = processor(&["--multivector-size", "4"]).get_dense_queries(&mut rand::rng());
+        match &queries[0].0.variant {
+            Some(Variant::MultiDense(m)) => {
+                assert_eq!(m.vectors.len(), 4);
+                assert!(m.vectors.iter().all(|v| v.data.len() == 8));
+            }
+            other => panic!("expected a multivector query, got {other:?}"),
+        }
     }
 }
