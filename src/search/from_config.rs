@@ -8,8 +8,7 @@ use qdrant_client::Qdrant;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
     IdfParamsBuilder, PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query,
-    QueryBatchPointsBuilder, QueryPointsBuilder, SearchParams, SearchParamsBuilder, SparseIndices,
-    VectorInput,
+    QueryBatchPointsBuilder, QueryPointsBuilder, SearchParams, SearchParamsBuilder, VectorInput,
 };
 
 use super::{SearchStats, compare_batch_search_results, recall_against_ground_truth};
@@ -17,6 +16,7 @@ use crate::args::Args;
 use crate::client::retry_with_clients;
 use crate::config::search::SearchConfig;
 use crate::generators::ConfigSearchGenerator;
+use crate::generators::queries::GeneratedPrefetch;
 use crate::processor::{Processor, Timing};
 
 /// YAML-config-driven search (`bfb search --file config.yaml`).
@@ -37,6 +37,26 @@ impl ConfigSearchProcessor {
         stopped: Arc<AtomicBool>,
         clients: Vec<Qdrant>,
     ) -> anyhow::Result<Self> {
+        if config.has_prefetch() {
+            if args.prefetch.is_some() {
+                anyhow::bail!(
+                    "--prefetch cannot be combined with a search config that sets `prefetch`"
+                );
+            }
+            // The exact reference would rescore the same prefetched candidates.
+            if args.search_quality {
+                anyhow::bail!("--search-quality is not supported with a config `prefetch`");
+            }
+            if let Some(limit) = config.min_prefetch_limit()
+                && limit < args.search_limit as u64
+            {
+                anyhow::bail!(
+                    "`prefetch.limit` ({limit}) is below --search-limit ({}); the rescore could \
+                     not return a full page",
+                    args.search_limit
+                );
+            }
+        }
         Ok(ConfigSearchProcessor {
             args: args.clone(),
             stopped,
@@ -55,9 +75,9 @@ impl ConfigSearchProcessor {
         &self,
         query_filter: Option<qdrant_client::qdrant::Filter>,
         idf_corpus: Option<qdrant_client::qdrant::Filter>,
-        query_vectors: Vec<f32>,
-        sparse_indices: Option<SparseIndices>,
+        vector: VectorInput,
         vector_name: Option<String>,
+        prefetch: Option<GeneratedPrefetch>,
         mut search_params: SearchParamsBuilder,
     ) -> QueryPointsBuilder {
         // Sparse IDF statistics are computed over this sub-corpus instead of the
@@ -79,15 +99,21 @@ impl ConfigSearchProcessor {
             request_builder = request_builder.filter(filter);
         }
 
-        let vector = if let Some(sparse_indices) = sparse_indices {
-            VectorInput::new_sparse(sparse_indices.data, query_vectors)
-        } else {
-            VectorInput::new_dense(query_vectors)
-        };
-
         let query = Query::new_nearest(vector);
 
-        if let Some(prefetch_limit) = self.args.prefetch {
+        if let Some(prefetch) = prefetch {
+            // Two stages: the prefetch searches its own vector with the run's search params,
+            // the main query rescores its candidates.
+            let prefetch = PrefetchQueryBuilder::default()
+                .query(Query::new_nearest(VectorInput::new_dense(prefetch.vector)))
+                .using(prefetch.using)
+                .params(search_params.clone())
+                .limit(prefetch.limit)
+                .build();
+            request_builder = request_builder
+                .prefetch(vec![prefetch])
+                .params(search_params);
+        } else if let Some(prefetch_limit) = self.args.prefetch {
             let mut prefetch_params = SearchParamsBuilder::default()
                 .quantization(QuantizationSearchParamsBuilder::default().rescore(false));
 
@@ -172,21 +198,21 @@ impl ConfigSearchProcessor {
             .map(|generated| {
                 let query_filter = generated.filter.clone();
                 let idf_corpus = generated.idf_corpus.clone();
-                let (query_vectors, sparse_indices, vector_name) =
-                    if let Some((values, indices, name)) = generated.sparse {
-                        (values, Some(indices), Some(name))
-                    } else if let Some((values, name)) = generated.dense {
-                        (values, None, name)
-                    } else {
-                        panic!("search config request must produce a dense or sparse vector");
-                    };
+                let (vector, vector_name) = if let Some((values, indices, name)) = generated.sparse
+                {
+                    (VectorInput::new_sparse(indices.data, values), Some(name))
+                } else if let Some((query, name)) = generated.dense {
+                    (query.into_vector_input(), name)
+                } else {
+                    panic!("search config request must produce a dense or sparse vector");
+                };
 
                 self.create_request_builder(
                     query_filter,
                     idf_corpus,
-                    query_vectors,
-                    sparse_indices,
+                    vector,
                     vector_name,
+                    generated.prefetch,
                     search_params.clone(),
                 )
                 .build()
@@ -351,5 +377,102 @@ impl Processor for ConfigSearchProcessor {
 
     fn get_batch_size(&self) -> usize {
         self.args.search_batch_size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use qdrant_client::qdrant::query::Variant as QueryVariant;
+    use qdrant_client::qdrant::vector_input::Variant as InputVariant;
+
+    use super::*;
+    use crate::config::search::parse;
+
+    const YAML: &str = "collection:\n  name: x\nrequests:\n  - kind: dense\n    using: colbert\n    size: 8\n    multivector: { count: 4 }\n    prefetch: { using: dense, size: 6, limit: 50 }\n";
+
+    fn processor(extra: &[&str]) -> anyhow::Result<ConfigSearchProcessor> {
+        let mut argv = vec!["bfb", "--search-hnsw-ef", "64"];
+        argv.extend_from_slice(extra);
+        let config = parse(YAML, "test").unwrap();
+        ConfigSearchProcessor::new(
+            Args::parse_from(argv),
+            &config,
+            Arc::new(AtomicBool::new(false)),
+            vec![],
+        )
+    }
+
+    #[test]
+    fn builds_prefetch_then_multivector_rescore() {
+        let p = processor(&[]).unwrap();
+        let q = p.generator.make_query(0, &mut rand::rng());
+        let (query, using) = q.dense.unwrap();
+        let request = p
+            .create_request_builder(
+                None,
+                None,
+                query.into_vector_input(),
+                using,
+                q.prefetch,
+                // As search() builds it from --search-hnsw-ef.
+                SearchParamsBuilder::default().hnsw_ef(64),
+            )
+            .build();
+
+        assert_eq!(request.using.as_deref(), Some("colbert"));
+        let Some(QueryVariant::Nearest(input)) = request.query.and_then(|q| q.variant) else {
+            panic!("expected a nearest query");
+        };
+        assert!(matches!(input.variant, Some(InputVariant::MultiDense(m)) if m.vectors.len() == 4));
+
+        assert_eq!(request.prefetch.len(), 1);
+        let prefetch = &request.prefetch[0];
+        assert_eq!(prefetch.using.as_deref(), Some("dense"));
+        assert_eq!(prefetch.limit, Some(50));
+        assert_eq!(prefetch.params.as_ref().and_then(|p| p.hnsw_ef), Some(64));
+        let Some(QueryVariant::Nearest(input)) = prefetch.query.clone().and_then(|q| q.variant)
+        else {
+            panic!("expected a nearest prefetch query");
+        };
+        assert!(matches!(input.variant, Some(InputVariant::Dense(d)) if d.data.len() == 6));
+    }
+
+    #[test]
+    fn prefetch_stage_gets_the_run_search_params() {
+        let p = processor(&[]).unwrap();
+        let q = p.generator.make_query(0, &mut rand::rng());
+        let (query, using) = q.dense.unwrap();
+        let request = p
+            .create_request_builder(
+                None,
+                None,
+                query.into_vector_input(),
+                using,
+                q.prefetch,
+                SearchParamsBuilder::default().exact(true).hnsw_ef(64),
+            )
+            .build();
+        assert_eq!(
+            request.prefetch[0].params.as_ref().and_then(|p| p.exact),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn rejects_search_quality_and_short_prefetch_limit() {
+        let err = processor(&["--search-quality"]).err().unwrap().to_string();
+        assert!(err.contains("--search-quality is not supported"), "{err}");
+        let err = processor(&["--search-limit", "100"])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("below --search-limit"), "{err}");
+    }
+
+    #[test]
+    fn rejects_cli_prefetch_with_config_prefetch() {
+        let err = processor(&["--prefetch", "10"]).err().unwrap().to_string();
+        assert!(err.contains("--prefetch cannot be combined"), "{err}");
     }
 }

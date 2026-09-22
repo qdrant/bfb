@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Context;
 use qdrant_client::qdrant::{
-    Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, SparseIndices,
+    Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedStrings, SparseIndices, VectorInput,
     r#match::MatchValue,
 };
 use rand::Rng;
@@ -32,10 +32,34 @@ const GEO_SPREAD_DEG: f64 = 1.0;
 const GEO_RADIUS_METERS_MIN: f64 = 1000.0;
 const GEO_RADIUS_METERS_MAX: f64 = 50000.0;
 
+/// A dense query: one vector, or several sub-vectors for a multivector.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DenseQuery {
+    Single(Vec<f32>),
+    Multi(Vec<Vec<f32>>),
+}
+
+impl DenseQuery {
+    pub fn into_vector_input(self) -> VectorInput {
+        match self {
+            DenseQuery::Single(vector) => VectorInput::new_dense(vector),
+            DenseQuery::Multi(vectors) => VectorInput::new_multi(vectors),
+        }
+    }
+}
+
+/// The first stage of a two-stage query.
+#[derive(Debug, Clone)]
+pub struct GeneratedPrefetch {
+    pub vector: Vec<f32>,
+    pub using: String,
+    pub limit: u64,
+}
+
 /// One query vector plus optional filter, ready to be turned into a gRPC request.
 #[derive(Debug, Clone)]
 pub struct GeneratedQuery {
-    pub dense: Option<(Vec<f32>, Option<String>)>,
+    pub dense: Option<(DenseQuery, Option<String>)>,
     pub sparse: Option<(Vec<f32>, SparseIndices, String)>,
     pub filter: Option<Filter>,
     /// Sparse-vector IDF corpus: restricts which points the IDF statistics are
@@ -45,6 +69,8 @@ pub struct GeneratedQuery {
     /// when the request draws queries from a reference dataset. Used to measure
     /// search accuracy (recall) against the dataset's known answers.
     pub expected_ids: Option<Vec<u64>>,
+    /// Present for a two-stage query: its candidates are what the main query rescores.
+    pub prefetch: Option<GeneratedPrefetch>,
 }
 
 /// A reference dataset's query set, held in memory, with a cursor that hands out
@@ -492,10 +518,20 @@ impl ConfigSearchGenerator {
                 datatype,
                 source,
                 filters: _,
+                multivector,
+                prefetch,
             } => {
                 let (vector, expected_ids, dataset_filter) =
                     if let Some(query_dataset) = &state.query_dataset {
-                        Self::read_dense_query(query_dataset)
+                        let (vector, ids, filter) = Self::read_dense_query(query_dataset);
+                        (DenseQuery::Single(vector), ids, filter)
+                    } else if let Some(multivector) = multivector {
+                        // Validation allows multivector only with random queries.
+                        let is_uint = *datatype == DatatypeKind::Uint8;
+                        let vectors = (0..multivector.count)
+                            .map(|_| random_dense_vector(rng, *size as usize, is_uint))
+                            .collect();
+                        (DenseQuery::Multi(vectors), None, None)
                     } else {
                         let vector = Self::gen_dense_vector(
                             rng,
@@ -505,14 +541,24 @@ impl ConfigSearchGenerator {
                             state.dense_reader.as_ref(),
                             req_id,
                         );
-                        (vector, None, None)
+                        (DenseQuery::Single(vector), None, None)
                     };
+                let prefetch = prefetch.as_ref().map(|p| GeneratedPrefetch {
+                    vector: random_dense_vector(
+                        rng,
+                        p.size as usize,
+                        p.datatype == DatatypeKind::Uint8,
+                    ),
+                    using: p.using.clone(),
+                    limit: p.limit,
+                });
                 GeneratedQuery {
                     dense: Some((vector, using.clone())),
                     sparse: None,
                     filter: dataset_filter.or_else(|| state.filters.build(rng)),
                     idf_corpus: None,
                     expected_ids,
+                    prefetch,
                 }
             }
             SearchRequestConfig::Sparse {
@@ -537,6 +583,7 @@ impl ConfigSearchGenerator {
                     filter: dataset_filter.or_else(|| state.filters.build(rng)),
                     idf_corpus: state.idf_corpus.build(rng),
                     expected_ids,
+                    prefetch: None,
                 }
             }
         }
@@ -646,6 +693,26 @@ mod tests {
     }
 
     #[test]
+    fn generates_multivector_query_with_prefetch() {
+        let generator = build_gen(
+            "collection:\n  name: x\nrequests:\n  - kind: dense\n    using: colbert\n    size: 8\n    multivector: { count: 4 }\n    prefetch: { using: dense, size: 6, limit: 50 }\n",
+        );
+        let q = generator.make_query(0, &mut rand::rng());
+        let (query, using) = q.dense.unwrap();
+        assert_eq!(using.as_deref(), Some("colbert"));
+        match query {
+            DenseQuery::Multi(vectors) => {
+                assert_eq!(vectors.len(), 4);
+                assert!(vectors.iter().all(|v| v.len() == 8));
+            }
+            other => panic!("expected a multivector query, got {other:?}"),
+        }
+        let prefetch = q.prefetch.unwrap();
+        assert_eq!((prefetch.using.as_str(), prefetch.limit), ("dense", 50));
+        assert_eq!(prefetch.vector.len(), 6);
+    }
+
+    #[test]
     fn generates_dense_and_sparse_queries() {
         let generator = build_gen(
             "collection:\n  name: x\nrequests:\n  - kind: dense\n    size: 8\n  - kind: sparse\n    using: bm25\n    source: { vocab_size: 32, length: 6 }\n",
@@ -696,11 +763,17 @@ mod tests {
         let q0 = generator.make_query_for(0, 0, &mut rng);
         let q1 = generator.make_query_for(0, 0, &mut rng);
         let q2 = generator.make_query_for(0, 0, &mut rng);
-        assert_eq!(q0.dense.as_ref().unwrap().0, vec![0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(
+            q0.dense.as_ref().unwrap().0,
+            DenseQuery::Single(vec![0.0, 1.0, 2.0, 3.0])
+        );
         assert_eq!(q0.expected_ids, Some(vec![0, 2]));
         assert_eq!(q1.expected_ids, Some(vec![1, 2]));
         // Wrapped back to the first query.
-        assert_eq!(q2.dense.as_ref().unwrap().0, vec![0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(
+            q2.dense.as_ref().unwrap().0,
+            DenseQuery::Single(vec![0.0, 1.0, 2.0, 3.0])
+        );
         assert_eq!(q2.expected_ids, Some(vec![0, 2]));
     }
 

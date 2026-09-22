@@ -61,10 +61,13 @@ impl ServerlessQueryProcessor {
         generated: GeneratedQuery,
         collection: &str,
     ) -> Result<QueryPointsBuilder> {
+        if generated.prefetch.is_some() {
+            bail!("prefetch is not supported for serverless queries");
+        }
         let (vector, using) = if let Some((values, indices, name)) = generated.sparse {
             (VectorInput::new_sparse(indices.data, values), Some(name))
-        } else if let Some((values, name)) = generated.dense {
-            (VectorInput::new_dense(values), name)
+        } else if let Some((query, name)) = generated.dense {
+            (query.into_vector_input(), name)
         } else {
             bail!("search config request must produce a dense or sparse vector");
         };
@@ -208,6 +211,8 @@ fn infer_search_config(name: &str, config: &CollectionConfig) -> Result<SearchCo
             datatype: DatatypeKind::default(),
             source: VectorSource::Random,
             filters: Vec::new(),
+            multivector: None,
+            prefetch: None,
         });
     }
 
@@ -287,6 +292,9 @@ pub async fn run(args: &Args, query: ServerlessQueryArgs, stopped: Arc<AtomicBoo
             ExampleKind::Search,
         )?;
         let config = crate::config::search::parse(&resolved.yaml, &resolved.origin)?;
+        if config.has_prefetch() {
+            bail!("prefetch is not supported for serverless queries");
+        }
         (config, Some(resolved.origin))
     } else {
         let config = fetch_config(&clients[0], &names[0]).await?;
