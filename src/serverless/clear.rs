@@ -31,8 +31,8 @@ pub async fn run(args: &Args, clear: ServerlessClearArgs) -> Result<()> {
 
     let mut deleted = 0usize;
     for name in &names {
-        let ok = client.delete_collection(name).await?;
-        if ok {
+        let result = client.delete_collection(name).await?;
+        if result.deleted {
             deleted += 1;
             println!("  deleted {name}");
         } else {
