@@ -91,6 +91,16 @@ pub static EXAMPLES: &[Example] = &[
         "Full LAION-400M corpus (~410 parts, streamed with cache: evict)"
     ),
     example!(
+        "upload-fineweb-part",
+        Upload,
+        "One FineWeb-10B parquet shard: dense + sparse + metadata"
+    ),
+    example!(
+        "upload-fineweb-10b",
+        Upload,
+        "FineWeb-10B subset via parts.count (parquet vectors + metadata)"
+    ),
+    example!(
         "serverless-upload",
         Upload,
         "Minimal upload shape for `bfb serverless upload` (dense + keyword)"
@@ -104,6 +114,11 @@ pub static EXAMPLES: &[Example] = &[
         "search-dataset-accuracy",
         Search,
         "Measure recall against a dataset query set + ground truth"
+    ),
+    example!(
+        "search-fineweb",
+        Search,
+        "Dense/sparse/filtered search against an uploaded FineWeb collection"
     ),
     example!(
         "scroll-config",

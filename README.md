@@ -117,7 +117,7 @@ inline dataset definitions (same fields as
 | `sparse` | CSR matrices (`data.csr`, optional `queries.csr` / `results.gt`) |
 | `npy` | One 2-D float `.npy` — dense vectors only |
 | `multivector` | Directory of `vectors.npy` (flat sub-vectors) + `offsets.npy` (row boundaries per point). Late-interaction, ColBERT-style multivectors only |
-| `parquet` | One parquet file — payload rows only |
+| `parquet` | One parquet file — payload rows, and optionally dense/sparse vectors via `vector_column` / `sparse_column` |
 
 The first three are *bundles*: vectors, payloads, and queries all come out of a
 single artifact. `npy`, `multivector`, and `parquet` are *components*, so a
@@ -134,10 +134,13 @@ collection:
       dataset: { name: meta, format: parquet, path: meta.parquet, exclude: [exif] }
 ```
 
-Parquet sources accept three extra keys: `columns` (keep only these), `exclude`
-(drop these), and `fill_null` (a value substituted for nulls and for NaN/±inf
-floats, which have no JSON form — by default such fields are simply absent).
-See [`examples/upload-laion-part.yaml`](examples/upload-laion-part.yaml).
+Parquet sources accept five extra keys: `columns` (keep only these), `exclude`
+(drop these), `fill_null` (a value substituted for nulls and for NaN/±inf
+floats, which have no JSON form — by default such fields are simply absent),
+`vector_column` (list-of-floats column used as a dense vector source), and
+`sparse_column` (`{indices, values}` struct column used as a sparse vector
+source). See [`examples/upload-laion-part.yaml`](examples/upload-laion-part.yaml)
+and [`examples/upload-fineweb-part.yaml`](examples/upload-fineweb-part.yaml).
 
 #### Multivector (ColBERT-style) datasets
 
@@ -169,7 +172,8 @@ collection:
 
 Corpora published as numbered parts are read as one row space with a `parts:`
 block, so point ids stay global across the whole set. `npy` and `parquet`
-sources support it; `{i}` is substituted with each part's number:
+sources support it; `{i}` (or zero-padded `{i:04d}`) is substituted with each
+part's number:
 
 ```yaml
 source:
@@ -182,6 +186,21 @@ source:
     link: https://deploy.laion.ai/.../img_emb_{i}.npy
 ```
 
+FineWeb-10B shards use zero-padded names — dial the subset with `parts.count`:
+
+```yaml
+source:
+  type: dataset
+  name: fineweb-10b-dense
+  format: parquet
+  vector_column: dense_embedding
+  parts:
+    count: 1                   # first N of train-part0 (raise toward 10000)
+    path: fineweb/train-part0/{i:04d}.parquet
+    link: https://huggingface.co/datasets/Qdrant/FineWeb-10B/resolve/refs%2Fconvert%2Fparquet/default/train-part0/{i:04d}.parquet
+```
+
+See [`examples/upload-fineweb-10b.yaml`](examples/upload-fineweb-10b.yaml).
 Part row counts are **measured, never configured**. Both formats keep their
 shape at a known end of the file — the `.npy` header at the front, the parquet
 footer at the back — so bfb sizes every part with one ranged HTTP request each

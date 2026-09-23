@@ -1,0 +1,81 @@
+# One parquet shard of Qdrant/FineWeb-10B
+# (https://huggingface.co/datasets/Qdrant/FineWeb-10B).
+#
+#   bfb upload --example upload-fineweb-part -b 64 -p 8 -t 4 \
+#       --uri http://localhost:6334
+#
+# Dense + sparse embeddings and FineWeb metadata live in the same parquet.
+# `vector_column` / `sparse_column` tell bfb which columns are vectors; the
+# payload source drops those (and the full `text`) so only filterable metadata
+# is uploaded. Omit `-n` to upload the whole shard (~1M points; size varies).
+#
+# The file is downloaded on first use into `./datasets/` (override with
+# BFB_DATASETS_DIR), ~5 GB. For N shards at once, see `upload-fineweb-10b.yaml`.
+
+collection:
+  name: fineweb
+  on_disk_payload: true
+
+  quantization:
+    type: turbo-2bit
+    always_ram: true
+
+  hnsw:
+    on_disk: false
+
+  optimizers:
+    default_segment_number: 2
+    max_segment_size: 2000000
+
+  vectors:
+    - name: dense
+      size: 768
+      distance: cosine
+      datatype: float16
+      on_disk: true
+      source:
+        type: dataset
+        name: fineweb-part0-dense
+        format: parquet
+        path: fineweb/train-part0/0000.parquet
+        link: https://huggingface.co/datasets/Qdrant/FineWeb-10B/resolve/refs%2Fconvert%2Fparquet/default/train-part0/0000.parquet
+        vector_column: dense_embedding
+
+  sparse_vectors:
+    - name: sparse
+      on_disk: true
+      source:
+        type: dataset
+        dataset:
+          name: fineweb-part0-sparse
+          format: parquet
+          path: fineweb/train-part0/0000.parquet
+          link: https://huggingface.co/datasets/Qdrant/FineWeb-10B/resolve/refs%2Fconvert%2Fparquet/default/train-part0/0000.parquet
+          sparse_column: sparse_embedding
+
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: fineweb-part0-payload
+        format: parquet
+        path: fineweb/train-part0/0000.parquet
+        link: https://huggingface.co/datasets/Qdrant/FineWeb-10B/resolve/refs%2Fconvert%2Fparquet/default/train-part0/0000.parquet
+        # Embeddings are uploaded as vectors; `text` dominates the row size.
+        exclude: [dense_embedding, sparse_embedding, text]
+
+  fields:
+    - name: id
+      type: keyword
+    - name: dump
+      type: keyword
+    - name: language
+      type: keyword
+    - name: url
+      type: keyword
+    - name: date
+      type: datetime
+    - name: language_score
+      type: float
+    - name: token_count
+      type: integer
