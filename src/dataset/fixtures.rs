@@ -38,6 +38,75 @@ pub fn make_ramp_npy(base: usize, rows: usize, cols: usize) -> Vec<u8> {
     make_npy("<f4", rows, cols, &bytes)
 }
 
+/// An int64 `.npy` of the given shape (1-D or 2-D), values in C order.
+pub fn make_i64_npy(shape: &[usize], values: &[i64]) -> Vec<u8> {
+    let dims = match shape {
+        [n] => format!("({n},)"),
+        [rows, cols] => format!("({rows}, {cols})"),
+        other => panic!("unsupported shape {other:?}"),
+    };
+    let dict = format!("{{'descr': '<i8', 'fortran_order': False, 'shape': {dims}, }}");
+    let mut header = dict.into_bytes();
+    let unpadded = 10 + header.len() + 1;
+    header.extend(std::iter::repeat_n(b' ', (64 - unpadded % 64) % 64));
+    header.push(b'\n');
+
+    let mut out = Vec::new();
+    out.extend_from_slice(b"\x93NUMPY");
+    out.extend_from_slice(&[1, 0]);
+    out.extend_from_slice(&(header.len() as u16).to_le_bytes());
+    out.extend_from_slice(&header);
+    for v in values {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// A multivector dataset directory: a ragged corpus, and a query set with
+/// ground truth and single-vector prefetch queries beside it.
+pub fn write_multivector_dataset(
+    dir: &Path,
+    corpus_offsets: &[i64],
+    query_offsets: &[i64],
+    neighbors: &[i64],
+    k: usize,
+    dim: usize,
+    prefetch_dim: Option<usize>,
+) {
+    let corpus_rows = *corpus_offsets.last().unwrap() as usize;
+    std::fs::create_dir_all(dir.join("queries")).unwrap();
+    std::fs::write(dir.join("vectors.npy"), make_ramp_npy(0, corpus_rows, dim)).unwrap();
+    std::fs::write(
+        dir.join("offsets.npy"),
+        make_i64_npy(&[corpus_offsets.len()], corpus_offsets),
+    )
+    .unwrap();
+
+    let query_rows = *query_offsets.last().unwrap() as usize;
+    std::fs::write(
+        dir.join("queries/vectors.npy"),
+        make_ramp_npy(100, query_rows, dim),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("queries/offsets.npy"),
+        make_i64_npy(&[query_offsets.len()], query_offsets),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("queries/neighbors.npy"),
+        make_i64_npy(&[neighbors.len() / k, k], neighbors),
+    )
+    .unwrap();
+    if let Some(prefetch_dim) = prefetch_dim {
+        std::fs::write(
+            dir.join("queries/prefetch.npy"),
+            make_ramp_npy(200, query_offsets.len() - 1, prefetch_dim),
+        )
+        .unwrap();
+    }
+}
+
 const MESSAGE: &str = "
     message laionish {
         REQUIRED INT64 id;
