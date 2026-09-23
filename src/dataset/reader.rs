@@ -138,12 +138,12 @@ impl DatasetReader {
             DatasetReaderInner::H5(r) => r.num_queries(),
             DatasetReaderInner::Tar(r) => r.num_queries(),
             DatasetReaderInner::Sparse(r) => r.num_queries(),
+            DatasetReaderInner::Multivector(r) => r.num_queries(),
             // Component formats hold corpus rows only; a query set is a
             // separate file, declared as its own source.
             DatasetReaderInner::Npy(_)
             | DatasetReaderInner::Parquet(_)
-            | DatasetReaderInner::Partitioned(_)
-            | DatasetReaderInner::Multivector(_) => 0,
+            | DatasetReaderInner::Partitioned(_) => 0,
         }
     }
 
@@ -188,6 +188,49 @@ impl DatasetReader {
         Ok(rows)
     }
 
+    /// Whether the dataset stores ColBERT-style multivectors, which its query
+    /// set (if any) then also holds.
+    pub fn is_multivector(&self) -> bool {
+        matches!(self.inner, DatasetReaderInner::Multivector(_))
+    }
+
+    /// Whether the dataset's query set carries prefetch query vectors.
+    pub fn has_prefetch_queries(&self) -> bool {
+        match &self.inner {
+            DatasetReaderInner::Multivector(r) => r.has_prefetch_queries(),
+            _ => false,
+        }
+    }
+
+    /// A query's single-vector form, for the first stage of a two-stage query.
+    pub fn query_prefetch_vector(&self, idx: usize) -> Result<Vec<f32>> {
+        match &self.inner {
+            DatasetReaderInner::Multivector(r) => r.prefetch_query_at(idx),
+            _ => bail!("dataset has no prefetch queries"),
+        }
+    }
+
+    /// A multivector query from the dataset's query set.
+    pub fn query_multi_dense_vector(&self, idx: usize) -> Result<Vec<Vec<f32>>> {
+        match &self.inner {
+            DatasetReaderInner::Multivector(r) => r.query_at(idx),
+            _ => bail!("dataset does not contain multivector queries"),
+        }
+    }
+
+    /// The whole multivector query set with its ground truth.
+    pub fn read_multi_dense_query_set(&self) -> Result<Vec<QueryEntry<Vec<Vec<f32>>>>> {
+        let mut rows = Vec::with_capacity(self.num_queries());
+        for idx in 0..self.num_queries() {
+            rows.push(QueryEntry {
+                vector: self.query_multi_dense_vector(idx)?,
+                ground_truth: self.query_ground_truth(idx)?,
+                conditions: None,
+            });
+        }
+        Ok(rows)
+    }
+
     /// The whole sparse query set with its ground truth. Sparse queries live in
     /// binary CSR files, so there is nothing to gain from a bulk path.
     pub fn read_sparse_query_set(&self) -> Result<Vec<QueryEntry<SparseVector>>> {
@@ -208,10 +251,10 @@ impl DatasetReader {
             DatasetReaderInner::H5(r) => r.neighbors_at(idx),
             DatasetReaderInner::Tar(r) => r.query_ground_truth(idx),
             DatasetReaderInner::Sparse(r) => r.query_ground_truth(idx),
+            DatasetReaderInner::Multivector(r) => r.neighbors_at(idx),
             DatasetReaderInner::Npy(_)
             | DatasetReaderInner::Parquet(_)
-            | DatasetReaderInner::Partitioned(_)
-            | DatasetReaderInner::Multivector(_) => bail!("dataset has no ground truth"),
+            | DatasetReaderInner::Partitioned(_) => bail!("dataset has no ground truth"),
         }
     }
 }

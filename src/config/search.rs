@@ -215,8 +215,11 @@ impl SearchRequestConfig {
                 if prefetch.limit == 0 {
                     bail!("requests[{index}]: `prefetch.limit` must be > 0");
                 }
-                if !matches!(source, VectorSource::Random) {
-                    bail!("requests[{index}]: `prefetch` needs `source: random`");
+                if matches!(source, VectorSource::File { .. }) {
+                    bail!(
+                        "requests[{index}]: `prefetch` needs `source: random` or a dataset \
+                         source whose query set carries prefetch vectors"
+                    );
                 }
             }
         }

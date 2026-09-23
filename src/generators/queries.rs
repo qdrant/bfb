@@ -83,6 +83,9 @@ pub struct GeneratedQuery {
 /// timed. Parsed form is far smaller than the file: a 10k x 2048-d set is ~82 MB.
 struct QueryDataset {
     vectors: QueryVectors,
+    /// The same queries as single vectors, indexed alongside `vectors`, for a
+    /// two-stage query whose first stage searches a different vector.
+    prefetch_vectors: Option<Vec<Vec<f32>>>,
     /// Ground-truth nearest-neighbor ids per query, used to score recall.
     ground_truth: Vec<Vec<u64>>,
     /// Filter each query was answered under, parallel to `vectors`. Its ground
@@ -97,6 +100,8 @@ struct QueryDataset {
 /// Query vectors in whichever form the request that opened the dataset needs.
 enum QueryVectors {
     Dense(Vec<Vec<f32>>),
+    /// ColBERT-style queries: several sub-vectors each.
+    MultiDense(Vec<Vec<Vec<f32>>>),
     /// Kept pre-split as (values, indices) so no per-request unzip is needed.
     Sparse(Vec<(Vec<f32>, Vec<u32>)>),
 }
@@ -105,6 +110,16 @@ enum QueryVectors {
 /// vector, the ground truth it is scored against, and the filter that ground
 /// truth assumes.
 type SparseDatasetQuery = ((Vec<f32>, SparseIndices), Option<Vec<u64>>, Option<Filter>);
+
+/// A dense query drawn from a dataset query set: the vector, its ground truth,
+/// the filter that ground truth assumes, and the prefetch stage's own vector
+/// for the same query.
+type DatasetQuery = (
+    DenseQuery,
+    Option<Vec<u64>>,
+    Option<Filter>,
+    Option<Vec<f32>>,
+);
 
 /// Which kind of query a request will draw from a dataset.
 #[derive(Clone, Copy)]
@@ -331,7 +346,10 @@ impl ConfigSearchGenerator {
         for req in &config.requests {
             let (dense_reader, query_dataset, sparse_zipf, filters, idf_corpus) = match req {
                 SearchRequestConfig::Dense {
-                    source, filters, ..
+                    source,
+                    filters,
+                    prefetch,
+                    ..
                 } => {
                     let (dense_reader, query_dataset) = match source {
                         VectorSource::File { path, .. } => {
@@ -344,6 +362,7 @@ impl ConfigSearchGenerator {
                                 dataset,
                                 datasets_dir,
                                 QueryKind::Dense,
+                                prefetch.is_some(),
                             )?),
                         ),
                         VectorSource::Random => (None, None),
@@ -367,6 +386,7 @@ impl ConfigSearchGenerator {
                                 dataset,
                                 datasets_dir,
                                 QueryKind::Sparse,
+                                false,
                             )?),
                             None,
                             filters,
@@ -422,6 +442,7 @@ impl ConfigSearchGenerator {
         dataset: &crate::dataset::DatasetConfig,
         datasets_dir: &Path,
         kind: QueryKind,
+        needs_prefetch: bool,
     ) -> anyhow::Result<QueryDataset> {
         let reader = DatasetReader::open(datasets_dir, dataset)?;
         let num_queries = reader.num_queries();
@@ -436,6 +457,24 @@ impl ConfigSearchGenerator {
         // startup and the timed path only ever clones a ready-made filter.
         let mut filters: Vec<Option<Filter>> = Vec::with_capacity(num_queries);
         let (vectors, ground_truth) = match kind {
+            // A multivector dataset's query set is ragged, so a dense request
+            // reading from one sends the query's sub-vectors, not a lone vector.
+            QueryKind::Dense if reader.is_multivector() => {
+                let rows = reader.read_multi_dense_query_set().with_context(|| {
+                    format!(
+                        "failed to read multivector query set of dataset {:?}",
+                        dataset.name
+                    )
+                })?;
+                let mut vectors = Vec::with_capacity(rows.len());
+                let mut ground_truth = Vec::with_capacity(rows.len());
+                for (idx, row) in rows.into_iter().enumerate() {
+                    vectors.push(row.vector);
+                    ground_truth.push(row.ground_truth);
+                    filters.push(Self::parse_conditions(&row.conditions, &dataset.name, idx)?);
+                }
+                (QueryVectors::MultiDense(vectors), ground_truth)
+            }
             QueryKind::Dense => {
                 let rows = reader.read_dense_query_set().with_context(|| {
                     format!(
@@ -481,8 +520,34 @@ impl ConfigSearchGenerator {
             );
         }
 
+        // The prefetch searches a different vector of the same point, so its
+        // query must be the same query: drawn from the set by the same index,
+        // never generated beside it.
+        let prefetch_vectors = if needs_prefetch {
+            if !reader.has_prefetch_queries() {
+                anyhow::bail!(
+                    "dataset {:?} ships no queries/prefetch.npy, but the request has a \
+                     prefetch; the prefetch stage needs the same queries in single-vector form",
+                    dataset.name
+                );
+            }
+            let mut rows = Vec::with_capacity(num_queries);
+            for idx in 0..num_queries {
+                rows.push(reader.query_prefetch_vector(idx).with_context(|| {
+                    format!(
+                        "failed to read prefetch query {idx} of dataset {:?}",
+                        dataset.name
+                    )
+                })?);
+            }
+            Some(rows)
+        } else {
+            None
+        };
+
         Ok(QueryDataset {
             vectors,
+            prefetch_vectors,
             ground_truth,
             filters,
             num_queries,
@@ -521,17 +586,16 @@ impl ConfigSearchGenerator {
                 multivector,
                 prefetch,
             } => {
-                let (vector, expected_ids, dataset_filter) =
+                let (vector, expected_ids, dataset_filter, dataset_prefetch) =
                     if let Some(query_dataset) = &state.query_dataset {
-                        let (vector, ids, filter) = Self::read_dense_query(query_dataset);
-                        (DenseQuery::Single(vector), ids, filter)
+                        Self::read_dataset_query(query_dataset)
                     } else if let Some(multivector) = multivector {
                         // Validation allows multivector only with random queries.
                         let is_uint = *datatype == DatatypeKind::Uint8;
                         let vectors = (0..multivector.count)
                             .map(|_| random_dense_vector(rng, *size as usize, is_uint))
                             .collect();
-                        (DenseQuery::Multi(vectors), None, None)
+                        (DenseQuery::Multi(vectors), None, None, None)
                     } else {
                         let vector = Self::gen_dense_vector(
                             rng,
@@ -541,14 +605,14 @@ impl ConfigSearchGenerator {
                             state.dense_reader.as_ref(),
                             req_id,
                         );
-                        (DenseQuery::Single(vector), None, None)
+                        (DenseQuery::Single(vector), None, None, None)
                     };
                 let prefetch = prefetch.as_ref().map(|p| GeneratedPrefetch {
-                    vector: random_dense_vector(
-                        rng,
-                        p.size as usize,
-                        p.datatype == DatatypeKind::Uint8,
-                    ),
+                    // A dataset supplies the prefetch's own query; only a
+                    // generated query needs a generated prefetch vector.
+                    vector: dataset_prefetch.unwrap_or_else(|| {
+                        random_dense_vector(rng, p.size as usize, p.datatype == DatatypeKind::Uint8)
+                    }),
                     using: p.using.clone(),
                     limit: p.limit,
                 });
@@ -589,21 +653,33 @@ impl ConfigSearchGenerator {
         }
     }
 
-    /// Take the next dense query vector and its ground-truth ids from a dataset.
+    /// Take the next query from a dataset: its vector (one or several
+    /// sub-vectors), its ground truth, its filter, and the single-vector form
+    /// the prefetch stage searches with.
+    ///
+    /// One index serves all of them — pairing a query's sub-vectors with
+    /// another query's prefetch vector would score the search against the
+    /// answers to a different question.
     ///
     /// The kind mismatch cannot happen: the request template that opened the
     /// dataset is the same one reading from it here.
-    fn read_dense_query(
-        query_dataset: &QueryDataset,
-    ) -> (Vec<f32>, Option<Vec<u64>>, Option<Filter>) {
+    fn read_dataset_query(query_dataset: &QueryDataset) -> DatasetQuery {
         let idx = query_dataset.next_index();
-        let QueryVectors::Dense(vectors) = &query_dataset.vectors else {
-            panic!("dense request drew from a query set opened as sparse");
+        let vector = match &query_dataset.vectors {
+            QueryVectors::MultiDense(vectors) => DenseQuery::Multi(vectors[idx].clone()),
+            QueryVectors::Dense(vectors) => DenseQuery::Single(vectors[idx].clone()),
+            QueryVectors::Sparse(_) => {
+                panic!("dense request drew from a query set opened as sparse")
+            }
         };
         (
-            vectors[idx].clone(),
+            vector,
             Some(query_dataset.ground_truth[idx].clone()),
             query_dataset.filters[idx].clone(),
+            query_dataset
+                .prefetch_vectors
+                .as_ref()
+                .map(|vectors| vectors[idx].clone()),
         )
     }
 
@@ -775,6 +851,72 @@ mod tests {
             DenseQuery::Single(vec![0.0, 1.0, 2.0, 3.0])
         );
         assert_eq!(q2.expected_ids, Some(vec![0, 2]));
+    }
+
+    /// A ColBERT query set drives the rescore, and the prefetch searches with
+    /// the same query's single-vector form — not a generated one.
+    #[test]
+    fn multivector_dataset_drives_both_stages() {
+        use crate::dataset::fixtures::write_multivector_dataset;
+
+        let datasets_dir = tempfile::tempdir().unwrap();
+        let dir = datasets_dir.path().join("colbert");
+        write_multivector_dataset(
+            &dir,
+            &[0, 2, 2, 5],
+            &[0, 2, 3],
+            &[0, 2, 1, 2],
+            2,
+            3,
+            Some(6),
+        );
+
+        let yaml = "collection:\n  name: x\nrequests:\n  - kind: dense\n    using: colbert\n    source:\n      type: dataset\n      name: colbert\n      format: multivector\n      path: colbert\n    prefetch: { using: dense, size: 6, limit: 50 }\n";
+        let config: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        config.validate().unwrap();
+        let generator =
+            ConfigSearchGenerator::new_with_datasets_dir(&config, datasets_dir.path()).unwrap();
+
+        let mut rng = rand::rng();
+        let q0 = generator.make_query_for(0, 0, &mut rng);
+        let q1 = generator.make_query_for(0, 0, &mut rng);
+
+        match &q0.dense.as_ref().unwrap().0 {
+            DenseQuery::Multi(vectors) => {
+                assert_eq!(vectors.len(), 2);
+                assert!(vectors.iter().all(|v| v.len() == 3));
+            }
+            other => panic!("expected a multivector query, got {other:?}"),
+        }
+        assert_eq!(q0.expected_ids, Some(vec![0, 2]));
+        assert_eq!(q1.expected_ids, Some(vec![1, 2]));
+
+        // The prefetch vector is the dataset's, and it moves with the query.
+        let p0 = q0.prefetch.unwrap();
+        let p1 = q1.prefetch.unwrap();
+        assert_eq!((p0.using.as_str(), p0.limit), ("dense", 50));
+        assert_eq!(p0.vector.len(), 6);
+        assert_ne!(p0.vector, p1.vector);
+    }
+
+    /// Without prefetch queries the two stages would search unrelated vectors,
+    /// so the run must not start.
+    #[test]
+    fn rejects_a_prefetch_the_query_set_cannot_supply() {
+        use crate::dataset::fixtures::write_multivector_dataset;
+
+        let datasets_dir = tempfile::tempdir().unwrap();
+        let dir = datasets_dir.path().join("colbert");
+        write_multivector_dataset(&dir, &[0, 2, 2, 5], &[0, 2, 3], &[0, 2, 1, 2], 2, 3, None);
+
+        let yaml = "collection:\n  name: x\nrequests:\n  - kind: dense\n    using: colbert\n    source:\n      type: dataset\n      name: colbert\n      format: multivector\n      path: colbert\n    prefetch: { using: dense, size: 6, limit: 50 }\n";
+        let config: SearchConfig = serde_yaml::from_str(yaml).unwrap();
+        config.validate().unwrap();
+        let err = match ConfigSearchGenerator::new_with_datasets_dir(&config, datasets_dir.path()) {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("started a run whose prefetch has no query vectors"),
+        };
+        assert!(err.contains("queries/prefetch.npy"), "{err}");
     }
 
     #[test]

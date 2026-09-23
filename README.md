@@ -165,6 +165,24 @@ collection:
         path: my-colbert-corpus  # directory containing vectors.npy + offsets.npy
 ```
 
+A `queries/` sub-directory turns the same corpus into a query source: it holds
+`vectors.npy` + `offsets.npy` in the same ragged form (the queries), and
+`neighbors.npy`, a 2-D int array of `[num_queries, k]` ids into the corpus —
+the ground truth each query is scored against. An optional `prefetch.npy`
+(`[num_queries, dim]`) carries the same queries as single vectors, for a
+two-stage query whose first stage searches a different vector:
+
+```
+my-colbert-corpus/
+  vectors.npy            corpus sub-vectors
+  offsets.npy            corpus row boundaries
+  queries/
+    vectors.npy          query sub-vectors
+    offsets.npy          query row boundaries
+    neighbors.npy        [num_queries, k] ground-truth ids
+    prefetch.npy         [num_queries, dim] the same queries as single vectors
+```
+
 #### Sharded datasets
 
 Corpora published as numbered parts are read as one row space with a `parts:`
@@ -291,10 +309,18 @@ requests:
       limit: 500                   # candidates handed to the rescore
 ```
 
-Both fields need `source: random`. The prefetch stage gets the run's search
-params (`--search-hnsw-ef`, `--search-exact`, quantization flags). `--prefetch`
-and `--search-quality` cannot be combined with a config that sets `prefetch`, and
-`prefetch.limit` must be at least `--search-limit`.
+`multivector` needs `source: random`: it declares a shape to generate. A
+`multivector` dataset source needs no such block — it carries the queries
+themselves, and sends each one's sub-vectors. Its `queries/prefetch.npy` then
+supplies the first stage, so both stages search the *same* query; a request that
+prefetches from a dataset without it is refused, rather than pairing a query's
+sub-vectors with an unrelated vector — `prefetch.size` is then ignored, like the
+request's own `size`. A `file` source cannot drive a prefetch.
+
+The prefetch stage gets the run's search params (`--search-hnsw-ef`,
+`--search-exact`, quantization flags). `--prefetch` and `--search-quality` cannot
+be combined with a config that sets `prefetch`, and `prefetch.limit` must be at
+least `--search-limit`.
 
 #### Measuring accuracy against a reference dataset
 
