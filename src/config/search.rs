@@ -47,6 +47,13 @@ pub enum SearchRequestConfig {
         source: VectorSource,
         #[serde(default)]
         filters: Vec<FilterPayloadConfig>,
+        /// Query with several sub-vectors of `size` each (a multivector). Random source only.
+        #[serde(default)]
+        multivector: Option<QueryMultivectorConfig>,
+        /// Two-stage query: this search picks candidates, then the request's own vector
+        /// rescores them.
+        #[serde(default)]
+        prefetch: Option<PrefetchConfig>,
     },
     Sparse {
         using: String,
@@ -61,6 +68,28 @@ pub enum SearchRequestConfig {
         #[serde(default)]
         idf_corpus: Vec<FilterPayloadConfig>,
     },
+}
+
+/// Shape of a multivector query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryMultivectorConfig {
+    /// Sub-vectors per query.
+    pub count: usize,
+}
+
+/// The first stage of a two-stage query: a random dense query on its own named vector.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefetchConfig {
+    /// Named dense vector the first stage searches.
+    pub using: String,
+    /// Its dimension.
+    pub size: u64,
+    #[serde(default)]
+    pub datatype: DatatypeKind,
+    /// Candidates handed to the second stage.
+    pub limit: u64,
 }
 
 /// Payload field used to build a filter condition for a search request.
@@ -103,6 +132,32 @@ pub fn parse(text: &str, origin: &str) -> Result<SearchConfig> {
 }
 
 impl SearchConfig {
+    /// Whether any request runs as a two-stage (prefetch then rescore) query.
+    pub fn has_prefetch(&self) -> bool {
+        self.requests.iter().any(|r| {
+            matches!(
+                r,
+                SearchRequestConfig::Dense {
+                    prefetch: Some(_),
+                    ..
+                }
+            )
+        })
+    }
+
+    /// The smallest prefetch `limit` across requests, if any request prefetches.
+    pub fn min_prefetch_limit(&self) -> Option<u64> {
+        self.requests
+            .iter()
+            .filter_map(|r| match r {
+                SearchRequestConfig::Dense {
+                    prefetch: Some(p), ..
+                } => Some(p.limit),
+                _ => None,
+            })
+            .min()
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.requests.is_empty() {
             bail!("search config must define at least one request");
@@ -132,6 +187,37 @@ impl SearchRequestConfig {
         if let SearchRequestConfig::Sparse { idf_corpus, .. } = self {
             for filter in idf_corpus {
                 filter.validate(&format!("requests[{index}].idf_corpus"))?;
+            }
+        }
+
+        if let SearchRequestConfig::Dense {
+            source,
+            multivector,
+            prefetch,
+            ..
+        } = self
+        {
+            if let Some(multivector) = multivector {
+                if multivector.count == 0 {
+                    bail!("requests[{index}]: `multivector.count` must be > 0");
+                }
+                if !matches!(source, VectorSource::Random) {
+                    bail!("requests[{index}]: `multivector` needs `source: random`");
+                }
+            }
+            if let Some(prefetch) = prefetch {
+                if prefetch.using.is_empty() {
+                    bail!("requests[{index}]: `prefetch.using` must not be empty");
+                }
+                if prefetch.size == 0 {
+                    bail!("requests[{index}]: `prefetch.size` must be > 0");
+                }
+                if prefetch.limit == 0 {
+                    bail!("requests[{index}]: `prefetch.limit` must be > 0");
+                }
+                if !matches!(source, VectorSource::Random) {
+                    bail!("requests[{index}]: `prefetch` needs `source: random`");
+                }
             }
         }
 
@@ -182,6 +268,63 @@ impl SearchRequestConfig {
 mod tests {
     use super::*;
     use crate::config::DistributionKind;
+
+    const RESCORE_YAML: &str = r#"
+collection:
+  name: bench
+requests:
+  - kind: dense
+    using: colbert
+    size: 128
+    multivector: { count: 16 }
+    prefetch: { using: dense, size: 128, limit: 500 }
+"#;
+
+    #[test]
+    fn parses_multivector_prefetch_request() {
+        let cfg: SearchConfig = serde_yaml::from_str(RESCORE_YAML).unwrap();
+        cfg.validate().unwrap();
+        assert!(cfg.has_prefetch());
+        match &cfg.requests[0] {
+            SearchRequestConfig::Dense {
+                multivector: Some(m),
+                prefetch: Some(p),
+                ..
+            } => {
+                assert_eq!(m.count, 16);
+                assert_eq!((p.using.as_str(), p.size, p.limit), ("dense", 128, 500));
+            }
+            other => panic!("unexpected request {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_bad_multivector_and_prefetch() {
+        for (from, to, message) in [
+            ("count: 16", "count: 0", "`multivector.count` must be > 0"),
+            ("limit: 500", "limit: 0", "`prefetch.limit` must be > 0"),
+            (
+                "{ using: dense,",
+                "{ using: \"\",",
+                "`prefetch.using` must not be empty",
+            ),
+            (
+                "size: 128, limit",
+                "size: 0, limit",
+                "`prefetch.size` must be > 0",
+            ),
+            (
+                "multivector: { count: 16 }",
+                "multivector: { count: 16 }\n    source: { type: file, path: q.fbin }",
+                "`multivector` needs `source: random`",
+            ),
+        ] {
+            let yaml = RESCORE_YAML.replace(from, to);
+            let cfg: SearchConfig = serde_yaml::from_str(&yaml).unwrap();
+            let err = cfg.validate().unwrap_err().to_string();
+            assert!(err.contains(message), "{from} -> {to}: {err}");
+        }
+    }
 
     #[test]
     fn parses_minimal_search_config() {

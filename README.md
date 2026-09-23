@@ -269,11 +269,32 @@ batch. Supported kinds:
 
 | `kind` | Fields | Notes |
 |--------|--------|-------|
-| `dense` | `size`, optional `using`, `source`, `filters` | Query a dense vector; `source: { type: dataset }` measures recall (see below) |
+| `dense` | `size`, optional `using`, `source`, `filters`, `multivector`, `prefetch` | Query a dense vector; `source: { type: dataset }` measures recall (see below) |
 | `sparse` | `using`, `source`, `filters` | Query a named sparse vector; `source: { type: dataset }` measures recall (see below) |
 
 Filter entries reuse the same payload `type` / `source` vocabulary as the
 upload config.
+
+A `dense` request can also query a multivector and run as a two-stage query,
+the usual ColBERT setup: an HNSW search on one named vector picks candidates,
+then the request's own vector rescores them.
+
+```yaml
+requests:
+  - kind: dense
+    using: colbert                 # the rescoring vector
+    size: 128
+    multivector: { count: 16 }     # query with 16 sub-vectors of 128
+    prefetch:                      # first stage
+      using: dense                 # a named dense vector
+      size: 128
+      limit: 500                   # candidates handed to the rescore
+```
+
+Both fields need `source: random`. The prefetch stage gets the run's search
+params (`--search-hnsw-ef`, `--search-exact`, quantization flags). `--prefetch`
+and `--search-quality` cannot be combined with a config that sets `prefetch`, and
+`prefetch.limit` must be at least `--search-limit`.
 
 #### Measuring accuracy against a reference dataset
 
