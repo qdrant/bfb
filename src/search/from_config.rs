@@ -66,6 +66,12 @@ impl ConfigSearchProcessor {
                  for filtered search"
             );
         }
+        // An exact search never touches the graph, so ACORN could not apply.
+        if args.acorn && args.search_exact && !args.search_quality {
+            anyhow::bail!(
+                "--acorn does nothing with --search-exact: an exact search skips the graph"
+            );
+        }
         if args.acorn_max_selectivity.is_some() && !args.acorn {
             anyhow::bail!("--acorn-max-selectivity needs --acorn");
         }
@@ -484,6 +490,15 @@ mod tests {
             err.contains("needs a config whose requests carry `filters`"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn rejects_acorn_with_exact_search() {
+        let err = refusal(
+            filtered_processor(&["--acorn", "--search-exact"]),
+            "acorn with an exact search",
+        );
+        assert!(err.contains("skips the graph"), "{err}");
     }
 
     #[test]

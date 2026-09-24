@@ -326,8 +326,8 @@ filter keeps, so a *lower* number means a *more* selective filter.
 
 ACORN is a filtered-search path: with no filter Qdrant never takes it, and a run would
 report the ordinary path under ACORN's name. `--acorn` is therefore refused unless a
-request in the config carries `filters`, and `--acorn-max-selectivity` is refused without
-`--acorn`.
+request in the config carries `filters`, and refused with `--search-exact`, which skips the
+graph entirely. `--acorn-max-selectivity` is refused without `--acorn`.
 
 The prefetch stage gets the run's search params (`--search-hnsw-ef`,
 `--search-exact`, quantization flags). `--prefetch` and `--search-quality` cannot
