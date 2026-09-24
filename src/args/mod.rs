@@ -427,6 +427,16 @@ pub struct Args {
     #[clap(long, global = true)]
     pub indexed_only: Option<bool>,
 
+    /// Let Qdrant use ACORN for filtered HNSW search. Only meaningful with filters:
+    /// Qdrant takes this path when a filter is selective enough.
+    #[clap(long, global = true)]
+    pub acorn: bool,
+
+    /// Selectivity above which ACORN is not used (0.0 never, 1.0 always;
+    /// Qdrant's own default is 0.4). Needs --acorn.
+    #[clap(long, global = true)]
+    pub acorn_max_selectivity: Option<f64>,
+
     /// Whether to use sparse vectors and with how much sparsity
     #[clap(long, value_name = "SPARSITY")]
     pub sparse_vectors: Option<f64>,

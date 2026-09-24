@@ -317,6 +317,18 @@ prefetches from a dataset without it is refused, rather than pairing a query's
 sub-vectors with an unrelated vector — `prefetch.size` is then ignored, like the
 request's own `size`. A `file` source cannot drive a prefetch.
 
+#### ACORN
+
+`--acorn` asks Qdrant to use ACORN for filtered HNSW search, and
+`--acorn-max-selectivity` sets the selectivity above which it declines to (0.0 never,
+1.0 always; Qdrant's own default is 0.4). Selectivity is the estimated share of points a
+filter keeps, so a *lower* number means a *more* selective filter.
+
+ACORN is a filtered-search path: with no filter Qdrant never takes it, and a run would
+report the ordinary path under ACORN's name. `--acorn` is therefore refused unless a
+request in the config carries `filters`, and refused with `--search-exact`, which skips the
+graph entirely. `--acorn-max-selectivity` is refused without `--acorn`.
+
 The prefetch stage gets the run's search params (`--search-hnsw-ef`,
 `--search-exact`, quantization flags). `--prefetch` and `--search-quality` cannot
 be combined with a config that sets `prefetch`, and `prefetch.limit` must be at
@@ -745,6 +757,10 @@ Options:
           Delay between requests in milliseconds
       --indexed-only <INDEXED_ONLY>
           Skip un-indexed segments during search [possible values: true, false]
+      --acorn
+          Let Qdrant use ACORN for filtered HNSW search. Only meaningful with filters: Qdrant takes this path when a filter is selective enough
+      --acorn-max-selectivity <ACORN_MAX_SELECTIVITY>
+          Selectivity above which ACORN is not used (0.0 never, 1.0 always; Qdrant's own default is 0.4). Needs --acorn
       --sparse-vectors <SPARSITY>
           Whether to use sparse vectors and with how much sparsity
       --sparse-vectors-per-point <SPARSE_VECTORS_PER_POINT>
