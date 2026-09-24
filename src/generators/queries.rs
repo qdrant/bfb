@@ -18,7 +18,9 @@ use super::random::{
     DEFAULT_VOCAB_SIZE, create_zipf, random_dense_vector, random_keyword, random_sparse_vector,
     random_text,
 };
-use crate::config::search::{FilterPayloadConfig, SearchConfig, SearchRequestConfig};
+use crate::config::search::{
+    FilterPayloadConfig, FusionKind, PrefetchKind, SearchConfig, SearchRequestConfig,
+};
 use crate::config::{
     DatatypeKind, DistributionKind, FileStrategy, PayloadSourceKind, PayloadType, SparseKind,
     VectorSource,
@@ -51,9 +53,24 @@ impl DenseQuery {
 /// The first stage of a two-stage query.
 #[derive(Debug, Clone)]
 pub struct GeneratedPrefetch {
-    pub vector: Vec<f32>,
+    pub query: PrefetchQuery,
     pub using: String,
     pub limit: u64,
+}
+
+/// What one prefetch stage searches with.
+#[derive(Debug, Clone)]
+pub enum PrefetchQuery {
+    Dense(Vec<f32>),
+    Sparse(Vec<f32>, SparseIndices),
+}
+
+/// How a query's prefetches are combined, when it fuses them instead of rescoring.
+#[derive(Debug, Clone)]
+pub struct FusionSpec {
+    pub kind: FusionKind,
+    pub rrf_k: Option<u32>,
+    pub weights: Option<Vec<f32>>,
 }
 
 /// One query vector plus optional filter, ready to be turned into a gRPC request.
@@ -70,7 +87,10 @@ pub struct GeneratedQuery {
     /// search accuracy (recall) against the dataset's known answers.
     pub expected_ids: Option<Vec<u64>>,
     /// Present for a two-stage query: its candidates are what the main query rescores.
-    pub prefetch: Option<GeneratedPrefetch>,
+    pub prefetch: Vec<GeneratedPrefetch>,
+    /// Set when the prefetches are fused rather than rescored; the query then
+    /// carries no vector of its own.
+    pub fusion: Option<FusionSpec>,
 }
 
 /// A reference dataset's query set, held in memory, with a cursor that hands out
@@ -362,7 +382,7 @@ impl ConfigSearchGenerator {
                                 dataset,
                                 datasets_dir,
                                 QueryKind::Dense,
-                                prefetch.is_some(),
+                                !prefetch.is_empty(),
                             )?),
                         ),
                         VectorSource::Random => (None, None),
@@ -585,6 +605,9 @@ impl ConfigSearchGenerator {
                 filters: _,
                 multivector,
                 prefetch,
+                fusion,
+                rrf_k,
+                weights,
             } => {
                 let (vector, expected_ids, dataset_filter, dataset_prefetch) =
                     if let Some(query_dataset) = &state.query_dataset {
@@ -607,22 +630,45 @@ impl ConfigSearchGenerator {
                         );
                         (DenseQuery::Single(vector), None, None, None)
                     };
-                let prefetch = prefetch.as_ref().map(|p| GeneratedPrefetch {
-                    // A dataset supplies the prefetch's own query; only a
-                    // generated query needs a generated prefetch vector.
-                    vector: dataset_prefetch.unwrap_or_else(|| {
-                        random_dense_vector(rng, p.size as usize, p.datatype == DatatypeKind::Uint8)
-                    }),
-                    using: p.using.clone(),
-                    limit: p.limit,
-                });
+                // A dataset supplies the prefetch's own query, for the first dense stage;
+                // every other stage generates one.
+                let mut dataset_prefetch = dataset_prefetch;
+                let prefetch = prefetch
+                    .iter()
+                    .map(|p| GeneratedPrefetch {
+                        query: match p.kind {
+                            PrefetchKind::Dense => {
+                                PrefetchQuery::Dense(dataset_prefetch.take().unwrap_or_else(|| {
+                                    random_dense_vector(
+                                        rng,
+                                        p.size as usize,
+                                        p.datatype == DatatypeKind::Uint8,
+                                    )
+                                }))
+                            }
+                            PrefetchKind::Sparse => {
+                                let source = p.source.as_ref().expect("validated sparse source");
+                                let (values, indices) = Self::gen_sparse_vector(rng, source, None);
+                                PrefetchQuery::Sparse(values, indices)
+                            }
+                        },
+                        using: p.using.clone(),
+                        limit: p.limit,
+                    })
+                    .collect();
                 GeneratedQuery {
-                    dense: Some((vector, using.clone())),
+                    // A fusion query ranks its prefetches and sends no vector itself.
+                    dense: fusion.is_none().then(|| (vector, using.clone())),
                     sparse: None,
                     filter: dataset_filter.or_else(|| state.filters.build(rng)),
                     idf_corpus: None,
                     expected_ids,
                     prefetch,
+                    fusion: fusion.map(|kind| FusionSpec {
+                        kind,
+                        rrf_k: *rrf_k,
+                        weights: weights.clone(),
+                    }),
                 }
             }
             SearchRequestConfig::Sparse {
@@ -643,11 +689,12 @@ impl ConfigSearchGenerator {
                     };
                 GeneratedQuery {
                     dense: None,
+                    fusion: None,
                     sparse: Some((values, indices, using.clone())),
                     filter: dataset_filter.or_else(|| state.filters.build(rng)),
                     idf_corpus: state.idf_corpus.build(rng),
                     expected_ids,
-                    prefetch: None,
+                    prefetch: Vec::new(),
                 }
             }
         }
@@ -783,9 +830,11 @@ mod tests {
             }
             other => panic!("expected a multivector query, got {other:?}"),
         }
-        let prefetch = q.prefetch.unwrap();
+        let [prefetch] = &q.prefetch[..] else {
+            panic!("expected one prefetch stage")
+        };
         assert_eq!((prefetch.using.as_str(), prefetch.limit), ("dense", 50));
-        assert_eq!(prefetch.vector.len(), 6);
+        assert!(matches!(&prefetch.query, PrefetchQuery::Dense(v) if v.len() == 6));
     }
 
     #[test]
@@ -892,11 +941,13 @@ mod tests {
         assert_eq!(q1.expected_ids, Some(vec![1, 2]));
 
         // The prefetch vector is the dataset's, and it moves with the query.
-        let p0 = q0.prefetch.unwrap();
-        let p1 = q1.prefetch.unwrap();
+        let (p0, p1) = (&q0.prefetch[0], &q1.prefetch[0]);
         assert_eq!((p0.using.as_str(), p0.limit), ("dense", 50));
-        assert_eq!(p0.vector.len(), 6);
-        assert_ne!(p0.vector, p1.vector);
+        let (PrefetchQuery::Dense(v0), PrefetchQuery::Dense(v1)) = (&p0.query, &p1.query) else {
+            panic!("expected dense prefetch queries")
+        };
+        assert_eq!(v0.len(), 6);
+        assert_ne!(v0, v1);
     }
 
     /// Without prefetch queries the two stages would search unrelated vectors,

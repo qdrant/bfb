@@ -61,8 +61,11 @@ impl ServerlessQueryProcessor {
         generated: GeneratedQuery,
         collection: &str,
     ) -> Result<QueryPointsBuilder> {
-        if generated.prefetch.is_some() {
+        if !generated.prefetch.is_empty() {
             bail!("prefetch is not supported for serverless queries");
+        }
+        if generated.fusion.is_some() {
+            bail!("fusion is not supported for serverless queries");
         }
         let (vector, using) = if let Some((values, indices, name)) = generated.sparse {
             (VectorInput::new_sparse(indices.data, values), Some(name))
@@ -212,7 +215,10 @@ fn infer_search_config(name: &str, config: &CollectionConfig) -> Result<SearchCo
             source: VectorSource::Random,
             filters: Vec::new(),
             multivector: None,
-            prefetch: None,
+            prefetch: Vec::new(),
+            fusion: None,
+            rrf_k: None,
+            weights: None,
         });
     }
 
