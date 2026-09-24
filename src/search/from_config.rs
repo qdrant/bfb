@@ -7,8 +7,9 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
-    IdfParamsBuilder, PrefetchQueryBuilder, QuantizationSearchParamsBuilder, Query,
-    QueryBatchPointsBuilder, QueryPointsBuilder, SearchParams, SearchParamsBuilder, VectorInput,
+    AcornSearchParamsBuilder, IdfParamsBuilder, PrefetchQueryBuilder,
+    QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder, QueryPointsBuilder,
+    SearchParams, SearchParamsBuilder, VectorInput,
 };
 
 use super::{SearchStats, compare_batch_search_results, recall_against_ground_truth};
@@ -57,6 +58,22 @@ impl ConfigSearchProcessor {
                 );
             }
         }
+        // ACORN is a filtered-search path: without filters Qdrant never takes it, so a run
+        // with the flag on would report the ordinary path under ACORN's name.
+        if args.acorn && config.requests.iter().all(|r| r.filters().is_empty()) {
+            anyhow::bail!(
+                "--acorn needs a config whose requests carry `filters`; ACORN is only used \
+                 for filtered search"
+            );
+        }
+        if args.acorn_max_selectivity.is_some() && !args.acorn {
+            anyhow::bail!("--acorn-max-selectivity needs --acorn");
+        }
+        if let Some(max) = args.acorn_max_selectivity
+            && !(0.0..=1.0).contains(&max)
+        {
+            anyhow::bail!("--acorn-max-selectivity must be between 0.0 and 1.0, got {max}");
+        }
         Ok(ConfigSearchProcessor {
             args: args.clone(),
             stopped,
@@ -69,6 +86,35 @@ impl ConfigSearchProcessor {
             stats: Mutex::new(SearchStats::default()),
             generator: ConfigSearchGenerator::new(config)?,
         })
+    }
+
+    /// The run's search parameters, shared by the request and its prefetch stage.
+    fn search_params(&self) -> SearchParamsBuilder {
+        let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()
+            .rescore(self.args.quantization_rescore.unwrap_or_default());
+
+        if let Some(oversampling) = self.args.quantization_oversampling {
+            quantization_params_builder = quantization_params_builder.oversampling(oversampling);
+        }
+
+        let mut search_params = SearchParamsBuilder::default()
+            .exact(self.args.search_exact && !self.args.search_quality)
+            .quantization(quantization_params_builder)
+            .indexed_only(self.args.indexed_only.unwrap_or_default());
+
+        if let Some(hnsw_ef) = self.args.search_hnsw_ef {
+            search_params = search_params.hnsw_ef(hnsw_ef as u64);
+        }
+
+        if self.args.acorn {
+            let mut acorn = AcornSearchParamsBuilder::new(true);
+            if let Some(max) = self.args.acorn_max_selectivity {
+                acorn = acorn.max_selectivity(max);
+            }
+            search_params = search_params.acorn(acorn.build());
+        }
+
+        search_params
     }
 
     fn create_request_builder(
@@ -162,21 +208,7 @@ impl ConfigSearchProcessor {
 
         let template_idx = self.generator.random_template_idx(&mut rng);
 
-        let mut quantization_params_builder = QuantizationSearchParamsBuilder::default()
-            .rescore(self.args.quantization_rescore.unwrap_or_default());
-
-        if let Some(oversampling) = self.args.quantization_oversampling {
-            quantization_params_builder = quantization_params_builder.oversampling(oversampling);
-        }
-
-        let mut search_params = SearchParamsBuilder::default()
-            .exact(self.args.search_exact && !self.args.search_quality)
-            .quantization(quantization_params_builder)
-            .indexed_only(self.args.indexed_only.unwrap_or_default());
-
-        if let Some(hnsw_ef) = self.args.search_hnsw_ef {
-            search_params = search_params.hnsw_ef(hnsw_ef as u64);
-        }
+        let search_params = self.search_params();
 
         // Materialize the whole batch up front so each query keeps its own
         // filter and (for dataset query sources) its ground-truth ids.
@@ -391,6 +423,19 @@ mod tests {
 
     const YAML: &str = "collection:\n  name: x\nrequests:\n  - kind: dense\n    using: colbert\n    size: 8\n    multivector: { count: 4 }\n    prefetch: { using: dense, size: 6, limit: 50 }\n";
 
+    const FILTERED_YAML: &str = "collection:\n  name: x\nrequests:\n  - kind: dense\n    size: 8\n    filters:\n      - name: color\n        type: keyword\n        source: { cardinality: 5 }\n";
+
+    fn filtered_processor(extra: &[&str]) -> anyhow::Result<ConfigSearchProcessor> {
+        let mut argv = vec!["bfb"];
+        argv.extend_from_slice(extra);
+        ConfigSearchProcessor::new(
+            Args::parse_from(argv),
+            &parse(FILTERED_YAML, "test").unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            vec![],
+        )
+    }
+
     fn processor(extra: &[&str]) -> anyhow::Result<ConfigSearchProcessor> {
         let mut argv = vec!["bfb", "--search-hnsw-ef", "64"];
         argv.extend_from_slice(extra);
@@ -401,6 +446,62 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
             vec![],
         )
+    }
+
+    #[test]
+    fn acorn_flags_reach_the_search_params() {
+        let plain = filtered_processor(&[]).unwrap().search_params().build();
+        assert!(plain.acorn.is_none());
+
+        let on = filtered_processor(&["--acorn"])
+            .unwrap()
+            .search_params()
+            .build();
+        let acorn = on.acorn.expect("acorn params");
+        assert_eq!(acorn.enable, Some(true));
+        assert_eq!(acorn.max_selectivity, None);
+
+        let tuned = filtered_processor(&["--acorn", "--acorn-max-selectivity", "0.25"])
+            .unwrap()
+            .search_params()
+            .build();
+        assert_eq!(tuned.acorn.unwrap().max_selectivity, Some(0.25));
+    }
+
+    fn refusal(result: anyhow::Result<ConfigSearchProcessor>, what: &str) -> String {
+        match result {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("accepted {what}"),
+        }
+    }
+
+    /// Qdrant only takes the ACORN path under a filter, so an unfiltered run with the flag
+    /// on would report the ordinary path under ACORN's name.
+    #[test]
+    fn rejects_acorn_without_filters() {
+        let err = refusal(processor(&["--acorn"]), "acorn without filters");
+        assert!(
+            err.contains("needs a config whose requests carry `filters`"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_acorn_selectivity_misuse() {
+        let no_flag = refusal(
+            filtered_processor(&["--acorn-max-selectivity", "0.3"]),
+            "a selectivity without --acorn",
+        );
+        assert!(no_flag.contains("needs --acorn"), "{no_flag}");
+
+        let out_of_range = refusal(
+            filtered_processor(&["--acorn", "--acorn-max-selectivity", "1.5"]),
+            "a selectivity above 1.0",
+        );
+        assert!(
+            out_of_range.contains("between 0.0 and 1.0"),
+            "{out_of_range}"
+        );
     }
 
     #[test]
