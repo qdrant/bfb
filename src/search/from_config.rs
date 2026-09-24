@@ -7,17 +7,17 @@ use indicatif::ProgressBar;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
-    AcornSearchParamsBuilder, IdfParamsBuilder, PrefetchQueryBuilder,
-    QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder, QueryPointsBuilder,
+    AcornSearchParamsBuilder, Fusion, IdfParamsBuilder, PrefetchQueryBuilder,
+    QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder, QueryPointsBuilder, Rrf,
     SearchParams, SearchParamsBuilder, VectorInput,
 };
 
 use super::{SearchStats, compare_batch_search_results, recall_against_ground_truth};
 use crate::args::Args;
 use crate::client::retry_with_clients;
-use crate::config::search::SearchConfig;
+use crate::config::search::{FusionKind, SearchConfig};
 use crate::generators::ConfigSearchGenerator;
-use crate::generators::queries::GeneratedPrefetch;
+use crate::generators::queries::{FusionSpec, GeneratedPrefetch, PrefetchQuery};
 use crate::processor::{Processor, Timing};
 
 /// YAML-config-driven search (`bfb search --file config.yaml`).
@@ -127,9 +127,9 @@ impl ConfigSearchProcessor {
         &self,
         query_filter: Option<qdrant_client::qdrant::Filter>,
         idf_corpus: Option<qdrant_client::qdrant::Filter>,
-        vector: VectorInput,
-        vector_name: Option<String>,
-        prefetch: Option<GeneratedPrefetch>,
+        vector: Option<(VectorInput, Option<String>)>,
+        prefetch: Vec<GeneratedPrefetch>,
+        fusion: Option<FusionSpec>,
         mut search_params: SearchParamsBuilder,
     ) -> QueryPointsBuilder {
         // Sparse IDF statistics are computed over this sub-corpus instead of the
@@ -143,28 +143,33 @@ impl ConfigSearchProcessor {
             .with_vectors(self.args.search_with_vectors)
             .limit(self.args.search_limit as u64);
 
-        if let Some(vector_name) = vector_name.filter(|n| !n.is_empty()) {
-            request_builder = request_builder.using(vector_name);
-        }
-
         if let Some(filter) = query_filter {
             request_builder = request_builder.filter(filter);
         }
 
-        let query = Query::new_nearest(vector);
-
-        if let Some(prefetch) = prefetch {
-            // Two stages: the prefetch searches its own vector with the run's search params,
-            // the main query rescores its candidates.
-            let prefetch = PrefetchQueryBuilder::default()
-                .query(Query::new_nearest(VectorInput::new_dense(prefetch.vector)))
-                .using(prefetch.using)
-                .params(search_params.clone())
-                .limit(prefetch.limit)
-                .build();
-            request_builder = request_builder
-                .prefetch(vec![prefetch])
-                .params(search_params);
+        if !prefetch.is_empty() {
+            // Each stage searches its own vector with the run's search params; the outer
+            // query then rescores one stage's candidates, or fuses several stages' rankings.
+            let stages: Vec<_> = prefetch
+                .into_iter()
+                .map(|stage| {
+                    let query = match stage.query {
+                        PrefetchQuery::Dense(vector) => {
+                            Query::new_nearest(VectorInput::new_dense(vector))
+                        }
+                        PrefetchQuery::Sparse(values, indices) => {
+                            Query::new_nearest(VectorInput::new_sparse(indices.data, values))
+                        }
+                    };
+                    PrefetchQueryBuilder::default()
+                        .query(query)
+                        .using(stage.using)
+                        .params(search_params.clone())
+                        .limit(stage.limit)
+                        .build()
+                })
+                .collect();
+            request_builder = request_builder.prefetch(stages).params(search_params);
         } else if let Some(prefetch_limit) = self.args.prefetch {
             let mut prefetch_params = SearchParamsBuilder::default()
                 .quantization(QuantizationSearchParamsBuilder::default().rescore(false));
@@ -173,19 +178,43 @@ impl ConfigSearchProcessor {
                 prefetch_params = prefetch_params.hnsw_ef(hnsw_ef as u64);
             }
 
-            let prefetch = PrefetchQueryBuilder::default()
-                .query(query.clone())
+            let stage = PrefetchQueryBuilder::default()
+                .query(Query::new_nearest(
+                    vector
+                        .as_ref()
+                        .expect("--prefetch needs the request's own vector")
+                        .0
+                        .clone(),
+                ))
                 .params(prefetch_params)
                 .limit(prefetch_limit as u64)
                 .build();
 
-            request_builder = request_builder.prefetch(vec![prefetch]);
+            request_builder = request_builder.prefetch(vec![stage]);
             request_builder = request_builder.params(search_params);
         } else {
             request_builder = request_builder.params(search_params);
         }
 
-        request_builder = request_builder.query(query);
+        request_builder = match fusion {
+            Some(spec) => request_builder.query(match spec.kind {
+                FusionKind::Dbsf => Query::new_fusion(Fusion::Dbsf),
+                FusionKind::Rrf => match (spec.rrf_k, spec.weights) {
+                    (None, None) => Query::new_fusion(Fusion::Rrf),
+                    (k, weights) => Query::new_rrf(Rrf {
+                        k,
+                        weights: weights.unwrap_or_default(),
+                    }),
+                },
+            }),
+            None => {
+                let (vector, name) = vector.expect("a query without fusion needs a vector");
+                if let Some(name) = name.filter(|n| !n.is_empty()) {
+                    request_builder = request_builder.using(name);
+                }
+                request_builder.query(Query::new_nearest(vector))
+            }
+        };
 
         if let Some(read_consistency) = self.args.read_consistency {
             request_builder = request_builder.read_consistency(read_consistency);
@@ -236,21 +265,25 @@ impl ConfigSearchProcessor {
             .map(|generated| {
                 let query_filter = generated.filter.clone();
                 let idf_corpus = generated.idf_corpus.clone();
-                let (vector, vector_name) = if let Some((values, indices, name)) = generated.sparse
-                {
-                    (VectorInput::new_sparse(indices.data, values), Some(name))
-                } else if let Some((query, name)) = generated.dense {
-                    (query.into_vector_input(), name)
+                let vector = if let Some((values, indices, name)) = generated.sparse {
+                    Some((VectorInput::new_sparse(indices.data, values), Some(name)))
                 } else {
-                    panic!("search config request must produce a dense or sparse vector");
+                    // A fusion query has no vector of its own; anything else must have one.
+                    generated
+                        .dense
+                        .map(|(query, name)| (query.into_vector_input(), name))
                 };
+                assert!(
+                    vector.is_some() || generated.fusion.is_some(),
+                    "a request without fusion must produce a dense or sparse vector"
+                );
 
                 self.create_request_builder(
                     query_filter,
                     idf_corpus,
                     vector,
-                    vector_name,
                     generated.prefetch,
+                    generated.fusion,
                     search_params.clone(),
                 )
                 .build()
@@ -454,6 +487,87 @@ mod tests {
         )
     }
 
+    const FUSION_YAML: &str = "collection:\n  name: x\nrequests:\n  - kind: dense\n    size: 8\n    fusion: rrf\n    rrf_k: 60\n    weights: [2.0, 1.0]\n    prefetch:\n      - using: dense\n        size: 8\n        limit: 200\n      - using: bm25\n        kind: sparse\n        limit: 200\n        source: { vocab_size: 1000, length: 10 }\n";
+
+    /// A fused request sends its stages and how to combine them, and no vector of its own.
+    #[test]
+    fn builds_a_hybrid_fusion_request() {
+        let config = parse(FUSION_YAML, "test").unwrap();
+        let p = ConfigSearchProcessor::new(
+            Args::parse_from(vec!["bfb", "--search-hnsw-ef", "64"]),
+            &config,
+            Arc::new(AtomicBool::new(false)),
+            vec![],
+        )
+        .unwrap();
+        let q = p.generator.make_query(0, &mut rand::rng());
+        assert!(
+            q.dense.is_none(),
+            "a fusion query carries no vector of its own"
+        );
+
+        let request = p
+            .create_request_builder(
+                None,
+                None,
+                None,
+                q.prefetch,
+                q.fusion,
+                SearchParamsBuilder::default().hnsw_ef(64),
+            )
+            .build();
+
+        assert!(request.using.is_none());
+        let Some(QueryVariant::Rrf(rrf)) = request.query.and_then(|q| q.variant) else {
+            panic!("expected a parameterized rrf query");
+        };
+        assert_eq!((rrf.k, rrf.weights), (Some(60), vec![2.0, 1.0]));
+
+        assert_eq!(request.prefetch.len(), 2);
+        assert_eq!(request.prefetch[0].using.as_deref(), Some("dense"));
+        assert_eq!(request.prefetch[1].using.as_deref(), Some("bm25"));
+        // Both stages run under the run's own search params.
+        for stage in &request.prefetch {
+            assert_eq!(stage.limit, Some(200));
+            assert_eq!(stage.params.as_ref().and_then(|p| p.hnsw_ef), Some(64));
+        }
+        let Some(QueryVariant::Nearest(sparse)) =
+            request.prefetch[1].query.clone().and_then(|q| q.variant)
+        else {
+            panic!("expected a nearest query on the sparse stage");
+        };
+        assert!(matches!(sparse.variant, Some(InputVariant::Sparse(s)) if !s.values.is_empty()));
+    }
+
+    /// Plain `fusion: rrf` with no parameters uses the server's own defaults.
+    #[test]
+    fn plain_fusion_sends_no_parameters() {
+        let yaml = FUSION_YAML.replace("    rrf_k: 60\n    weights: [2.0, 1.0]\n", "");
+        let config = parse(&yaml, "test").unwrap();
+        let p = ConfigSearchProcessor::new(
+            Args::parse_from(vec!["bfb"]),
+            &config,
+            Arc::new(AtomicBool::new(false)),
+            vec![],
+        )
+        .unwrap();
+        let q = p.generator.make_query(0, &mut rand::rng());
+        let request = p
+            .create_request_builder(
+                None,
+                None,
+                None,
+                q.prefetch,
+                q.fusion,
+                SearchParamsBuilder::default(),
+            )
+            .build();
+        assert!(matches!(
+            request.query.and_then(|q| q.variant),
+            Some(QueryVariant::Fusion(f)) if f == Fusion::Rrf as i32
+        ));
+    }
+
     #[test]
     fn acorn_flags_reach_the_search_params() {
         let plain = filtered_processor(&[]).unwrap().search_params().build();
@@ -528,9 +642,9 @@ mod tests {
             .create_request_builder(
                 None,
                 None,
-                query.into_vector_input(),
-                using,
+                Some((query.into_vector_input(), using)),
                 q.prefetch,
+                q.fusion,
                 // As search() builds it from --search-hnsw-ef.
                 SearchParamsBuilder::default().hnsw_ef(64),
             )
@@ -563,9 +677,9 @@ mod tests {
             .create_request_builder(
                 None,
                 None,
-                query.into_vector_input(),
-                using,
+                Some((query.into_vector_input(), using)),
                 q.prefetch,
+                q.fusion,
                 SearchParamsBuilder::default().exact(true).hnsw_ef(64),
             )
             .build();

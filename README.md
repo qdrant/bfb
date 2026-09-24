@@ -287,7 +287,7 @@ batch. Supported kinds:
 
 | `kind` | Fields | Notes |
 |--------|--------|-------|
-| `dense` | `size`, optional `using`, `source`, `filters`, `multivector`, `prefetch` | Query a dense vector; `source: { type: dataset }` measures recall (see below) |
+| `dense` | `size`, optional `using`, `source`, `filters`, `multivector`, `prefetch`, `fusion` | Query a dense vector; `source: { type: dataset }` measures recall (see below) |
 | `sparse` | `using`, `source`, `filters` | Query a named sparse vector; `source: { type: dataset }` measures recall (see below) |
 
 Filter entries reuse the same payload `type` / `source` vocabulary as the
@@ -316,6 +316,35 @@ supplies the first stage, so both stages search the *same* query; a request that
 prefetches from a dataset without it is refused, rather than pairing a query's
 sub-vectors with an unrelated vector — `prefetch.size` is then ignored, like the
 request's own `size`. A `file` source cannot drive a prefetch.
+
+#### Hybrid search: fusing several prefetches
+
+`prefetch` also takes a list, and a `fusion` on the request combines what the
+stages return instead of rescoring them. Stages may be dense or sparse, which is
+what makes a dense-plus-sparse hybrid query:
+
+```yaml
+requests:
+  - kind: dense
+    size: 128
+    fusion: rrf                    # rrf | dbsf
+    rrf_k: 60                      # optional, rrf only
+    weights: [2.0, 1.0]            # optional, rrf only; one per stage
+    prefetch:
+      - using: dense               # stage 1: dense vector
+        size: 128
+        limit: 200
+      - using: bm25                # stage 2: sparse vector
+        kind: sparse
+        limit: 200
+        source: { vocab_size: 100000, length: 20 }
+```
+
+A fused request sends no vector of its own — the stages carry the queries and
+`fusion` decides the ranking — so `multivector` cannot apply to it. Fusion needs
+at least two stages, `weights` needs one entry per stage, and `rrf_k` and
+`weights` need `fusion: rrf`. A single prefetch without `fusion` stays the
+two-stage rescore described above.
 
 #### ACORN
 
