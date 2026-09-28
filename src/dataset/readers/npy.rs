@@ -6,6 +6,9 @@
 //!
 //! Rows are served from an mmap, so access is lock-free and resident memory is
 //! reclaimable page cache rather than committed RAM.
+//!
+//! [`NpyMatrix::open`] faults the mapping into the page cache up front so a
+//! later timed upload measures Qdrant ingest, not cold reads of `vectors.npy`.
 
 use std::fs::File;
 use std::path::Path;
@@ -13,6 +16,8 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use half::f16;
 use memmap2::Mmap;
+
+use crate::mmap_util::prefault_mmap;
 
 /// Element type of a `.npy` array (little-endian float).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +71,7 @@ impl NpyMatrix {
             );
         }
 
+        prefault_mmap(&mmap);
         Ok(NpyMatrix { mmap, layout })
     }
 
