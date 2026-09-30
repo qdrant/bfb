@@ -107,23 +107,24 @@ collection:
       #                          #     offsets.npy (row boundaries per point) — ColBERT-style
       #                          #     multivectors; requires `multivector:` above (`count` is
       #                          #     ignored — arity comes from `offsets.npy`)
-      #                          #   parquet one parquet file — payload rows only
+      #                          #   parquet payload rows + optional vector_column/sparse_column
       #   path: glove-25-angular/glove-25-angular.hdf5
       #   link: http://ann-benchmarks.com/glove-25-angular.hdf5
       #   vector_size: 25
       #   distance: cosine
       # A sharded dataset (`npy` / `parquet` only) replaces `path`/`link` with a
-      # `parts` block; the files are read as one row space and `{i}` is
-      # substituted with each part's number. Row counts per part are measured,
-      # not configured — one ranged request per part, cached thereafter.
+      # `parts` block; the files are read as one row space and `{i}` (or
+      # zero-padded `{i:04d}`) is substituted with each part's number. Row
+      # counts per part are measured, not configured — one ranged request per
+      # part, cached thereafter.
       # source:
       #   type: dataset
       #   name: laion-400m-img-emb
       #   format: npy
       #   parts:
       #     count: 410           # uint     required   number of parts
-      #     start: 0             # uint     default=0  index of the first part
-      #     path: laion/img_emb_{i}.npy     # string   required
+      #     start: 0             # uint     default=0  first part index
+      #     path: laion/img_emb_{i}.npy   # string  required  `{i}` or `{i:04d}`
       #     link: https://host/img_emb_{i}.npy  # string  optional
       #   cache: keep          # enum  default=keep  [keep | evict] (sharded only)
       #                        #   evict deletes each downloaded part once the reader
@@ -175,13 +176,16 @@ collection:
     #     path: laion-small-clip/laion-small-clip
     #     link: https://example.com/laion-small-clip.tgz
     # `format: parquet` reads payload rows from a parquet file, and accepts
-    # three extra keys (ignored by every other format):
+    # five extra keys (ignored by every other format):
     #   columns: [url, similarity]   # list  optional  columns to keep (default: all)
     #   exclude: [exif]              # list  default=[]  columns to drop (applied after `columns`)
     #   fill_null: 0                 # any   optional  value substituted for nulls and for
     #                                #   NaN/±inf floats, which have no JSON form. Omitted by
     #                                #   default, leaving the payload field absent.
-
+    #   vector_column: dense_embedding   # optional  list-of-floats dense vector column
+    #   sparse_column: sparse_embedding  # optional  {indices, values} sparse vector column
+    # When `vector_column` / `sparse_column` are set and `columns` is omitted,
+    # only those vector columns are decoded (payload text is skipped).
   # Payload field declarations (optional). Names must be unique. Each entry
   # generates a value and/or declares a field index.
   fields:

@@ -1,0 +1,58 @@
+# Search workload for a FineWeb collection uploaded with
+# `upload-fineweb-part` / `upload-fineweb-10b`.
+#
+#   bfb search --example search-fineweb -n 10k -p 8 -t 4 \
+#       --search-limit 10 --uri http://localhost:6334
+#
+# Query vectors are random (MS MARCO query embeddings are not redistributed
+# with the dataset — regenerate them from the HF scripts if you need recall
+# against `queries/gt_*.parquet`). Filters exercise the FineWeb metadata
+# indexes created on upload.
+
+collection:
+  name: fineweb
+
+requests:
+  - kind: dense
+    using: dense
+    size: 768
+    datatype: float16
+    source: random
+
+  - kind: sparse
+    using: sparse
+    source:
+      type: random
+      vocab_size: 250048
+      length: 100
+      distribution: zipf
+
+  - kind: dense
+    using: dense
+    size: 768
+    datatype: float16
+    source: random
+    filters:
+      - name: language
+        type: keyword
+        source: { type: random, cardinality: 1 }
+
+  - kind: dense
+    using: dense
+    size: 768
+    datatype: float16
+    source: random
+    filters:
+      - name: language_score
+        type: float
+        source: { type: random, min: 0.65, max: 1.0 }
+
+  - kind: dense
+    using: dense
+    size: 768
+    datatype: float16
+    source: random
+    filters:
+      - name: token_count
+        type: integer
+        source: { type: random, min: 50, max: 2000 }
