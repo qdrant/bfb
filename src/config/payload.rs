@@ -36,6 +36,19 @@ pub struct PayloadConfig {
     pub prefix: bool,
     /// Text payloads: tokenizer.
     pub tokenizer: Option<TokenizerKind>,
+    /// Text payloads: lowercase tokens. Server default: true.
+    #[serde(default)]
+    pub lowercase: Option<bool>,
+    /// Text payloads: drop the stopwords of this language, e.g. `english`.
+    #[serde(default)]
+    pub stopwords: Option<String>,
+    /// Text payloads: stem tokens with this language's Snowball stemmer, e.g. `english`.
+    #[serde(default)]
+    pub stemmer: Option<String>,
+    /// Text payloads: rank points by this field, so `kind: text` search requests
+    /// can query it (Qdrant 1.19.3+). Implies phrase matching.
+    #[serde(default)]
+    pub scoring: Option<TextScoringKind>,
     /// Per-field value source. May be omitted when `collection.payload.source`
     /// provides the payload object — the entry is then index-only.
     #[serde(default, deserialize_with = "option_string_or_struct")]
@@ -53,6 +66,13 @@ pub enum PayloadType {
     Geo,
     Text,
     Datetime,
+}
+
+/// How a text index ranks points for `kind: text` queries.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TextScoringKind {
+    Bm25,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

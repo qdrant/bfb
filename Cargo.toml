@@ -32,7 +32,7 @@ parquet = { version = "59.1", default-features = false, features = [
 ] }
 # `download_snapshots` (default) is unused and pulls reqwest + aws-lc-sys, which makes
 # static musl cross-builds needlessly painful; without it TLS is rustls + ring only.
-qdrant-client = { git = "https://github.com/qdrant/rust-client", branch = "dev", default-features = false, features = ["serde"] }
+qdrant-client = { git = "https://github.com/qdrant/rust-client", rev = "d960517dfefbe658e85bdb2b6f447df30fa455db", default-features = false, features = ["serde"] }
 rand = "0.10.1"
 rand_distr = "0.6.0"
 serde = { version = "1.0", features = ["derive"] }

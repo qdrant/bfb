@@ -27,7 +27,7 @@ use crate::args::Args;
 use crate::client::random_client;
 use crate::config::{
     ComparatorKind, DatatypeKind, DistanceKind, MemoryKind, ModifierKind, PayloadType, QuantKind,
-    TokenizerKind, UploadConfig, VectorConfig,
+    TextScoringKind, TokenizerKind, UploadConfig, VectorConfig,
 };
 
 fn distance_to_grpc(distance: DistanceKind) -> Distance {
@@ -441,6 +441,18 @@ async fn create_field_indices_from_config(
                 let mut params = TextIndexParamsBuilder::new(tokenizer).on_disk(pc.on_disk);
                 if let Some(memory) = memory {
                     params = params.memory(memory);
+                }
+                if let Some(lowercase) = pc.lowercase {
+                    params = params.lowercase(lowercase);
+                }
+                if let Some(language) = &pc.stopwords {
+                    params = params.stopwords_language(language.clone());
+                }
+                if let Some(language) = &pc.stemmer {
+                    params = params.snowball_stemmer(language.clone());
+                }
+                if let Some(TextScoringKind::Bm25) = pc.scoring {
+                    params = params.bm25_scoring();
                 }
                 CreateFieldIndexCollectionBuilder::new(name, field, FieldType::Text)
                     .field_index_params(params)

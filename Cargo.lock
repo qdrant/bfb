@@ -1472,7 +1472,7 @@ dependencies = [
 [[package]]
 name = "qdrant-client"
 version = "1.16.1-dev"
-source = "git+https://github.com/qdrant/rust-client?branch=dev#18002abfd22c1d484a68eac3a1894b456f098dde"
+source = "git+https://github.com/qdrant/rust-client?rev=d960517dfefbe658e85bdb2b6f447df30fa455db#d960517dfefbe658e85bdb2b6f447df30fa455db"
 dependencies = [
  "anyhow",
  "derive_builder",

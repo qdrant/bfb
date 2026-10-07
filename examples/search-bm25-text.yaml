@@ -1,0 +1,21 @@
+# Example bfb search config for BM25 over a text index (Qdrant 1.19.3+), matching
+# upload-bm25-text. A point scores when it holds any of the query's words; terms
+# a point must or must not hold belong in `filters`.
+#
+#   bfb search --example search-bm25-text -n 10k --search-limit 10 -p 8 \
+#       --uri http://localhost:6334
+
+collection:
+  name: benchmark
+
+requests:
+  - kind: text
+    using: body                    # the payload field whose text index ranks points
+    # k: 1.2                       # BM25 term-frequency saturation (server default)
+    # b: 0.75                      # BM25 length normalization, 0..1 (server default)
+    source:
+      type: random                 # random | file (one query per line)
+      vocab_size: 20000
+      min_length: 2                # words per query
+      max_length: 5
+      distribution: zipf

@@ -9,16 +9,24 @@ use qdrant_client::qdrant::shard_key::Key;
 use qdrant_client::qdrant::{
     AcornSearchParamsBuilder, Fusion, IdfParamsBuilder, PrefetchQueryBuilder,
     QuantizationSearchParamsBuilder, Query, QueryBatchPointsBuilder, QueryPointsBuilder, Rrf,
-    SearchParams, SearchParamsBuilder, VectorInput,
+    SearchParams, SearchParamsBuilder, TextQueryBuilder, VectorInput,
 };
 
 use super::{SearchStats, compare_batch_search_results, recall_against_ground_truth};
 use crate::args::Args;
 use crate::client::retry_with_clients;
-use crate::config::search::{FusionKind, SearchConfig};
+use crate::config::search::{FusionKind, SearchConfig, SearchRequestConfig};
 use crate::generators::ConfigSearchGenerator;
-use crate::generators::queries::{FusionSpec, GeneratedPrefetch, PrefetchQuery};
+use crate::generators::queries::{FusionSpec, GeneratedPrefetch, GeneratedText, PrefetchQuery};
 use crate::processor::{Processor, Timing};
+
+/// What a request ranks by, unless it fuses its prefetches.
+pub(crate) enum MainQuery {
+    /// A dense or sparse vector, and the named vector it searches.
+    Vector(VectorInput, Option<String>),
+    /// BM25 over a payload field's text index.
+    Text(GeneratedText),
+}
 
 /// YAML-config-driven search (`bfb search --file config.yaml`).
 pub struct ConfigSearchProcessor {
@@ -55,6 +63,25 @@ impl ConfigSearchProcessor {
                     "`prefetch.limit` ({limit}) is below --search-limit ({}); the rescore could \
                      not return a full page",
                     args.search_limit
+                );
+            }
+        }
+        let has_text = config
+            .requests
+            .iter()
+            .any(|r| matches!(r, SearchRequestConfig::Text { .. }));
+        if has_text {
+            // The comparison runs each query again with `exact: true`, and BM25 over a
+            // text index is exact already: it would compare the ranking with itself.
+            if args.search_quality {
+                anyhow::bail!(
+                    "--search-quality has no exact reference for a `kind: text` request: \
+                     BM25 over a text index is exact already"
+                );
+            }
+            if args.prefetch.is_some() {
+                anyhow::bail!(
+                    "--prefetch rescores a vector search; a `kind: text` request has no vector"
                 );
             }
         }
@@ -127,7 +154,7 @@ impl ConfigSearchProcessor {
         &self,
         query_filter: Option<qdrant_client::qdrant::Filter>,
         idf_corpus: Option<qdrant_client::qdrant::Filter>,
-        vector: Option<(VectorInput, Option<String>)>,
+        main: Option<MainQuery>,
         prefetch: Vec<GeneratedPrefetch>,
         fusion: Option<FusionSpec>,
         mut search_params: SearchParamsBuilder,
@@ -178,14 +205,11 @@ impl ConfigSearchProcessor {
                 prefetch_params = prefetch_params.hnsw_ef(hnsw_ef as u64);
             }
 
+            let Some(MainQuery::Vector(input, _)) = main.as_ref() else {
+                panic!("--prefetch needs the request's own vector");
+            };
             let stage = PrefetchQueryBuilder::default()
-                .query(Query::new_nearest(
-                    vector
-                        .as_ref()
-                        .expect("--prefetch needs the request's own vector")
-                        .0
-                        .clone(),
-                ))
+                .query(Query::new_nearest(input.clone()))
                 .params(prefetch_params)
                 .limit(prefetch_limit as u64)
                 .build();
@@ -207,13 +231,27 @@ impl ConfigSearchProcessor {
                     }),
                 },
             }),
-            None => {
-                let (vector, name) = vector.expect("a query without fusion needs a vector");
-                if let Some(name) = name.filter(|n| !n.is_empty()) {
-                    request_builder = request_builder.using(name);
+            None => match main.expect("a query without fusion needs a vector or a text query") {
+                MainQuery::Text(text) => {
+                    let mut query = TextQueryBuilder::new(text.query);
+                    if let Some(k) = text.k {
+                        query = query.k(k);
+                    }
+                    if let Some(b) = text.b {
+                        query = query.b(b);
+                    }
+                    // `using` names the payload field whose text index ranks the points.
+                    request_builder
+                        .using(text.using)
+                        .query(Query::new_text(query))
                 }
-                request_builder.query(Query::new_nearest(vector))
-            }
+                MainQuery::Vector(vector, name) => {
+                    if let Some(name) = name.filter(|n| !n.is_empty()) {
+                        request_builder = request_builder.using(name);
+                    }
+                    request_builder.query(Query::new_nearest(vector))
+                }
+            },
         };
 
         if let Some(read_consistency) = self.args.read_consistency {
@@ -265,23 +303,28 @@ impl ConfigSearchProcessor {
             .map(|generated| {
                 let query_filter = generated.filter.clone();
                 let idf_corpus = generated.idf_corpus.clone();
-                let vector = if let Some((values, indices, name)) = generated.sparse {
-                    Some((VectorInput::new_sparse(indices.data, values), Some(name)))
+                let main = if let Some(text) = generated.text {
+                    Some(MainQuery::Text(text))
+                } else if let Some((values, indices, name)) = generated.sparse {
+                    Some(MainQuery::Vector(
+                        VectorInput::new_sparse(indices.data, values),
+                        Some(name),
+                    ))
                 } else {
                     // A fusion query has no vector of its own; anything else must have one.
                     generated
                         .dense
-                        .map(|(query, name)| (query.into_vector_input(), name))
+                        .map(|(query, name)| MainQuery::Vector(query.into_vector_input(), name))
                 };
                 assert!(
-                    vector.is_some() || generated.fusion.is_some(),
-                    "a request without fusion must produce a dense or sparse vector"
+                    main.is_some() || generated.fusion.is_some(),
+                    "a request without fusion must produce a dense or sparse vector, or a text query"
                 );
 
                 self.create_request_builder(
                     query_filter,
                     idf_corpus,
-                    vector,
+                    main,
                     generated.prefetch,
                     generated.fusion,
                     search_params.clone(),
@@ -489,6 +532,54 @@ mod tests {
 
     const FUSION_YAML: &str = "collection:\n  name: x\nrequests:\n  - kind: dense\n    size: 8\n    fusion: rrf\n    rrf_k: 60\n    weights: [2.0, 1.0]\n    prefetch:\n      - using: dense\n        size: 8\n        limit: 200\n      - using: bm25\n        kind: sparse\n        limit: 200\n        source: { vocab_size: 1000, length: 10 }\n";
 
+    const TEXT_YAML: &str = "collection:\n  name: x\nrequests:\n  - kind: text\n    using: body\n    k: 1.5\n    b: 0.25\n    filters:\n      - name: color\n        type: keyword\n        source: { cardinality: 5 }\n";
+
+    fn text_processor(extra: &[&str]) -> anyhow::Result<ConfigSearchProcessor> {
+        let mut argv = vec!["bfb"];
+        argv.extend_from_slice(extra);
+        ConfigSearchProcessor::new(
+            Args::parse_from(argv),
+            &parse(TEXT_YAML, "test").unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            vec![],
+        )
+    }
+
+    /// A text request ranks by BM25 over the payload field named in `using`, with
+    /// its own k and b, and sends no vector.
+    #[test]
+    fn builds_a_text_request() {
+        let p = text_processor(&[]).unwrap();
+        let q = p.generator.make_query(0, &mut rand::rng());
+        let request = p
+            .create_request_builder(
+                q.filter,
+                None,
+                q.text.map(MainQuery::Text),
+                q.prefetch,
+                q.fusion,
+                SearchParamsBuilder::default(),
+            )
+            .build();
+        assert_eq!(request.using.as_deref(), Some("body"));
+        assert!(request.filter.is_some());
+        let Some(QueryVariant::Text(text)) = request.query.and_then(|q| q.variant) else {
+            panic!("expected a text query");
+        };
+        assert_eq!((text.k, text.b), (Some(1.5), Some(0.25)));
+        assert_eq!(text.query.split(' ').count(), 2);
+    }
+
+    #[test]
+    fn text_requests_refuse_flags_that_need_a_vector() {
+        let err = text_processor(&["--search-quality"]).err().unwrap();
+        assert!(err.to_string().contains("exact already"), "{err}");
+        let err = text_processor(&["--prefetch", "100"]).err().unwrap();
+        assert!(err.to_string().contains("no vector"), "{err}");
+        // Filters are allowed, so is ACORN on them.
+        assert!(text_processor(&["--acorn"]).is_ok());
+    }
+
     /// A fused request sends its stages and how to combine them, and no vector of its own.
     #[test]
     fn builds_a_hybrid_fusion_request() {
@@ -642,7 +733,7 @@ mod tests {
             .create_request_builder(
                 None,
                 None,
-                Some((query.into_vector_input(), using)),
+                Some(MainQuery::Vector(query.into_vector_input(), using)),
                 q.prefetch,
                 q.fusion,
                 // As search() builds it from --search-hnsw-ef.
@@ -677,7 +768,7 @@ mod tests {
             .create_request_builder(
                 None,
                 None,
-                Some((query.into_vector_input(), using)),
+                Some(MainQuery::Vector(query.into_vector_input(), using)),
                 q.prefetch,
                 q.fusion,
                 SearchParamsBuilder::default().exact(true).hnsw_ef(64),

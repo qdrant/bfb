@@ -197,6 +197,10 @@ collection:
       prefix: false              # bool           default=false        keyword payloads: enable prefix matching
                                  #   (required for search `match_prefix` filters)
       tokenizer: null            # enum           optional (text)      [word | whitespace | prefix | multilingual]
+      lowercase: null            # bool           optional (text)      lowercase tokens (server default true)
+      stopwords: null            # string         optional (text)      stopword language, e.g. english
+      stemmer: null              # string         optional (text)      Snowball stemmer language, e.g. english
+      scoring: null              # enum           optional (text)      [bm25] rank by this field (search `kind: text`)
       # Value source (optional when `payload.source` is set — then the entry is
       # index-only). Shorthand string `random` / `random-clusters` / `now`, or a
       # map. Which keys apply depends on the payload `type`; others ignored.
@@ -303,34 +307,59 @@ mod tests {
                     source: None,
                     memory: Some(MemoryKind::Cached),
                 },
-                fields: vec![PayloadConfig {
-                    name: "color".to_string(),
-                    kind: PayloadType::Keyword,
-                    index: true,
-                    on_disk: false,
-                    memory: Some(MemoryKind::Cached),
-                    is_tenant: false,
-                    is_principal: false,
-                    range_index: true,
-                    prefix: true,
-                    tokenizer: Some(TokenizerKind::Word),
-                    source: Some(PayloadSource {
-                        kind: PayloadSourceKind::Random,
-                        dataset: None,
-                        field: None,
-                        cardinality: Some(100),
-                        length_multiplier: Some(1),
-                        values_per_point: Some(1),
-                        min: Some(0.0),
-                        max: Some(1.0),
-                        true_ratio: Some(0.5),
-                        clusters: Some(10),
-                        vocab_size: Some(1000),
-                        min_length: Some(1),
-                        max_length: Some(10),
-                        distribution: DistributionKind::Uniform,
-                    }),
-                }],
+                fields: vec![
+                    PayloadConfig {
+                        name: "color".to_string(),
+                        kind: PayloadType::Keyword,
+                        index: true,
+                        on_disk: false,
+                        memory: Some(MemoryKind::Cached),
+                        is_tenant: false,
+                        is_principal: false,
+                        range_index: true,
+                        prefix: true,
+                        tokenizer: Some(TokenizerKind::Word),
+                        lowercase: None,
+                        stopwords: None,
+                        stemmer: None,
+                        scoring: None,
+                        source: Some(PayloadSource {
+                            kind: PayloadSourceKind::Random,
+                            dataset: None,
+                            field: None,
+                            cardinality: Some(100),
+                            length_multiplier: Some(1),
+                            values_per_point: Some(1),
+                            min: Some(0.0),
+                            max: Some(1.0),
+                            true_ratio: Some(0.5),
+                            clusters: Some(10),
+                            vocab_size: Some(1000),
+                            min_length: Some(1),
+                            max_length: Some(10),
+                            distribution: DistributionKind::Uniform,
+                        }),
+                    },
+                    // The text index options are refused on any other type, so they
+                    // need a text field of their own.
+                    PayloadConfig {
+                        name: "body".to_string(),
+                        kind: PayloadType::Text,
+                        index: true,
+                        on_disk: false,
+                        memory: None,
+                        is_tenant: false,
+                        is_principal: false,
+                        range_index: true,
+                        prefix: false,
+                        tokenizer: Some(TokenizerKind::Word),
+                        lowercase: Some(true),
+                        stopwords: Some("english".to_string()),
+                        stemmer: Some("english".to_string()),
+                        scoring: Some(TextScoringKind::Bm25),
+                        source: None,
+                    },
+                ],
             },
         }
     }
