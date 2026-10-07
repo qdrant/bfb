@@ -1,0 +1,30 @@
+# Example bfb upload config for BM25 over a text index (Qdrant 1.19.3+): every
+# point carries a zipf-distributed text field indexed with `scoring: bm25`, so
+# `kind: text` search requests can rank by it (see search-bm25-text). The dense
+# vector is a placeholder the text query never reads.
+#
+#   bfb upload --example upload-bm25-text -n 200k -b 256 -p 8 -t 4 \
+#       --uri http://localhost:6334
+
+collection:
+  name: benchmark
+
+  vectors:
+    - size: 4
+      distance: dot
+      source: random
+
+  fields:
+    - name: body
+      type: text
+      tokenizer: word
+      scoring: bm25                # rank by BM25; implies phrase matching
+      # lowercase: true            # tokenizer options, as for any text index
+      # stopwords: english
+      # stemmer: english
+      source:
+        type: random
+        vocab_size: 20000
+        min_length: 20             # words per document
+        max_length: 200
+        distribution: zipf

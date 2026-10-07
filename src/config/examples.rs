@@ -101,6 +101,16 @@ pub static EXAMPLES: &[Example] = &[
         "Search requests matching upload-config (dense, sparse, filters)"
     ),
     example!(
+        "upload-bm25-text",
+        Upload,
+        "A text field indexed for BM25 ranking (Qdrant 1.19.3+)"
+    ),
+    example!(
+        "search-bm25-text",
+        Search,
+        "BM25 over a text index, matching upload-bm25-text"
+    ),
+    example!(
         "search-dataset-accuracy",
         Search,
         "Measure recall against a dataset query set + ground truth"

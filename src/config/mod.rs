@@ -15,7 +15,7 @@ pub mod search;
 pub mod vector;
 
 pub use collection::{CollectionConfig, IdType, MemoryKind, QuantKind};
-pub use payload::{PayloadSource, PayloadSourceKind, PayloadType, TokenizerKind};
+pub use payload::{PayloadSource, PayloadSourceKind, PayloadType, TextScoringKind, TokenizerKind};
 pub use vector::{
     ComparatorKind, DatatypeKind, DistanceKind, DistributionKind, FileStrategy, ModifierKind,
     SparseKind, SparseSource, VectorConfig, VectorSource,
@@ -135,6 +135,33 @@ impl UploadConfig {
         for p in &c.fields {
             if !payload_names.insert(p.name.clone()) {
                 bail!("duplicate payload field name {:?}", p.name);
+            }
+            // Text index options describe a text index; anywhere else they would be
+            // silently dropped.
+            let text_options = p.lowercase.is_some()
+                || p.stopwords.is_some()
+                || p.stemmer.is_some()
+                || p.scoring.is_some();
+            if text_options && p.kind != PayloadType::Text {
+                bail!(
+                    "payload {:?}: `lowercase`, `stopwords`, `stemmer` and `scoring` apply to \
+                     `type: text` fields only",
+                    p.name
+                );
+            }
+            if text_options && !p.index {
+                bail!(
+                    "payload {:?}: text index options need `index: true`",
+                    p.name
+                );
+            }
+            for (key, value) in [("stopwords", &p.stopwords), ("stemmer", &p.stemmer)] {
+                if value.as_deref().is_some_and(str::is_empty) {
+                    bail!(
+                        "payload {:?}: `{key}` names a language and must not be empty",
+                        p.name
+                    );
+                }
             }
             let Some(src) = &p.source else {
                 // No per-field source: values come from `payload.source` (or,
@@ -279,6 +306,50 @@ fn default_custom() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_index_options_apply_to_text_fields_only() {
+        let config =
+            |field: &str| format!("collection:\n  vectors:\n    - size: 4\n  fields:\n{field}");
+        let ok = parse(
+            &config("    - name: body\n      type: text\n      lowercase: true\n      stopwords: english\n      stemmer: english\n      scoring: bm25\n      source: random\n"),
+            "test",
+        )
+        .unwrap();
+        let body = &ok.collection.fields[0];
+        assert_eq!(body.scoring, Some(TextScoringKind::Bm25));
+        assert_eq!(
+            (
+                body.stopwords.as_deref(),
+                body.stemmer.as_deref(),
+                body.lowercase
+            ),
+            (Some("english"), Some("english"), Some(true))
+        );
+        let err = parse(
+            &config("    - name: color\n      type: keyword\n      scoring: bm25\n      source: random\n"),
+            "test",
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("`type: text` fields only"),
+            "{err:#}"
+        );
+        let err = parse(
+            &config("    - name: body\n      type: text\n      index: false\n      scoring: bm25\n      source: random\n"),
+            "test",
+        )
+        .unwrap_err();
+        assert!(format!("{err:#}").contains("need `index: true`"), "{err:#}");
+        let err = parse(
+            &config(
+                "    - name: body\n      type: text\n      stemmer: ''\n      source: random\n",
+            ),
+            "test",
+        )
+        .unwrap_err();
+        assert!(format!("{err:#}").contains("must not be empty"), "{err:#}");
+    }
 
     #[test]
     fn parses_minimal_config() {

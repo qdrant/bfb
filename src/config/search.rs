@@ -8,8 +8,9 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    DatatypeKind, PayloadSource, PayloadType, SparseKind, SparseSource, VectorSource,
-    default_collection_name, string_or_struct, validate_file_source_path,
+    DatatypeKind, DistributionKind, FileStrategy, PayloadSource, PayloadType, SparseKind,
+    SparseSource, VectorSource, default_collection_name, string_or_struct,
+    validate_file_source_path,
 };
 
 /// Top-level document: `{ collection: { name }, requests: [ … ] }`.
@@ -78,6 +79,68 @@ pub enum SearchRequestConfig {
         #[serde(default)]
         idf_corpus: Vec<FilterPayloadConfig>,
     },
+    /// BM25 over a payload field's text index (Qdrant 1.19.3+ `Query.text`). The
+    /// field's index needs `scoring: bm25`. A point scores when it holds any of the
+    /// query's terms; required or excluded terms belong in `filters`.
+    Text {
+        /// Payload field whose text index ranks the points.
+        using: String,
+        #[serde(default)]
+        source: TextQuerySource,
+        #[serde(default)]
+        filters: Vec<FilterPayloadConfig>,
+        /// BM25 term-frequency saturation (`k1`). Server default: 1.2.
+        #[serde(default)]
+        k: Option<f32>,
+        /// BM25 document-length normalization, from 0 (none) to 1 (full). Server
+        /// default: 0.75.
+        #[serde(default)]
+        b: Option<f32>,
+    },
+}
+
+/// Where a `kind: text` request's query strings come from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum TextQuerySource {
+    /// Words drawn as `word_<id>`, the vocabulary text payloads are generated from.
+    Random {
+        #[serde(default = "default_text_vocab_size")]
+        vocab_size: usize,
+        /// Words per query.
+        #[serde(default = "default_text_query_length")]
+        min_length: usize,
+        #[serde(default = "default_text_query_length")]
+        max_length: usize,
+        #[serde(default)]
+        distribution: DistributionKind,
+    },
+    /// A UTF-8 file with one query per line; blank lines are skipped. A local path
+    /// or an http(s):// URL.
+    File {
+        path: String,
+        #[serde(default)]
+        strategy: FileStrategy,
+    },
+}
+
+impl Default for TextQuerySource {
+    fn default() -> Self {
+        TextQuerySource::Random {
+            vocab_size: default_text_vocab_size(),
+            min_length: default_text_query_length(),
+            max_length: default_text_query_length(),
+            distribution: DistributionKind::default(),
+        }
+    }
+}
+
+fn default_text_vocab_size() -> usize {
+    crate::generators::random::DEFAULT_VOCAB_SIZE
+}
+
+fn default_text_query_length() -> usize {
+    2
 }
 
 /// Shape of a multivector query.
@@ -217,14 +280,15 @@ impl SearchRequestConfig {
     pub fn prefetches(&self) -> &[PrefetchConfig] {
         match self {
             SearchRequestConfig::Dense { prefetch, .. } => prefetch,
-            SearchRequestConfig::Sparse { .. } => &[],
+            SearchRequestConfig::Sparse { .. } | SearchRequestConfig::Text { .. } => &[],
         }
     }
 
     pub fn filters(&self) -> &[FilterPayloadConfig] {
         match self {
             SearchRequestConfig::Dense { filters, .. }
-            | SearchRequestConfig::Sparse { filters, .. } => filters,
+            | SearchRequestConfig::Sparse { filters, .. }
+            | SearchRequestConfig::Text { filters, .. } => filters,
         }
     }
 
@@ -354,6 +418,49 @@ impl SearchRequestConfig {
                     }
                 }
             }
+            SearchRequestConfig::Text {
+                using,
+                source,
+                k,
+                b,
+                ..
+            } => {
+                if using.is_empty() {
+                    bail!(
+                        "requests[{index}]: text `using` names the payload field and must not be empty"
+                    );
+                }
+                if let Some(k) = k
+                    && !(k.is_finite() && *k >= 0.0)
+                {
+                    bail!("requests[{index}]: text `k` must be >= 0, got {k}");
+                }
+                if let Some(b) = b
+                    && !(0.0..=1.0).contains(b)
+                {
+                    bail!("requests[{index}]: text `b` must be within [0, 1], got {b}");
+                }
+                match source {
+                    TextQuerySource::Random {
+                        vocab_size,
+                        min_length,
+                        max_length,
+                        ..
+                    } => {
+                        if *vocab_size == 0 {
+                            bail!("requests[{index}]: text `vocab_size` must be > 0");
+                        }
+                        if *min_length == 0 || max_length < min_length {
+                            bail!(
+                                "requests[{index}]: text `min_length` must be > 0 and <= \
+                                 `max_length`"
+                            );
+                        }
+                    }
+                    TextQuerySource::File { path, .. } => validate_file_source_path(path)
+                        .with_context(|| format!("requests[{index}]"))?,
+                }
+            }
             SearchRequestConfig::Sparse { using, source, .. } => {
                 if using.is_empty() {
                     bail!("requests[{index}]: sparse `using` must not be empty");
@@ -386,6 +493,82 @@ impl SearchRequestConfig {
 mod tests {
     use super::*;
     use crate::config::DistributionKind;
+
+    #[test]
+    fn parses_text_request() {
+        let yaml = r#"
+collection:
+  name: docs
+requests:
+  - kind: text
+    using: body
+    k: 1.5
+    b: 0.5
+    source: { type: random, vocab_size: 100, min_length: 2, max_length: 4, distribution: zipf }
+    filters:
+      - name: color
+        type: keyword
+        source: { cardinality: 5 }
+  - kind: text
+    using: title
+"#;
+        let cfg = parse(yaml, "test").unwrap();
+        let SearchRequestConfig::Text {
+            using,
+            k,
+            b,
+            source,
+            filters,
+        } = &cfg.requests[0]
+        else {
+            panic!("expected a text request");
+        };
+        assert_eq!((using.as_str(), *k, *b), ("body", Some(1.5), Some(0.5)));
+        assert!(matches!(
+            source,
+            TextQuerySource::Random {
+                vocab_size: 100,
+                min_length: 2,
+                max_length: 4,
+                ..
+            }
+        ));
+        assert_eq!(filters.len(), 1);
+        // Defaults: generated two-word queries, server-side k and b.
+        let SearchRequestConfig::Text { source, k, b, .. } = &cfg.requests[1] else {
+            panic!("expected a text request");
+        };
+        assert!(matches!(
+            source,
+            TextQuerySource::Random {
+                min_length: 2,
+                max_length: 2,
+                ..
+            }
+        ));
+        assert_eq!((*k, *b), (None, None));
+    }
+
+    #[test]
+    fn rejects_bad_text_request() {
+        let bad = |body: &str| {
+            let yaml = format!("collection:\n  name: x\nrequests:\n  - kind: text\n{body}");
+            format!("{:#}", parse(&yaml, "test").unwrap_err())
+        };
+        assert!(bad("    using: ''\n").contains("must not be empty"));
+        assert!(bad("    using: body\n    k: -1.0\n").contains("`k` must be >= 0"));
+        assert!(bad("    using: body\n    b: 1.5\n").contains("within [0, 1]"));
+        assert!(
+            bad("    using: body\n    source: { type: random, min_length: 3, max_length: 2 }\n")
+                .contains("min_length")
+        );
+        assert!(
+            bad("    using: body\n    source: { type: file, path: /no/such/queries.txt }\n")
+                .contains("not found")
+        );
+        // `using` is the field the index is on, so it cannot be left to a default.
+        assert!(bad("    k: 1.0\n").contains("using"));
+    }
 
     const RESCORE_YAML: &str = r#"
 collection:

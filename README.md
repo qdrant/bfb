@@ -346,6 +346,52 @@ at least two stages, `weights` needs one entry per stage, and `rrf_k` and
 `weights` need `fusion: rrf`. A single prefetch without `fusion` stays the
 two-stage rescore described above.
 
+#### BM25 over a text index
+
+A `text` request ranks points by BM25 over a payload field's text index, the
+`Query.text` variant of Qdrant 1.19.3+. `using` names the payload field, whose
+index needs `scoring: bm25` in the upload config:
+
+```yaml
+requests:
+  - kind: text
+    using: body                    # payload field with a scoring text index
+    k: 1.2                         # optional, BM25 term-frequency saturation
+    b: 0.75                        # optional, BM25 length normalization, 0..1
+    source:                        # random words, or `type: file`
+      type: random
+      vocab_size: 20000
+      min_length: 2
+      max_length: 5
+      distribution: zipf
+```
+
+```yaml
+fields:
+  - name: body
+    type: text
+    tokenizer: word
+    scoring: bm25                  # rank by this field; implies phrase matching
+    lowercase: true                # optional tokenizer options
+    stopwords: english
+    stemmer: english
+```
+
+A random source draws `word_<id>` words, the vocabulary text payloads are generated
+from, so the queries hit the corpus. `source: { type: file, path: queries.txt }`
+reads one query per line instead (blank lines skipped; `strategy: from-start` or
+`random-sample`), for a real query set. Matching is any-term: a point scores when it
+holds one of the query's words, and terms it must or must not hold belong in
+`filters`. BM25 over a text index is exact, so `--search-quality` has no exact
+reference to compare against and is refused with a `text` request, and so is
+`--prefetch`, which rescores a vector search. `lowercase`, `stopwords`, `stemmer`
+and `scoring` apply to `type: text` fields only.
+
+```bash
+bfb upload --example upload-bm25-text -n 200k --uri http://localhost:6334
+bfb search --example search-bm25-text -n 10k --search-limit 10 --uri http://localhost:6334
+```
+
 #### ACORN
 
 `--acorn` asks Qdrant to use ACORN for filtered HNSW search, and

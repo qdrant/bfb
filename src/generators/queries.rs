@@ -20,6 +20,7 @@ use super::random::{
 };
 use crate::config::search::{
     FilterPayloadConfig, FusionKind, PrefetchKind, SearchConfig, SearchRequestConfig,
+    TextQuerySource,
 };
 use crate::config::{
     DatatypeKind, DistributionKind, FileStrategy, PayloadSourceKind, PayloadType, SparseKind,
@@ -73,11 +74,23 @@ pub struct FusionSpec {
     pub weights: Option<Vec<f32>>,
 }
 
+/// A BM25 query over a payload field's text index.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeneratedText {
+    pub query: String,
+    /// The payload field, sent as the request's `using`.
+    pub using: String,
+    pub k: Option<f32>,
+    pub b: Option<f32>,
+}
+
 /// One query vector plus optional filter, ready to be turned into a gRPC request.
 #[derive(Debug, Clone)]
 pub struct GeneratedQuery {
     pub dense: Option<(DenseQuery, Option<String>)>,
     pub sparse: Option<(Vec<f32>, SparseIndices, String)>,
+    /// A text (BM25) query; the request then sends no vector.
+    pub text: Option<GeneratedText>,
     pub filter: Option<Filter>,
     /// Sparse-vector IDF corpus: restricts which points the IDF statistics are
     /// computed over. `None` ⇒ collection-wide (global) statistics.
@@ -160,6 +173,10 @@ struct RequestState {
     /// Reference dataset used as the query source (dense or sparse).
     query_dataset: Option<QueryDataset>,
     sparse_zipf: Option<rand_distr::Zipf<f64>>,
+    /// Text requests with a file source: every query, read once at startup.
+    text_queries: Option<Vec<String>>,
+    /// Text requests with a zipf-distributed random source.
+    text_zipf: Option<rand_distr::Zipf<f64>>,
     filters: FilterGenerator,
     /// Sparse requests only: conditions defining the IDF corpus.
     idf_corpus: FilterGenerator,
@@ -364,7 +381,26 @@ impl ConfigSearchGenerator {
         let mut per_request = Vec::with_capacity(config.requests.len());
 
         for req in &config.requests {
+            let (text_queries, text_zipf) = match req {
+                SearchRequestConfig::Text {
+                    source: TextQuerySource::File { path, .. },
+                    ..
+                } => (Some(Self::read_text_queries(datasets_dir, path)?), None),
+                SearchRequestConfig::Text {
+                    source:
+                        TextQuerySource::Random {
+                            vocab_size,
+                            distribution: DistributionKind::Zipf,
+                            ..
+                        },
+                    ..
+                } => (None, Some(create_zipf(*vocab_size))),
+                _ => (None, None),
+            };
             let (dense_reader, query_dataset, sparse_zipf, filters, idf_corpus) = match req {
+                SearchRequestConfig::Text { filters, .. } => {
+                    (None, None, None, filters, [].as_slice())
+                }
                 SearchRequestConfig::Dense {
                     source,
                     filters,
@@ -429,6 +465,8 @@ impl ConfigSearchGenerator {
                 dense_reader,
                 query_dataset,
                 sparse_zipf,
+                text_queries,
+                text_zipf,
                 filters: FilterGenerator::new(filters, &mut rng),
                 idf_corpus: FilterGenerator::new(idf_corpus, &mut rng),
             });
@@ -438,6 +476,25 @@ impl ConfigSearchGenerator {
             config: config.clone(),
             per_request,
         })
+    }
+
+    /// A text request's query file, one query per line, read once so file I/O
+    /// stays out of the timed path. Blank lines are skipped; an empty file fails
+    /// here rather than part-way through a benchmark.
+    fn read_text_queries(datasets_dir: &Path, path: &str) -> anyhow::Result<Vec<String>> {
+        let local = ensure_local_file(datasets_dir, path)?;
+        let text = std::fs::read_to_string(&local)
+            .with_context(|| format!("failed to read text queries from {}", local.display()))?;
+        let queries: Vec<String> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        if queries.is_empty() {
+            anyhow::bail!("text query file {} holds no queries", local.display());
+        }
+        Ok(queries)
     }
 
     /// Open a reference dataset as a query source and read its entire query set
@@ -660,6 +717,7 @@ impl ConfigSearchGenerator {
                     // A fusion query ranks its prefetches and sends no vector itself.
                     dense: fusion.is_none().then(|| (vector, using.clone())),
                     sparse: None,
+                    text: None,
                     filter: dataset_filter.or_else(|| state.filters.build(rng)),
                     idf_corpus: None,
                     expected_ids,
@@ -691,10 +749,66 @@ impl ConfigSearchGenerator {
                     dense: None,
                     fusion: None,
                     sparse: Some((values, indices, using.clone())),
+                    text: None,
                     filter: dataset_filter.or_else(|| state.filters.build(rng)),
                     idf_corpus: state.idf_corpus.build(rng),
                     expected_ids,
                     prefetch: Vec::new(),
+                }
+            }
+            SearchRequestConfig::Text {
+                using,
+                source,
+                filters: _,
+                k,
+                b,
+            } => {
+                let query = match source {
+                    TextQuerySource::File { strategy, .. } => {
+                        let queries = state
+                            .text_queries
+                            .as_ref()
+                            .expect("a file source is read at startup");
+                        let idx = match strategy {
+                            FileStrategy::FromStart => req_id % queries.len(),
+                            FileStrategy::RandomSample => rng.random_range(0..queries.len()),
+                        };
+                        queries[idx].clone()
+                    }
+                    TextQuerySource::Random {
+                        vocab_size,
+                        min_length,
+                        max_length,
+                        ..
+                    } => {
+                        let len = if max_length > min_length {
+                            rng.random_range(*min_length..=*max_length)
+                        } else {
+                            *min_length
+                        };
+                        match &state.text_zipf {
+                            Some(zipf) => random_text(rng, len, zipf),
+                            None => (0..len)
+                                .map(|_| format!("word_{}", rng.random_range(0..*vocab_size)))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        }
+                    }
+                };
+                GeneratedQuery {
+                    dense: None,
+                    sparse: None,
+                    text: Some(GeneratedText {
+                        query,
+                        using: using.clone(),
+                        k: *k,
+                        b: *b,
+                    }),
+                    filter: state.filters.build(rng),
+                    idf_corpus: None,
+                    expected_ids: None,
+                    prefetch: Vec::new(),
+                    fusion: None,
                 }
             }
         }
@@ -813,6 +927,63 @@ mod tests {
         let config: SearchConfig = serde_yaml::from_str(yaml).unwrap();
         config.validate().unwrap();
         ConfigSearchGenerator::new(&config).unwrap()
+    }
+
+    #[test]
+    fn generates_random_text_queries() {
+        let generator = build_gen(
+            "collection:\n  name: x\nrequests:\n  - kind: text\n    using: body\n    k: 2.0\n    source: { type: random, vocab_size: 50, min_length: 3, max_length: 5, distribution: zipf }\n",
+        );
+        let mut rng = rand::rng();
+        for _ in 0..20 {
+            let q = generator.make_query(0, &mut rng);
+            assert!(q.dense.is_none() && q.sparse.is_none() && q.fusion.is_none());
+            let text = q.text.expect("a text request makes a text query");
+            assert_eq!(
+                (text.using.as_str(), text.k, text.b),
+                ("body", Some(2.0), None)
+            );
+            let words: Vec<&str> = text.query.split(' ').collect();
+            assert!((3..=5).contains(&words.len()), "{}", text.query);
+            assert!(words.iter().all(|w| w.starts_with("word_")));
+        }
+    }
+
+    #[test]
+    fn reads_text_queries_from_a_file_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("queries.txt");
+        std::fs::write(
+            &path,
+            "what is bm25\n\n  how do stemmers work  \nlast one\n",
+        )
+        .unwrap();
+        let yaml = format!(
+            "collection:\n  name: x\nrequests:\n  - kind: text\n    using: body\n    source: {{ type: file, path: {}, strategy: from-start }}\n",
+            path.display()
+        );
+        let generator = build_gen(&yaml);
+        let mut rng = rand::rng();
+        let got: Vec<String> = (0..4)
+            .map(|req_id| generator.make_query(req_id, &mut rng).text.unwrap().query)
+            .collect();
+        // Blank lines skipped, each line trimmed, and the set wraps around.
+        assert_eq!(
+            got,
+            [
+                "what is bm25",
+                "how do stemmers work",
+                "last one",
+                "what is bm25"
+            ]
+        );
+
+        std::fs::write(&path, "\n  \n").unwrap();
+        let config: SearchConfig = serde_yaml::from_str(&yaml).unwrap();
+        let err = ConfigSearchGenerator::new(&config)
+            .err()
+            .expect("an empty file fails");
+        assert!(err.to_string().contains("holds no queries"), "{err}");
     }
 
     #[test]
