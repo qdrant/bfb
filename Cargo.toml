@@ -6,24 +6,24 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.102"
-bytes = "1.11"
-chrono = { version = "0.4.44", default-features = false, features = [
+anyhow = "1.0.104"
+bytes = "1.12"
+chrono = { version = "0.4.45", default-features = false, features = [
     "now",
     "std",
 ] }
-clap = { version = "4.6.1", features = ["derive", "suggestions"] }
+clap = { version = "4.6.7", features = ["derive", "suggestions"] }
 clap_complete = "4.6"
 ctrlc = "3.5.2"
-flate2 = "1.1.5"
-futures = "0.3.32"
+flate2 = "1.1.10"
+futures = "0.3.34"
 half = "2.7"
 hdf5-pure-rust = "0.3.10"
-indicatif = "0.18.4"
-memmap2 = "0.9.10"
+indicatif = "0.18.6"
+memmap2 = "0.9.11"
 # `arrow` deliberately off: the record API is enough to read payload rows, and
 # skipping it keeps the dependency tree (and build time) an order smaller.
-parquet = { version = "59.1", default-features = false, features = [
+parquet = { version = "60.0", default-features = false, features = [
     "snap",
     "brotli",
     "flate2-zlib-rs",
@@ -33,19 +33,19 @@ parquet = { version = "59.1", default-features = false, features = [
 # `download_snapshots` (default) is unused and pulls reqwest + aws-lc-sys, which makes
 # static musl cross-builds needlessly painful; without it TLS is rustls + ring only.
 qdrant-client = { git = "https://github.com/qdrant/rust-client", branch = "dev", default-features = false, features = ["serde"] }
-rand = "0.10.1"
+rand = "0.10.3"
 rand_distr = "0.6.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-sha2 = "0.10"
-tar = "0.4.44"
-tempfile = "3.25.0"
-tokio = { version = "1.52.3", features = ["full"] }
-tokio-stream = "0.1.18"
-ureq = { version = "3.2.0", default-features = true }
-uuid = { version = "1.23.1", features = ["serde", "v4"] }
-env_logger = "0.11.10"
+sha2 = "0.11"
+tar = "0.4.46"
+tempfile = "3.27.0"
+tokio = { version = "1.53.2", features = ["full"] }
+tokio-stream = "0.1.19"
+ureq = { version = "3.4.2", default-features = true }
+uuid = { version = "1.28.0", features = ["serde", "v4"] }
+env_logger = "0.11.11"
 indicatif-log-bridge = "0.2.3"
 tracing = { version = "0.1.44", features = ["log"] }
 

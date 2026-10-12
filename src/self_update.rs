@@ -220,11 +220,18 @@ fn verify_sha256(data: &[u8], expected: &[u8], asset_name: &str) -> Result<()> {
         .next()
         .context("checksum file is empty")?
         .to_ascii_lowercase();
-    let actual = format!("{:x}", Sha256::digest(data));
+    let actual = hex_digest(data);
     if actual != expected {
         bail!("checksum mismatch for {asset_name}: expected {expected}, got {actual}");
     }
     Ok(())
+}
+
+fn hex_digest(data: &[u8]) -> String {
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Write `binary` to a fresh, executable temp file inside `dir`.
@@ -265,7 +272,7 @@ mod tests {
     #[test]
     fn verifies_sha256sum_format() {
         let data = b"hello";
-        let sum = format!("{:x}", Sha256::digest(data));
+        let sum = hex_digest(data);
         verify_sha256(data, format!("{sum}  bfb\n").as_bytes(), "bfb").unwrap();
         verify_sha256(data, sum.to_uppercase().as_bytes(), "bfb").unwrap();
         assert!(verify_sha256(b"other", sum.as_bytes(), "bfb").is_err());
