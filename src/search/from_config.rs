@@ -498,6 +498,7 @@ impl Processor for ConfigSearchProcessor {
 mod tests {
     use clap::Parser;
     use qdrant_client::qdrant::query::Variant as QueryVariant;
+    use qdrant_client::qdrant::text_query;
     use qdrant_client::qdrant::vector_input::Variant as InputVariant;
 
     use super::*;
@@ -566,7 +567,10 @@ mod tests {
         let Some(QueryVariant::Text(text)) = request.query.and_then(|q| q.variant) else {
             panic!("expected a text query");
         };
-        assert_eq!((text.k, text.b), (Some(1.5), Some(0.25)));
+        let Some(text_query::Scoring::Bm25(bm25)) = text.scoring else {
+            panic!("expected BM25 params");
+        };
+        assert_eq!((bm25.k, bm25.b), (Some(1.5), Some(0.25)));
         assert_eq!(text.query.split(' ').count(), 2);
     }
 
