@@ -85,7 +85,8 @@ async fn run_upload(
     }
 
     // Time only the upload itself: client setup and generator construction
-    // (which may download a dataset) are not part of upload throughput.
+    // (which may download a dataset and fault its mmap into the page cache)
+    // are not part of upload throughput.
     let started = Instant::now();
 
     // Use RPS mode if --rps is set, otherwise use parallel mode

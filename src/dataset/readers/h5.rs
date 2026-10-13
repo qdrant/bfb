@@ -6,6 +6,8 @@ use anyhow::{Context, Result, bail};
 use hdf5_pure_rust::File;
 use memmap2::Mmap;
 
+use crate::mmap_util::prefault_mmap;
+
 /// A 2-D array decompressed once into a flat little-endian sidecar and served
 /// from an mmap, so element access is lock-free and resident memory is
 /// reclaimable page cache rather than committed RAM.
@@ -191,6 +193,7 @@ fn open_sidecar(sidecar: &Path, expected_bytes: usize, rows: usize, cols: usize)
             mmap.len()
         );
     }
+    prefault_mmap(&mmap);
     Ok(mmap)
 }
 

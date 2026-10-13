@@ -3,6 +3,8 @@ use memmap2::{Mmap, MmapOptions};
 use std::fs::OpenOptions;
 use std::path::Path;
 
+use crate::mmap_util::prefault_mmap;
+
 #[derive(Debug)]
 pub struct FBinReader {
     pub num_vectors: i32,
@@ -67,6 +69,9 @@ impl FBinReader {
                 mmap.len(),
             );
         }
+
+        // Fault pages before any timed upload loop (see `mmap_util::prefault_mmap`).
+        prefault_mmap(&mmap);
 
         Ok(FBinReader {
             num_vectors,
