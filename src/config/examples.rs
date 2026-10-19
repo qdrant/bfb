@@ -71,6 +71,11 @@ pub static EXAMPLES: &[Example] = &[
         "Hybrid collection: dense + sparse vectors and a few payload fields"
     ),
     example!(
+        "simple-hybrid-text",
+        Upload,
+        "Hybrid collection: dense vector + full-text indexed field and a few payload fields"
+    ),
+    example!(
         "upload-dataset-config",
         Upload,
         "Upload glove-25-angular from an ann-benchmarks HDF5 dataset"
