@@ -1,0 +1,50 @@
+# Example bfb upload config for a simple hybrid (dense + full-text) collection:
+# one 768-d dense vector with turbo-2bit quantization and one zipf-distributed
+# text payload field with a full-text index (the BM25-side of the hybrid),
+# plus a couple of payload fields to filter on.
+#
+#   bfb upload --example simple-hybrid-text -n 1M -b 256 -p 16 -t 8 \
+#       --uri http://localhost:6334
+
+collection:
+  name: benchmark
+  id: uuid
+  payload:
+    memory: cold
+
+  optimizers:
+    default_segment_number: 3
+
+  quantization:
+    type: turbo-2bit
+    memory: pinned
+
+  vectors:
+    - name: image
+      size: 768
+      distance: cosine
+      datatype: float32
+      memory: cold
+      source: random
+
+  fields:
+    - name: text
+      type: text
+      tokenizer: word
+      scoring: bm25                # rank by BM25 (Qdrant 1.19.3+); implies phrase matching
+      memory: cold
+      source:
+        type: random
+        vocab_size: 100000
+        min_length: 100
+        max_length: 100
+        distribution: zipf
+    - name: a
+      type: keyword
+      source:
+        type: random
+        cardinality: 10
+        values_per_point: 1
+    - name: b
+      type: float
+      source: { type: random, min: -1.0, max: 1.0 }
