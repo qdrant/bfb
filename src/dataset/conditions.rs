@@ -20,16 +20,23 @@
 //! ```text
 //! conditions := { "and": [entry, ..], "or": [entry, ..] }   both optional
 //! entry      := { field_name: { condition_type: criteria } }
-//! condition  := "match" { "value": string|number }
-//!             | "range" { "lt"?, "gt"?, "lte"?, "gte"? }
-//!             | "geo"   { "lat", "lon", "radius" }
+//! condition  := "match"      { "value": string|number }   exact keyword or integer
+//!             | "match_any"  { "any": [string]|[integer] }
+//!             | "match_text" { "text": string }           full-text match
+//!             | "range"      { "lt"?, "gt"?, "lte"?, "gte"? }
+//!             | "geo"        { "lat", "lon", "radius" }
 //! ```
+//!
+//! The condition type, not the value, decides the match: `match` is always
+//! exact, and a dataset that wants full text says `match_text`.
 //!
 //! `and` maps to `must`, `or` to `should`.
 
 use anyhow::{Context, Result, bail};
 use qdrant_client::qdrant::r#match::MatchValue;
-use qdrant_client::qdrant::{Condition, Filter, GeoPoint, GeoRadius, Range};
+use qdrant_client::qdrant::{
+    Condition, Filter, GeoPoint, GeoRadius, Range, RepeatedIntegers, RepeatedStrings,
+};
 use serde_json::Value;
 
 /// Parse a `conditions` object into a filter.
@@ -121,6 +128,32 @@ fn build(field: &str, condition_type: &str, criteria: &Value) -> Result<Conditio
                 other => bail!("`match.value` must be a string, integer or bool, got {other}"),
             }
         }
+        "match_any" => {
+            let any = criteria
+                .get("any")
+                .and_then(Value::as_array)
+                .context("`match_any` has no `any` array")?;
+            if let Some(strings) = any.iter().map(|v| v.as_str().map(String::from)).collect() {
+                Ok(Condition::matches(
+                    field,
+                    MatchValue::Keywords(RepeatedStrings { strings }),
+                ))
+            } else if let Some(integers) = any.iter().map(Value::as_i64).collect() {
+                Ok(Condition::matches(
+                    field,
+                    MatchValue::Integers(RepeatedIntegers { integers }),
+                ))
+            } else {
+                bail!("`match_any.any` must be all strings or all integers")
+            }
+        }
+        "match_text" => {
+            let text = criteria
+                .get("text")
+                .and_then(Value::as_str)
+                .context("`match_text` has no string `text`")?;
+            Ok(Condition::matches_text(field, text))
+        }
         "range" => {
             let bound = |name: &str| -> Result<Option<f64>> {
                 match criteria.get(name) {
@@ -166,7 +199,9 @@ fn build(field: &str, condition_type: &str, criteria: &Value) -> Result<Conditio
             ))
         }
         other => {
-            bail!("unknown condition type {other:?}; expected \"match\", \"range\" or \"geo\"")
+            bail!(
+                "unknown condition type {other:?}; expected \"match\", \"match_any\", \"match_text\", \"range\" or \"geo\""
+            )
         }
     }
 }
@@ -229,6 +264,40 @@ mod tests {
         assert_eq!(value, Some(MatchValue::Keyword("Light Orange".to_string())));
     }
 
+    /// `match_text` is a full-text match and `match_any` a keyword or integer
+    /// set, as vector-db-benchmark maps them.
+    #[test]
+    fn match_text_and_match_any_map_as_vector_db_benchmark_does() {
+        let filter = parse(Some(&json!({
+            "and": [
+                {"a": {"match_text": {"text": "good cheap"}}},
+                {"b": {"match_any": {"any": ["x", "y z"]}}},
+                {"c": {"match_any": {"any": [1, 2]}}}
+            ]
+        })))
+        .unwrap()
+        .unwrap();
+        let value = |i: usize| {
+            let Some(ConditionOneOf::Field(field)) = &filter.must[i].condition_one_of else {
+                panic!("expected a field condition, got {:?}", filter.must[i]);
+            };
+            field.r#match.as_ref().and_then(|m| m.match_value.clone())
+        };
+        assert_eq!(value(0), Some(MatchValue::Text("good cheap".to_string())));
+        assert_eq!(
+            value(1),
+            Some(MatchValue::Keywords(RepeatedStrings {
+                strings: vec!["x".to_string(), "y z".to_string()]
+            }))
+        );
+        assert_eq!(
+            value(2),
+            Some(MatchValue::Integers(RepeatedIntegers {
+                integers: vec![1, 2]
+            }))
+        );
+    }
+
     /// `and` is `must`, `or` is `should` — the mapping vector-db-benchmark uses.
     #[test]
     fn and_is_must_or_is_should() {
@@ -289,6 +358,8 @@ mod tests {
             json!({"and": [{"a": {"regex": {"value": "x"}}}]}),
             json!({"and": [{"a": {"range": {}}}]}),
             json!({"and": [{"a": {"match": {}}}]}),
+            json!({"and": [{"a": {"match_any": {"any": ["x", 1]}}}]}),
+            json!({"and": [{"a": {"match_text": {"text": 1}}}]}),
             json!({"and": [{"a": {"geo": {"lat": 1.0, "lon": 2.0}}}]}),
             json!({"and": "not-an-array"}),
         ] {
