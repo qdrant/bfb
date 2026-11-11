@@ -28,6 +28,7 @@
 //! `and` maps to `must`, `or` to `should`.
 
 use anyhow::{Context, Result, bail};
+use qdrant_client::qdrant::r#match::MatchValue;
 use qdrant_client::qdrant::{Condition, Filter, GeoPoint, GeoRadius, Range};
 use serde_json::Value;
 
@@ -102,7 +103,14 @@ fn build(field: &str, condition_type: &str, criteria: &Value) -> Result<Conditio
         "match" => {
             let value = criteria.get("value").context("`match` has no `value`")?;
             match value {
-                Value::String(text) => Ok(Condition::matches(field, text.clone())),
+                // An exact keyword match, as vector-db-benchmark sends it
+                // (`MatchValue(value=...)`) and as the ground truth assumes.
+                // qdrant-client's `From<String>` turns a value containing
+                // whitespace ("Light Orange") into a full-text `text` match,
+                // which on a keyword field is a substring match: another query.
+                Value::String(text) => {
+                    Ok(Condition::matches(field, MatchValue::Keyword(text.clone())))
+                }
                 Value::Bool(flag) => Ok(Condition::matches(field, *flag)),
                 Value::Number(number) => {
                     let int = number
@@ -203,6 +211,22 @@ mod tests {
         assert_eq!(range.gte, None);
         assert_eq!(range.lt, None);
         assert_eq!(range.lte, None);
+    }
+
+    /// A string value is a keyword match even with whitespace in it: h-and-m's
+    /// "Light Orange" went out as a full-text `text` match.
+    #[test]
+    fn a_string_with_whitespace_is_a_keyword_match() {
+        let filter = parse(Some(&json!({
+            "and": [{"colour_group_name": {"match": {"value": "Light Orange"}}}]
+        })))
+        .unwrap()
+        .unwrap();
+        let Some(ConditionOneOf::Field(field)) = &filter.must[0].condition_one_of else {
+            panic!("expected a field condition, got {:?}", filter.must[0]);
+        };
+        let value = field.r#match.as_ref().and_then(|m| m.match_value.clone());
+        assert_eq!(value, Some(MatchValue::Keyword("Light Orange".to_string())));
     }
 
     /// `and` is `must`, `or` is `should` — the mapping vector-db-benchmark uses.
