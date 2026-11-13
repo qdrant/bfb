@@ -16,6 +16,7 @@ mod config;
 mod dataset;
 mod fbin_reader;
 mod generators;
+mod mmap_util;
 mod processor;
 mod query;
 mod results;
