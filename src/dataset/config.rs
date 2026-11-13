@@ -42,6 +42,15 @@ pub struct DatasetConfig {
     /// Omitted by default, which leaves the payload field absent.
     #[serde(default)]
     pub fill_null: Option<serde_json::Value>,
+    /// `parquet` only: column holding a dense vector (list of floats).
+    /// When set, this dataset answers [`DatasetReader::dense_vector`].
+    #[serde(default)]
+    pub vector_column: Option<String>,
+    /// `parquet` only: column holding a sparse vector
+    /// (`{indices: list<u32>, values: list<f32>}`).
+    /// When set, this dataset answers [`DatasetReader::sparse_vector`].
+    #[serde(default)]
+    pub sparse_column: Option<String>,
     /// What to do with downloaded parts once the upload has moved past them.
     #[serde(default)]
     pub cache: CacheMode,
@@ -71,10 +80,10 @@ impl DatasetConfig {
 
 /// A numbered family of files making up one dataset.
 ///
-/// `path` and `link` are templates containing `{i}`, substituted with each
-/// part's number. Part row counts are always measured rather than configured —
-/// see [`crate::dataset::parts`] for why a "rows per part" setting would be
-/// actively wrong.
+/// `path` and `link` are templates containing `{i}` or `{i:04d}`, substituted
+/// with each part's number (`{i:04d}` zero-pads to width 4). Part row counts
+/// are always measured rather than configured — see [`crate::dataset::parts`]
+/// for why a "rows per part" setting would be actively wrong.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartsConfig {
@@ -107,6 +116,8 @@ pub struct ResolvedDatasetConfig {
     pub columns: Option<Vec<String>>,
     pub exclude: Vec<String>,
     pub fill_null: Option<serde_json::Value>,
+    pub vector_column: Option<String>,
+    pub sparse_column: Option<String>,
     pub cache: CacheMode,
 }
 
@@ -160,6 +171,12 @@ impl ResolvedDatasetConfig {
             fill_null: inline
                 .fill_null
                 .or_else(|| base.and_then(|b| b.fill_null.clone())),
+            vector_column: inline
+                .vector_column
+                .or_else(|| base.and_then(|b| b.vector_column.clone())),
+            sparse_column: inline
+                .sparse_column
+                .or_else(|| base.and_then(|b| b.sparse_column.clone())),
             cache: match inline.cache {
                 CacheMode::Keep => base.map(|b| b.cache).unwrap_or_default(),
                 explicit => explicit,
@@ -179,7 +196,8 @@ pub enum DatasetKind {
     Sparse,
     /// A standalone 2-D float `.npy` array: dense vectors, no payloads.
     Npy,
-    /// A parquet file of payload rows: no vectors.
+    /// A parquet file of payload rows, and optionally dense/sparse vectors
+    /// via `vector_column` / `sparse_column`.
     Parquet,
     /// A directory of `vectors.npy` (flat sub-vectors) + `offsets.npy` (row
     /// boundaries per point): ColBERT-style multivectors, no payloads.
@@ -215,6 +233,16 @@ impl DatasetConfig {
             bail!("dataset {:?} requires `format` ({KINDS})", self.name);
         };
 
+        if (self.vector_column.is_some() || self.sparse_column.is_some())
+            && !matches!(kind, DatasetKind::Parquet)
+        {
+            bail!(
+                "dataset {:?}: `vector_column` / `sparse_column` are only supported \
+                 for `format: parquet`",
+                self.name
+            );
+        }
+
         if let Some(parts) = &self.parts {
             if self.path.is_some() || self.link.is_some() {
                 bail!(
@@ -238,18 +266,21 @@ impl DatasetConfig {
             }
             // Without the placeholder every part resolves to the same file, which
             // would look like a working upload of `count` copies of part one.
-            if parts.count > 1 && !parts.path.contains("{i}") {
+            // `{i:04d}` (zero-padded) also counts — it contains the `{i` marker.
+            if parts.count > 1 && !parts.path.contains("{i") {
                 bail!(
-                    "dataset {:?}: `parts.path` must contain `{{i}}` to distinguish parts",
+                    "dataset {:?}: `parts.path` must contain `{{i}}` or `{{i:04d}}` \
+                     to distinguish parts",
                     self.name
                 );
             }
             if let Some(link) = &parts.link
                 && parts.count > 1
-                && !link.contains("{i}")
+                && !link.contains("{i")
             {
                 bail!(
-                    "dataset {:?}: `parts.link` must contain `{{i}}` to distinguish parts",
+                    "dataset {:?}: `parts.link` must contain `{{i}}` or `{{i:04d}}` \
+                     to distinguish parts",
                     self.name
                 );
             }
@@ -355,6 +386,11 @@ mod tests {
 
         // A single part needs no placeholder.
         parts_config(template("laion/img_emb.npy", 1), DatasetKind::Npy)
+            .validate_inline()
+            .unwrap();
+
+        // Zero-padded `{i:04d}` is accepted.
+        parts_config(template("p/{i:04d}.parquet", 10), DatasetKind::Parquet)
             .validate_inline()
             .unwrap();
     }

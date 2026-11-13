@@ -1,0 +1,95 @@
+# Qdrant/FineWeb-10B corpus
+# (https://huggingface.co/datasets/Qdrant/FineWeb-10B) — dense + sparse
+# embeddings and FineWeb metadata in numbered parquet shards.
+#
+#   bfb upload --example upload-fineweb-10b -b 64 -p 8 -t 4 \
+#       --uri http://localhost:6334
+#
+# Dial the subset with `parts.count` (and optional `parts.start`). The Hugging
+# Face convert/parquet layout exposes train-part0 as 10_000 zero-padded shards
+# `0000.parquet` … `9999.parquet` (~10B rows together with train-part1). The
+# default below uploads a single shard — raise `count` toward 10000 for a
+# larger slice (each shard is ~5 GB on disk).
+#
+# On first use bfb sizes every configured part with one ranged request each and
+# caches the result in `datasets/.parts-index/`. Point ids are dataset rows, so
+# `--offset` resumes an interrupted run.
+#
+# Disk: each shard is ~5 GB. Dense, sparse, and payload all read the same files;
+# keep `cache: keep` (default) so one source does not delete a part another still
+# needs. Drop sparse/payload and set `cache: evict` if you want a dense-only
+# stream that holds only a few shards on disk.
+
+collection:
+  name: fineweb
+  on_disk_payload: true
+
+  quantization:
+    type: turbo-2bit
+    always_ram: true
+
+  hnsw:
+    on_disk: false
+
+  optimizers:
+    default_segment_number: 2
+    max_segment_size: 5000000
+
+  vectors:
+    - name: dense
+      size: 768
+      distance: cosine
+      datatype: float16
+      on_disk: true
+      source:
+        type: dataset
+        name: fineweb-10b-dense
+        format: parquet
+        vector_column: dense_embedding
+        parts:
+          # First N of train-part0 (0..9999). Default is one shard; raise for more.
+          count: 1
+          path: fineweb/train-part0/{i:04d}.parquet
+          link: https://huggingface.co/datasets/Qdrant/FineWeb-10B/resolve/refs%2Fconvert%2Fparquet/default/train-part0/{i:04d}.parquet
+
+  sparse_vectors:
+    - name: sparse
+      on_disk: true
+      source:
+        type: dataset
+        dataset:
+          name: fineweb-10b-sparse
+          format: parquet
+          sparse_column: sparse_embedding
+          parts:
+            count: 1
+            path: fineweb/train-part0/{i:04d}.parquet
+            link: https://huggingface.co/datasets/Qdrant/FineWeb-10B/resolve/refs%2Fconvert%2Fparquet/default/train-part0/{i:04d}.parquet
+
+  payload:
+    source:
+      type: dataset
+      dataset:
+        name: fineweb-10b-payload
+        format: parquet
+        exclude: [dense_embedding, sparse_embedding, text]
+        parts:
+          count: 1
+          path: fineweb/train-part0/{i:04d}.parquet
+          link: https://huggingface.co/datasets/Qdrant/FineWeb-10B/resolve/refs%2Fconvert%2Fparquet/default/train-part0/{i:04d}.parquet
+
+  fields:
+    - name: id
+      type: keyword
+    - name: dump
+      type: keyword
+    - name: language
+      type: keyword
+    - name: url
+      type: keyword
+    - name: date
+      type: datetime
+    - name: language_score
+      type: float
+    - name: token_count
+      type: integer

@@ -72,6 +72,8 @@ impl DatasetReader {
                     config.columns.as_deref(),
                     &config.exclude,
                     config.fill_null.as_ref(),
+                    config.vector_column.as_deref(),
+                    config.sparse_column.as_deref(),
                 )?;
                 let n = reader.num_points();
                 (DatasetReaderInner::Parquet(reader), n)
@@ -90,10 +92,9 @@ impl DatasetReader {
             DatasetReaderInner::H5(r) => r.vector_at(idx),
             DatasetReaderInner::Tar(r) => r.vector_at(idx),
             DatasetReaderInner::Npy(r) => r.vector_at(idx),
+            DatasetReaderInner::Parquet(r) => r.dense_vector_at(idx),
             DatasetReaderInner::Partitioned(r) => r.vector_at(idx),
-            DatasetReaderInner::Sparse(_)
-            | DatasetReaderInner::Parquet(_)
-            | DatasetReaderInner::Multivector(_) => {
+            DatasetReaderInner::Sparse(_) | DatasetReaderInner::Multivector(_) => {
                 bail!("dataset does not contain dense vectors")
             }
         }
@@ -102,6 +103,8 @@ impl DatasetReader {
     pub fn sparse_vector(&self, idx: usize) -> Result<Vec<(u32, f32)>> {
         match &self.inner {
             DatasetReaderInner::Sparse(r) => r.vector_at(idx),
+            DatasetReaderInner::Parquet(r) => r.sparse_vector_at(idx),
+            DatasetReaderInner::Partitioned(r) => r.sparse_vector_at(idx),
             _ => bail!("dataset does not contain sparse vectors"),
         }
     }

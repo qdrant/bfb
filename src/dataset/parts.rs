@@ -81,6 +81,8 @@ pub struct PartSource {
     columns: Option<Vec<String>>,
     exclude: Vec<String>,
     fill_null: Option<Value>,
+    vector_column: Option<String>,
+    sparse_column: Option<String>,
     cache: CacheMode,
     /// One lock per part, so fetching part *n+1* in the background never blocks
     /// a reader that wants part *n*.
@@ -102,6 +104,8 @@ impl PartSource {
             columns: config.columns.clone(),
             exclude: config.exclude.clone(),
             fill_null: config.fill_null.clone(),
+            vector_column: config.vector_column.clone(),
+            sparse_column: config.sparse_column.clone(),
             cache: config.cache,
             guards: Mutex::new(HashMap::new()),
             downloaded: Mutex::new(HashSet::new()),
@@ -229,6 +233,8 @@ impl PartSource {
                 self.columns.as_deref(),
                 &self.exclude,
                 self.fill_null.as_ref(),
+                self.vector_column.as_deref(),
+                self.sparse_column.as_deref(),
             )?)),
             other => bail!("`parts:` is not supported for format {other:?} (use npy or parquet)"),
         })
@@ -304,9 +310,44 @@ impl PartSource {
     }
 }
 
-/// Substitute a part number into a `{i}` template.
+/// Substitute a part number into a `{i}` / `{i:04d}` template.
+///
+/// `{i}` expands to the decimal index (`7` → `"7"`). `{i:0Nd}` zero-pads to
+/// width N (`7` → `"0007"` for `{i:04d}`), which HuggingFace convert/parquet
+/// shards and similar layouts need.
 fn expand(template: &str, index: usize) -> String {
-    template.replace("{i}", &index.to_string())
+    let mut out = String::with_capacity(template.len() + 8);
+    let mut rest = template;
+    while let Some(start) = rest.find("{i") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        if let Some(stripped) = after.strip_prefix('}') {
+            out.push_str(&index.to_string());
+            rest = stripped;
+        } else if let Some(end) = after.find('}') {
+            out.push_str(&format_index(index, &after[..end]));
+            rest = &after[end + 1..];
+        } else {
+            // Unclosed `{i` — leave it literally so a typo stays visible.
+            out.push_str("{i");
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Format `index` according to a `{i…}` body such as `:04d`. Unknown specs
+/// fall back to plain decimal so a typo does not invent a second naming scheme.
+fn format_index(index: usize, spec: &str) -> String {
+    if let Some(width) = spec
+        .strip_prefix(':')
+        .and_then(|s| s.strip_suffix('d'))
+        .and_then(|w| w.parse::<usize>().ok())
+    {
+        return format!("{index:0width$}");
+    }
+    index.to_string()
 }
 
 /// Keep a dataset name usable as a file name.
@@ -407,7 +448,14 @@ impl PartReader {
     fn vector_at(&self, idx: usize) -> Result<Vec<f32>> {
         match self {
             PartReader::Npy(r) => r.vector_at(idx),
-            PartReader::Parquet(_) => bail!("parquet parts do not contain dense vectors"),
+            PartReader::Parquet(r) => r.dense_vector_at(idx),
+        }
+    }
+
+    fn sparse_vector_at(&self, idx: usize) -> Result<Vec<(u32, f32)>> {
+        match self {
+            PartReader::Parquet(r) => r.sparse_vector_at(idx),
+            PartReader::Npy(_) => bail!("npy parts do not contain sparse vectors"),
         }
     }
 
@@ -573,6 +621,11 @@ impl PartitionedReader {
     pub fn vector_at(&self, idx: usize) -> Result<Vec<f32>> {
         let (slot, local) = self.locate(idx)?;
         self.reader_for(slot)?.vector_at(local)
+    }
+
+    pub fn sparse_vector_at(&self, idx: usize) -> Result<Vec<(u32, f32)>> {
+        let (slot, local) = self.locate(idx)?;
+        self.reader_for(slot)?.sparse_vector_at(local)
     }
 
     pub fn payload_object(&self, idx: usize) -> Result<Option<Value>> {
@@ -890,5 +943,37 @@ mod tests {
     fn expands_templates() {
         assert_eq!(expand("img_emb_{i}.npy", 0), "img_emb_0.npy");
         assert_eq!(expand("a/{i}/b_{i}.npy", 7), "a/7/b_7.npy");
+        assert_eq!(expand("p/{i:04d}.parquet", 7), "p/0007.parquet");
+        assert_eq!(expand("p/{i:04d}.parquet", 0), "p/0000.parquet");
+        assert_eq!(expand("p/{i:02d}/x_{i}.npy", 3), "p/03/x_3.npy");
+    }
+
+    #[test]
+    fn reads_dense_vectors_across_padded_parquet_parts() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/dataset/testdata/fineweb_tiny.parquet");
+        std::fs::copy(&fixture, dir.path().join("0000.parquet")).unwrap();
+        std::fs::copy(&fixture, dir.path().join("0001.parquet")).unwrap();
+
+        let config = DatasetConfig {
+            name: "fineweb-parts".to_string(),
+            kind: Some(DatasetKind::Parquet),
+            parts: Some(PartsConfig {
+                count: 2,
+                start: 0,
+                path: "{i:04d}.parquet".to_string(),
+                link: None,
+            }),
+            vector_column: Some("dense_embedding".to_string()),
+            ..Default::default()
+        };
+        let resolved = DatasetConfig::resolve(config, &Default::default()).unwrap();
+        let reader = PartitionedReader::open(dir.path(), &resolved).unwrap();
+        assert_eq!(reader.num_points(), 10);
+        assert_eq!(reader.vector_at(0).unwrap()[0], 0.0);
+        // First row of the second part.
+        assert_eq!(reader.vector_at(5).unwrap()[0], 0.0);
+        assert_eq!(reader.vector_at(7).unwrap()[0], 2.0);
     }
 }
